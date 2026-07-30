@@ -58,13 +58,13 @@ async function refreshChatlist() {
   }
   const ul = document.getElementById("chatlist");
   if (!ul) return;
-  ul.innerHTML = state.chatlist.map((c) => {
+  ul.innerHTML = state.chatlist.map((c, i) => {
     const badge = c.is_contact_request
       ? `<span class="badge-request">请求</span>`
       : (c.unread > 0 ? `<span class="unread">${c.unread}</span>` : "");
     const tag = c.is_group ? "群" : (c.is_self_talk ? "我" : "");
     return `
-      <li class="chat-item ${state.currentChatId === c.chat_id ? "active" : ""}" data-id="${c.chat_id}">
+      <li class="chat-item ${state.currentChatId === c.chat_id ? "active" : ""}" data-id="${c.chat_id}" style="--i: ${i}">
         <div class="avatar">${initial(c.name)}</div>
         <div class="chat-meta">
           <div class="chat-name">${tag ? `<span class="chat-tag">${tag}</span>` : ""}${escapeHtml(c.name)}</div>

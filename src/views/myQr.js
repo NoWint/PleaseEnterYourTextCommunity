@@ -50,8 +50,12 @@ export function openMyQrDialog(chatId = null) {
       await navigator.clipboard.writeText(text);
       const btn = document.getElementById("qr-copy");
       const old = btn.textContent;
-      btn.textContent = "已复制";
-      setTimeout(() => { btn.textContent = old; }, 1200);
+      btn.textContent = "✓ 已复制";
+      overlay.querySelector(".dialog").classList.add("flash-copied");
+      setTimeout(() => {
+        btn.textContent = old;
+        overlay.querySelector(".dialog").classList.remove("flash-copied");
+      }, 1200);
     } catch {}
   });
 }

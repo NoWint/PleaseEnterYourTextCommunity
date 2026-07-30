@@ -2,6 +2,9 @@
   --bg: #fff;
   --fg: #000;
   --border: #e5e5e5;
+  --muted: #888;
+  --bg-hover: #fafafa;
+  --bg-active: #f0f0f0;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
@@ -12,6 +15,54 @@ body {
   font-size: 14px;
 }
 #app { height: 100vh; }
+
+/* =============================================
+   Keyframe Animations
+   ============================================= */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes fadeInContent {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.93) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes pulseBadge {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.18); }
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-6px); }
+  40%      { transform: translateX(6px); }
+  60%      { transform: translateX(-4px); }
+  80%      { transform: translateX(4px); }
+}
+@keyframes copiedFlash {
+  0%   { background: transparent; }
+  40%  { background: #e8f5e9; }
+  100% { background: transparent; }
+}
+
+/* =============================================
+   Login
+   ============================================= */
 .login-wrap {
   display: flex;
   align-items: center;
@@ -23,6 +74,7 @@ body {
   flex-direction: column;
   gap: 10px;
   width: 320px;
+  animation: slideUp 0.4s ease-out;
 }
 .login-form h1 { margin: 0 0 8px; font-size: 22px; }
 .login-form input, .login-form select, .login-form button {
@@ -35,75 +87,167 @@ body {
 }
 .login-form button { cursor: pointer; border-color: var(--fg); }
 .login-form button:disabled { opacity: 0.5; cursor: default; }
+
+/* =============================================
+   Tabs
+   ============================================= */
 .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
-.tab { flex: 1; padding: 10px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; color: var(--fg); font-size: 14px; }
+.tab {
+  flex: 1; padding: 10px; background: none; border: none;
+  border-bottom: 2px solid transparent; cursor: pointer; color: var(--fg); font-size: 14px;
+  transition: border-color 0.15s ease, font-weight 0.15s ease;
+}
 .tab.active { border-bottom-color: var(--fg); font-weight: 600; }
 .tab-panel { display: flex; flex-direction: column; gap: 10px; }
 .tab-panel[hidden] { display: none; }
+.tab-panel:not([hidden]) { animation: fadeIn 0.2s ease; }
+
 .hint { margin: 0; font-size: 12px; color: #888; line-height: 1.5; }
 .advanced { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-.link { background: none; border: none; color: var(--fg); text-decoration: underline; cursor: pointer; text-align: left; padding: 4px 0; }
-.error { color: var(--fg); background: #f2f2f2; padding: 8px; border-radius: 4px; font-size: 13px; }
+
+.link {
+  background: none; border: none; color: var(--fg); text-decoration: underline;
+  cursor: pointer; text-align: left; padding: 4px 0;
+  transition: opacity 0.12s ease;
+}
+.link:hover { opacity: 0.65; }
+
+.error {
+  color: var(--fg); background: #f2f2f2; padding: 8px; border-radius: 4px; font-size: 13px;
+  animation: shake 0.35s ease;
+}
+
+/* =============================================
+   Main layout
+   ============================================= */
 .main-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #888; }
 .main { display: flex; height: 100%; }
 .sidebar { width: 280px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 .sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); font-weight: 600; }
+
 .chatlist { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
-.chat-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
-.chat-item:hover { background: #fafafa; }
-.chat-item.active { background: #f0f0f0; }
+
+.chat-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
+  opacity: 0;
+  animation: slideUp 0.3s ease forwards;
+  animation-delay: calc(var(--i, 0) * 0.04s);
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.chat-item:hover { background: var(--bg-hover); transform: translateX(3px); }
+.chat-item.active { background: var(--bg-active); }
+
 .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--fg); color: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
 .chat-meta { flex: 1; min-width: 0; }
 .chat-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-last { font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.unread { background: var(--fg); color: var(--bg); border-radius: 10px; padding: 1px 7px; font-size: 11px; }
+
+.unread {
+  background: var(--fg); color: var(--bg); border-radius: 10px; padding: 1px 7px; font-size: 11px;
+  animation: pulseBadge 2s ease-in-out 3;  /* pulse only 3 times then stops */
+}
+
 .chat-panel { flex: 1; display: flex; flex-direction: column; }
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #888; }
-.chat-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; }
-.messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+
+/* =============================================
+   Chat header
+   ============================================= */
+.chat-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600;
+}
+.chat-header #chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* =============================================
+   Messages
+   ============================================= */
+.messages {
+  flex: 1; overflow-y: auto; padding: 16px; display: flex;
+  flex-direction: column; gap: 8px; scroll-behavior: smooth;
+}
 .msg { max-width: 70%; }
-.msg.in { align-self: flex-start; }
-.msg.out { align-self: flex-end; }
+.msg.in { align-self: flex-start; animation: slideInLeft 0.25s ease-out; }
+.msg.out { align-self: flex-end; animation: slideInRight 0.25s ease-out; }
 .msg-from { font-size: 11px; color: #888; margin-bottom: 2px; }
 .msg-text { padding: 8px 12px; border: 1px solid var(--border); border-radius: 12px; word-break: break-word; }
 .msg.out .msg-text { background: var(--fg); color: var(--bg); }
-.msg-failed { font-size: 11px; color: var(--fg); margin-top: 2px; }
-.composer { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.msg-failed { font-size: 11px; color: var(--fg); margin-top: 2px; animation: shake 0.35s ease; }
+
+/* =============================================
+   Composer
+   ============================================= */
+.composer { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); animation: slideUp 0.3s ease; }
 .composer input { flex: 1; padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; }
-.composer button { padding: 9px 16px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); border-radius: 4px; cursor: pointer; }
-.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.dialog { background: var(--bg); border: 1px solid var(--border); padding: 20px; width: 360px; display: flex; flex-direction: column; gap: 12px; }
+.composer button {
+  padding: 9px 16px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); border-radius: 4px; cursor: pointer;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.composer button:hover { opacity: 0.85; transform: scale(1.03); }
+.composer button:active { transform: scale(0.97); }
+
+/* =============================================
+   Overlay & Dialog
+   ============================================= */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+  animation: fadeIn 0.15s ease;
+}
+.dialog {
+  background: var(--bg); border: 1px solid var(--border); padding: 20px;
+  width: 360px; display: flex; flex-direction: column; gap: 12px;
+  animation: scaleIn 0.2s ease-out;
+}
 .dialog h2 { margin: 0; font-size: 16px; }
-.dialog input, .dialog textarea { padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; font-family: inherit; }
+.dialog input, .dialog textarea {
+  padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px;
+  font-size: 14px; font-family: inherit;
+}
 .dialog textarea { min-height: 80px; resize: vertical; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 12px; }
-.dialog-actions button { padding: 8px 16px; border: 1px solid var(--fg); border-radius: 4px; cursor: pointer; }
+.dialog-actions button {
+  padding: 8px 16px; border: 1px solid var(--fg); border-radius: 4px; cursor: pointer;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
 .dialog-actions button:last-child { background: var(--fg); color: var(--bg); }
+.dialog-actions button:hover { opacity: 0.85; transform: scale(1.03); }
+.dialog-actions button:active { transform: scale(0.97); }
 
-/* Sidebar actions row */
+/* =============================================
+   Sidebar actions
+   ============================================= */
 .sidebar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .sidebar-actions .link { padding: 2px 0; }
 
-/* Chat tag (group/self) */
+/* =============================================
+   Chat tag (group/self)
+   ============================================= */
 .chat-tag { display: inline-block; margin-right: 6px; padding: 0 5px; font-size: 10px; border: 1px solid var(--border); border-radius: 3px; color: #888; vertical-align: middle; }
 
-/* Contact request badge */
+/* =============================================
+   Contact request badge
+   ============================================= */
 .badge-request { background: transparent; color: var(--fg); border: 1px solid var(--fg); border-radius: 10px; padding: 1px 7px; font-size: 11px; flex-shrink: 0; }
 
-/* Chat header */
-.chat-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; }
-.chat-header #chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Contact request panel */
+/* =============================================
+   Contact request panel
+   ============================================= */
 .request-actions { padding: 24px 16px; display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; flex: 1; }
 .request-hint { margin: 0; font-size: 13px; color: #555; text-align: center; line-height: 1.6; }
 .request-buttons { display: flex; gap: 12px; }
 .request-buttons button { padding: 8px 16px; border: 1px solid var(--fg); border-radius: 4px; cursor: pointer; }
 .request-buttons button:first-child { background: var(--fg); color: var(--bg); }
 
-/* Member list in chat info */
+/* =============================================
+   Member list in chat info
+   ============================================= */
 .member-list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; }
-.member-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.member-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--border);
+  animation: fadeIn 0.15s ease;
+}
 .member-item:last-child { border-bottom: none; }
 .member-meta { flex: 1; min-width: 0; }
 .member-name { font-weight: 500; }
@@ -115,11 +259,38 @@ body {
 .add-member-form input { flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; }
 .add-member-form button { padding: 8px 14px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); border-radius: 4px; cursor: pointer; }
 
-/* QR code dialog */
-.qr-area { display: flex; align-items: center; justify-content: center; padding: 8px; }
+/* =============================================
+   QR code dialog
+   ============================================= */
+.qr-area { display: flex; align-items: center; justify-content: center; padding: 8px; animation: fadeIn 0.3s ease; }
 #qr-canvas { border: 1px solid var(--border); border-radius: 4px; }
 #qr-text { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: none; }
 
-/* Hint text in dialogs */
+/* =============================================
+   Hint text in dialogs
+   ============================================= */
 .dialog .hint { margin: 0 0 4px; }
 .dialog code { background: #f2f2f2; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+
+/* =============================================
+   Copy feedback flash
+   ============================================= */
+.flash-copied { animation: copiedFlash 0.6s ease; }
+
+/* =============================================
+   Generic button transitions
+   ============================================= */
+button {
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+/* =============================================
+   Reduced motion — respect user preference
+   ============================================= */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
