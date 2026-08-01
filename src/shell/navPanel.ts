@@ -62,11 +62,8 @@ export async function renderNavPanel(): Promise<void> {
         break;
       }
       case 'inbox': {
-        // 通知已完全主区化 (renderInboxMain),此处仅渲染简洁占位
-        panel.innerHTML = `
-          <div class="nav-header"><div class="nav-title">通知</div></div>
-          <div class="empty">在主区查看通知</div>
-        `;
+        const { renderInboxPage } = await import('../pages/inboxPage.js');
+        await renderInboxPage(panel);
         break;
       }
       case 'plugins': {
@@ -128,12 +125,7 @@ export async function renderMain(): Promise<void> {
   }
 
   if (state.currentPage === 'inbox') {
-    try {
-      const { renderInboxMain } = await import('../pages/inboxPage.js');
-      await renderInboxMain(main);
-    } catch {
-      main.innerHTML = `<div class="empty">通知加载失败</div>`;
-    }
+    main.innerHTML = `<div class="empty">在左侧查看通知</div>`;
     return;
   }
 

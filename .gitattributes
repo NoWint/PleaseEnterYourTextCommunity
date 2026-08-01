@@ -1,5 +1,0 @@
-# 统一行尾符：文本文件以 LF 入库，Windows 检出时用 CRLF
-* text=auto
-
-# 二进制文件，禁止任何行尾符转换
-*.png binary

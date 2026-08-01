@@ -3,11 +3,11 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { showToast } from '../toast.js';
 import { iconSvg, type IconName } from '../components/icon.js';
+import { renderAvatarHtml } from '../components/avatar.js';
 import type { InboxEventDto, InboxEventType, Page } from '../types.js';
 
-// SP6: Inbox 统一通知中心。
-// 主区视图 renderInboxMain 渲染到 chat-main;nav-panel 仅保留简洁占位。
-// 拉取 list_inbox_events (倒序),支持单条/全部标记已读。
+// SP6: Inbox 统一通知中心。渲染到 nav-panel,作为 rail 第 4 个图标的页面。
+// 拉取 list_inbox_events (倒序),按 type 分组展示,支持单条/全部标记已读。
 // 点击事件 → 跳转到来源频道 (messages 页) 并定位消息 (若 msg_id 存在)。
 
 interface EventTypeMeta {
@@ -22,34 +22,58 @@ const EVENT_META: Record<InboxEventType, EventTypeMeta> = {
   system: { icon: 'info', label: '系统' },
 };
 
-// 主区通知中心:header (标题 + 未读数 + 全部已读) + 可滚动列表
-export async function renderInboxMain(main: HTMLElement): Promise<void> {
-  main.innerHTML = `
+export async function renderInboxPage(panel: HTMLElement): Promise<void> {
+  const avatarHtml = state.self ? await renderAvatarHtml(state.self) : '';
+
+  panel.innerHTML = `
     <div class="nav-header">
       <div class="nav-title">通知</div>
       <div class="nav-subtitle">${state.inboxUnread > 0 ? `${state.inboxUnread} 条未读` : '已全部读完'}</div>
       <div class="nav-header-actions">
-        <button class="nav-header-btn inbox-mark-all" title="全部已读">${iconSvg('check', { width: 14, height: 14 })}</button>
+        <button class="nav-header-btn" id="inbox-mark-all" title="全部已读">${iconSvg('check', { width: 14, height: 14 })}</button>
       </div>
     </div>
-    <div class="nav-list inbox-list" style="padding:16px 20px"></div>
+    <div class="nav-list" id="inbox-list"></div>
+    <div class="nav-user">
+      ${avatarHtml}
+      <div class="nav-user-info">
+        <div class="nav-user-name">${escapeHtml(state.self?.name || 'me')}</div>
+      </div>
+    </div>
   `;
 
-  await renderInboxListInto(main);
-  attachMarkAllButton(main);
+  await renderInboxList();
+
+  const markAllBtn = panel.querySelector<HTMLElement>('#inbox-mark-all');
+  if (markAllBtn) {
+    markAllBtn.onclick = async () => {
+      try {
+        await call('mark_all_inbox_read');
+        state.inboxUnread = 0;
+        saveState();
+        await renderInboxList();
+        // 更新 header 副标题
+        const subtitle = panel.querySelector<HTMLElement>('.nav-subtitle');
+        if (subtitle) subtitle.textContent = '已全部读完';
+        // 刷新 rail 角标
+        const { renderRail } = await import('../shell/rail.js');
+        await renderRail();
+        showToast('已全部标记已读');
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e));
+      }
+    };
+  }
 }
 
-// —— 公共渲染/交互逻辑:nav 与 main 共用 ——
-
-// 渲染容器内的通知列表 (拉取 + 空态/错误态 + 绑定点击)
-async function renderInboxListInto(container: HTMLElement): Promise<void> {
-  const list = container.querySelector<HTMLElement>('.inbox-list');
+async function renderInboxList(): Promise<void> {
+  const list = document.getElementById('inbox-list');
   if (!list) return;
 
   let events: InboxEventDto[] = [];
   try {
     events = await call<InboxEventDto[]>('list_inbox_events', { limit: 100 });
-  } catch {
+  } catch (e) {
     list.innerHTML = `<div class="nav-empty">加载失败</div>`;
     return;
   }
@@ -59,12 +83,9 @@ async function renderInboxListInto(container: HTMLElement): Promise<void> {
     return;
   }
 
-  list.innerHTML = events.map((ev) => renderInboxItem(ev)).join('');
-  attachInboxItemHandlers(container, list);
-}
+  const itemsHtml = events.map((ev) => renderInboxItem(ev)).join('');
+  list.innerHTML = itemsHtml;
 
-// 绑定单条通知点击:标记已读 + 跳转来源频道 + 定位消息
-function attachInboxItemHandlers(container: HTMLElement, list: HTMLElement): void {
   list.querySelectorAll<HTMLElement>('.inbox-item').forEach((el) => {
     el.onclick = async () => {
       const id = Number(el.dataset.id);
@@ -80,14 +101,17 @@ function attachInboxItemHandlers(container: HTMLElement, list: HTMLElement): voi
           el.classList.remove('unread');
           state.inboxUnread = Math.max(0, state.inboxUnread - 1);
           saveState();
-          updateInboxSubtitle(container);
-          // 刷新 rail 角标
+          // 更新 header 副标题 + rail 角标
+          const subtitle = document.querySelector<HTMLElement>('#inbox-list')?.previousElementSibling?.querySelector('.nav-subtitle');
+          if (subtitle) {
+            subtitle.textContent = state.inboxUnread > 0 ? `${state.inboxUnread} 条未读` : '已全部读完';
+          }
           const { renderRail } = await import('../shell/rail.js');
           await renderRail();
         } catch {}
       }
 
-      // 跳转到来源频道 (卡片频道 → work 页)
+      // 跳转到来源频道
       if (chatId) {
         const isCardChannel = await isCardSpace(chatId);
         const targetPage: Page = isCardChannel ? 'work' : 'messages';
@@ -117,37 +141,6 @@ function attachInboxItemHandlers(container: HTMLElement, list: HTMLElement): voi
       }
     };
   });
-}
-
-// 更新容器内 header 的未读副标题
-function updateInboxSubtitle(container: HTMLElement): void {
-  const subtitle = container.querySelector<HTMLElement>('.nav-subtitle');
-  if (subtitle) {
-    subtitle.textContent = state.inboxUnread > 0 ? `${state.inboxUnread} 条未读` : '已全部读完';
-  }
-}
-
-// 绑定「全部已读」按钮
-function attachMarkAllButton(container: HTMLElement): void {
-  const btn = container.querySelector<HTMLElement>('.inbox-mark-all');
-  if (btn) btn.onclick = () => markAllInboxRead(container);
-}
-
-// 「全部已读」:清空未读 + 刷新列表/副标题/rail 角标
-async function markAllInboxRead(container: HTMLElement): Promise<void> {
-  try {
-    await call('mark_all_inbox_read');
-    state.inboxUnread = 0;
-    saveState();
-    await renderInboxListInto(container);
-    updateInboxSubtitle(container);
-    // 刷新 rail 角标
-    const { renderRail } = await import('../shell/rail.js');
-    await renderRail();
-    showToast('已全部标记已读');
-  } catch (e) {
-    showToast(e instanceof Error ? e.message : String(e));
-  }
 }
 
 function renderInboxItem(ev: InboxEventDto): string {

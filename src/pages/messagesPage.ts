@@ -16,7 +16,7 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
   panelEl.innerHTML = `
     <div class="nav-header">
       <div class="nav-title">消息</div>
-      <div class="nav-subtitle">私聊与群组</div>
+      <div class="nav-subtitle">私聊与非 workspace 群</div>
       <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
     </div>
     <div class="nav-list" id="messages-list"></div>

@@ -34,14 +34,9 @@ export function renderLogin(onSuccess: () => void | Promise<void>): void {
   if (!app) return;
   app.innerHTML = `
     <div class="login-wrap">
-      <div class="login-hero">
-        <img class="login-hero-logo" src="/logo.jpg" alt="PEYT Studio" />
-        <h1 class="login-hero-title">PEYT Studio</h1>
-        <p class="login-hero-slogan">Type Everything</p>
-      </div>
-      <div class="login-panel">
-        <div class="login-form">
-          <div class="tabs">
+      <div class="login-form">
+        <h1>Peytchat</h1>
+        <div class="tabs">
           <button type="button" class="tab active" data-tab="quick">快速开始</button>
           <button type="button" class="tab" data-tab="email">邮箱登录</button>
         </div>
@@ -80,8 +75,7 @@ export function renderLogin(onSuccess: () => void | Promise<void>): void {
           <button type="submit" id="login-btn">登录</button>
         </form>
 
-          <div id="error" class="error" style="display:none"></div>
-        </div>
+        <div id="error" class="error" style="display:none"></div>
       </div>
     </div>
   `;

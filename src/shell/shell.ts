@@ -4,7 +4,6 @@ import { loadPlugins } from '../plugins/manager.js';
 import { renderRail, refreshWorkspaces } from './rail.js';
 import { renderNavPanel, renderMain, refreshChannels } from './navPanel.js';
 import { renderRightDrawer } from './rightDrawer.js';
-import { bindColumnResizers } from './columnResizer.js';
 import { loadState, saveState } from '../persist.js';
 import { showToast } from '../toast.js';
 import { stateLabel, renderReactionsHtml, updateReactionsCache } from '../chat/message.js';
@@ -46,15 +45,10 @@ export async function renderShell(): Promise<void> {
     <div class="shell">
       <div id="ws-rail" class="rail"></div>
       <div id="channel-tree" class="nav-panel"></div>
-      <div id="nav-resizer" class="col-resizer" data-resizer="nav"></div>
       <div id="chat-main" class="chat-main"><div class="empty">选择一个频道</div></div>
       <div id="right-drawer" class="right-drawer collapsed"></div>
-      <div id="drawer-resizer" class="col-resizer" data-resizer="drawer"></div>
     </div>
   `;
-
-  // 列宽拖动:启动即应用持久化宽度,再渲染各栏
-  bindColumnResizers();
 
   // 恢复持久化状态
   loadState();
