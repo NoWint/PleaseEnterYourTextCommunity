@@ -173,6 +173,7 @@ function renderAppearance(main: HTMLElement): void {
 
 // ── 当前团队 ──────────────────────────────────────────
 async function renderTeam(main: HTMLElement): Promise<void> {
+  main.innerHTML = '';
   const ws = state.workspaces.find((w) => w.id === state.currentWsId);
   const section = document.createElement('div');
   section.className = 'settings-section';
@@ -270,6 +271,7 @@ async function renderTeam(main: HTMLElement): Promise<void> {
 
 // ── 通知 ──────────────────────────────────────────────
 function renderNotifications(main: HTMLElement): void {
+  main.innerHTML = '';
   const desktopEnabled = Notification.permission === 'granted';
   const badgeEnabled = localStorage.getItem('peyt.badgeEnabled') !== 'false';
   const section = document.createElement('div');
@@ -297,6 +299,7 @@ function renderNotifications(main: HTMLElement): void {
 
 // ── 关于 ──────────────────────────────────────────────
 function renderAbout(main: HTMLElement): void {
+  main.innerHTML = '';
   const section = document.createElement('div');
   section.className = 'settings-section';
   section.innerHTML = '<h2>关于</h2>';
