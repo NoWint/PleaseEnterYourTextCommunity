@@ -80,6 +80,7 @@ pub fn run() {
             commands::get_asset_url,
             commands::search_msgs,
             commands::get_all_messages,
+            commands::debug_chatlist,
             commands::create_card,
             commands::update_card,
             commands::delete_card,

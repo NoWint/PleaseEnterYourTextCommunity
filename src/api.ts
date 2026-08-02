@@ -15,10 +15,16 @@ export async function call<T = unknown>(cmd: string, args?: Record<string, unkno
   }
 }
 
+// 全局事件日志:记录最近收到的 dc-event,供 debug 页排查事件流
+export const eventLog: DcEvent[] = [];
+
 export async function onEvent(typ: string, cb: (payload: DcEvent) => void): Promise<() => void> {
   const { listen } = await import('@tauri-apps/api/event');
   return listen('dc-event', (ev) => {
     const payload = ev.payload as DcEvent;
+    // 记录所有事件(只保留最近 50 条),便于诊断事件流是否到达前端
+    eventLog.push(payload);
+    if (eventLog.length > 50) eventLog.shift();
     if (payload.typ === typ) cb(payload);
   });
 }

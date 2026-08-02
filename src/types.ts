@@ -160,4 +160,7 @@ export interface ChatListItem {
   last_ts: number | null;
   unread: number;
   is_archived: boolean;
+  is_group: boolean;
+  is_contact_request: boolean;
+  is_self_talk: boolean;
 }

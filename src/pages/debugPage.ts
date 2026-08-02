@@ -1,4 +1,5 @@
-import { call } from '../api.js';
+import { call, eventLog, type DcEvent } from '../api.js';
+import { state } from '../state.js';
 import { iconSvg } from '../components/icon.js';
 
 const PAGE_SIZE = 20;
@@ -44,6 +45,9 @@ export async function renderDebugMain(main: HTMLElement): Promise<void> {
       </span>
       <button class="dbg-refresh" id="dbg-refresh" title="刷新">${iconSvg('refresh-cw', { width: 14, height: 14 })}</button>
     </div>
+    <div class="dbg-chatlist" id="dbg-state"></div>
+    <div class="dbg-chatlist" id="dbg-chatlist"></div>
+    <div class="dbg-chatlist" id="dbg-events"></div>
     <div class="dbg-list" id="dbg-list"></div>
     <div class="dbg-footer">
       <button class="dbg-more" id="dbg-more">加载更多</button>
@@ -68,6 +72,53 @@ export async function renderDebugMain(main: HTMLElement): Promise<void> {
 
   await loadMore();
   render();
+  await renderChatlist();
+  renderEventLog();
+  renderStateDiag();
+}
+
+// 前端状态诊断: 显示 workspaces/channels/currentWsId,排查会话被 filter 误伤
+function renderStateDiag(): void {
+  const box = document.getElementById('dbg-state');
+  if (!box) return;
+  const ws = state.workspaces.map((w) => `ws#${w.id}(${escapeHtml(w.name)}) master=${w.master_chat_id}`).join(' ');
+  const chans = state.channels.map((c) => `ch#${c.chat_id}`).join(' ');
+  const wsIds = new Set<number>();
+  for (const w of state.workspaces) {
+    wsIds.add(w.master_chat_id);
+    for (const c of state.channels) if (c.workspace_id === w.id) wsIds.add(c.chat_id);
+  }
+  box.innerHTML = `<div class="dbg-chat-head">前端状态:</div>
+    <div class="dbg-chat-row">currentWsId=${state.currentWsId} currentPage=${state.currentPage} currentChatId=${state.currentChatId}</div>
+    <div class="dbg-chat-row">workspaces: ${ws || '(空)'}</div>
+    <div class="dbg-chat-row">channels: ${chans || '(空)'}</div>
+    <div class="dbg-chat-row">wsChatIds(会被过滤): ${[...wsIds].join(',') || '(空)'}</div>`;
+}
+
+// 事件流面板: 显示最近收到的 dc-event,排查事件驱动刷新失效
+function renderEventLog(): void {
+  const box = document.getElementById('dbg-events');
+  if (!box) return;
+  const rows = eventLog.slice(-30).map((e) => {
+    const brief = e.msg_id != null ? `msg=${e.msg_id}` : e.chat_id != null ? `chat=${e.chat_id}` : '';
+    return `<div class="dbg-chat-row">${escapeHtml(e.typ)} ${brief ? '<span class="dbg-type">' + escapeHtml(brief) + '</span>' : ''}</div>`;
+  }).join('') || '<div class="dbg-chat-row">(无事件)</div>';
+  box.innerHTML = `<div class="dbg-chat-head">事件流 (${eventLog.length}):</div>${rows}`;
+}
+
+// 会话诊断: 显示 get_chatlist 原始内容, 对照侧栏排查缺失会话
+async function renderChatlist(): Promise<void> {
+  const box = document.getElementById('dbg-chatlist');
+  if (!box) return;
+  try {
+    const chats = await call<Array<{ chat_id: number; name: string; type: string; is_contact_request: boolean }>>('debug_chatlist');
+    const rows = chats.map((c) =>
+      `<div class="dbg-chat-row">#${c.chat_id} <b>${escapeHtml(c.name || '(unnamed)')}</b> <span class="dbg-type">${c.type}${c.is_contact_request ? ' REQUEST' : ''}</span></div>`
+    ).join('') || '<div class="dbg-chat-row">(空)</div>';
+    box.innerHTML = `<div class="dbg-chat-head">会话诊断 (${chats.length}):</div>${rows}`;
+  } catch (e) {
+    box.innerHTML = `<div class="dbg-chat-head">会话诊断失败: ${escapeHtml(String(e))}</div>`;
+  }
 }
 
 function reset(): void {

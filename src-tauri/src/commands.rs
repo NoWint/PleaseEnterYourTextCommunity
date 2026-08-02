@@ -1331,6 +1331,29 @@ async fn chat_name(ctx: &Context, chat_id: deltachat::chat::ChatId) -> String {
         .unwrap_or_default()
 }
 
+/// 诊断: 返回 chatlist 原始内容 + 每个 chat 的 type/is_contact_request,
+/// 用于排查 securejoin 会话为何不进侧栏。
+#[tauri::command]
+pub async fn debug_chatlist(state: State<'_, AppState>) -> AppResult<Vec<serde_json::Value>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let list = Chatlist::try_load(&ctx, 0, None, None).await?;
+    let mut out = Vec::with_capacity(list.len());
+    for i in 0..list.len() {
+        let chat_id = list.get_chat_id(i)?;
+        let chat = Chat::load_from_db(&ctx, chat_id).await?;
+        out.push(serde_json::json!({
+            "chat_id": chat_id.to_u32(),
+            "name": chat.get_name(),
+            "type": format!("{:?}", chat.get_type()),
+            "is_contact_request": chat.is_contact_request(),
+        }));
+    }
+    Ok(out)
+}
+
 // ── card commands ───────────────────────────────────────────────────────────
 
 async fn row_to_card_dto(
