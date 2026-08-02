@@ -574,7 +574,6 @@ html { background: var(--bg); }
   color: var(--text-mute); font: inherit; font-size: var(--font-scale-body);
   transition: background 120ms ease, color 120ms ease, transform 120ms ease;
 }
-.ui-tab:hover { color: var(--text); background: var(--capsule); transform: translateY(-1px); }
 .ui-tab.active { background: var(--active); color: var(--text); font-weight: 600; }
 
 /* 下拉菜单 */
