@@ -1,5 +1,5 @@
 import { iconSvg, type IconName } from './icon.js';
-import { showToast as toast } from '../toast.js';
+import { showToast } from '../toast.js';
 
 /**
  * 统一 UI 组件库 — 所有界面组件从这里创建,形态与动画全局一致。
@@ -14,11 +14,13 @@ export interface ButtonOpts {
   danger?: boolean;
   disabled?: boolean;
   title?: string;
+  size?: 'sm' | 'md' | 'lg';
   onClick?: () => void | Promise<void>;
 }
 export function button(opts: ButtonOpts): HTMLButtonElement {
   const el = document.createElement('button');
-  el.className = `ui-button${opts.variant ? ` ui-button-${opts.variant}` : ''}${opts.danger ? ' ui-button-danger' : ''}`;
+  const size = opts.size ? ` ui-button-${opts.size}` : '';
+  el.className = `ui-button${opts.variant ? ` ui-button-${opts.variant}` : ''}${opts.danger ? ' ui-button-danger' : ''}${size}`;
   if (opts.icon) el.insertAdjacentHTML('afterbegin', iconSvg(opts.icon, { width: 14, height: 14 }));
   if (opts.label) el.appendChild(document.createTextNode(opts.label));
   if (opts.title) el.title = opts.title;
@@ -27,12 +29,142 @@ export function button(opts: ButtonOpts): HTMLButtonElement {
   return el;
 }
 
-export function iconButton(opts: { icon: IconName; title?: string; danger?: boolean; onClick?: () => void | Promise<void> }): HTMLButtonElement {
+export function iconButton(opts: { icon: IconName; title?: string; danger?: boolean; size?: 'sm' | 'md'; onClick?: () => void | Promise<void> }): HTMLButtonElement {
   const el = document.createElement('button');
-  el.className = `ui-icon-button${opts.danger ? ' ui-icon-button-danger' : ''}`;
+  el.className = `ui-icon-button${opts.danger ? ' ui-icon-button-danger' : ''}${opts.size ? ` ui-icon-button-${opts.size}` : ''}`;
   el.title = opts.title || '';
   el.insertAdjacentHTML('afterbegin', iconSvg(opts.icon, { width: 16, height: 16 }));
   el.addEventListener('click', () => void opts.onClick?.());
+  return el;
+}
+
+// ── 输入控件 ──────────────────────────────────────────
+export function input(opts: { placeholder?: string; value?: string; type?: string; onChange?: (v: string) => void; onEnter?: () => void }): HTMLInputElement {
+  const el = document.createElement('input');
+  el.className = 'ui-input';
+  el.type = opts.type || 'text';
+  el.placeholder = opts.placeholder || '';
+  el.value = opts.value || '';
+  el.addEventListener('input', () => opts.onChange?.(el.value));
+  el.addEventListener('keydown', (e) => { if (e.key === 'Enter') opts.onEnter?.(); });
+  return el;
+}
+
+export function textarea(opts: { placeholder?: string; value?: string; rows?: number; onChange?: (v: string) => void }): HTMLTextAreaElement {
+  const el = document.createElement('textarea');
+  el.className = 'ui-input ui-textarea';
+  el.placeholder = opts.placeholder || '';
+  el.value = opts.value || '';
+  el.rows = opts.rows || 3;
+  el.addEventListener('input', () => opts.onChange?.(el.value));
+  return el;
+}
+
+export function select(opts: { options: Array<{ value: string; label: string }>; value?: string; onChange?: (v: string) => void }): HTMLSelectElement {
+  const el = document.createElement('select');
+  el.className = 'ui-select';
+  for (const o of opts.options) {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.label;
+    el.appendChild(opt);
+  }
+  el.value = opts.value || opts.options[0]?.value || '';
+  el.addEventListener('change', () => opts.onChange?.(el.value));
+  return el;
+}
+
+export function field(opts: { label: string; children: HTMLElement; help?: string }): HTMLLabelElement {
+  const el = document.createElement('label');
+  el.className = 'ui-field';
+  el.innerHTML = `<span class="ui-field-label">${escapeHtml(opts.label)}</span>`;
+  el.appendChild(opts.children);
+  if (opts.help) el.insertAdjacentHTML('beforeend', `<span class="ui-field-help">${escapeHtml(opts.help)}</span>`);
+  return el;
+}
+
+export function switch_(opts: { checked?: boolean; onChange?: (v: boolean) => void; disabled?: boolean }): HTMLElement {
+  const el = document.createElement('label');
+  el.className = 'ui-switch';
+  el.innerHTML = `<input type="checkbox" ${opts.checked ? 'checked' : ''} ${opts.disabled ? 'disabled' : ''}><span class="ui-switch-slider"></span>`;
+  el.querySelector('input')!.addEventListener('change', () => opts.onChange?.(el.querySelector('input')!.checked));
+  return el;
+}
+
+// ── 标签 / 徽章 / 头像 ────────────────────────────────
+export function chip(opts: { label: string; icon?: IconName; active?: boolean; onClick?: () => void }): HTMLButtonElement {
+  const el = document.createElement('button');
+  el.className = `ui-chip${opts.active ? ' active' : ''}`;
+  if (opts.icon) el.insertAdjacentHTML('afterbegin', iconSvg(opts.icon, { width: 12, height: 12 }));
+  el.appendChild(document.createTextNode(opts.label));
+  el.addEventListener('click', () => opts.onClick?.());
+  return el;
+}
+
+export function badge(opts: { text: string; variant?: 'default' | 'success' | 'danger' | 'muted' }): HTMLSpanElement {
+  const el = document.createElement('span');
+  el.className = `ui-badge${opts.variant ? ` ui-badge-${opts.variant}` : ''}`;
+  el.textContent = opts.text;
+  return el;
+}
+
+export function avatar(opts: { name?: string; url?: string; size?: number }): HTMLElement {
+  const size = opts.size || 32;
+  const el = document.createElement('div');
+  el.className = 'ui-avatar';
+  el.style.width = `${size}px`;
+  el.style.height = `${size}px`;
+  el.style.fontSize = `${Math.max(10, Math.round(size / 2.4))}px`;
+  if (opts.url) {
+    el.innerHTML = `<img src="${escapeHtml(opts.url)}" alt="" />`;
+  } else {
+    el.textContent = (opts.name || '?').charAt(0).toUpperCase();
+  }
+  return el;
+}
+
+// ── 卡片 / 列表 / 分割线 ──────────────────────────────
+export function card(opts: { title?: string; children?: HTMLElement | string; actions?: HTMLElement[] }): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'ui-card';
+  if (opts.title || opts.actions) {
+    const head = document.createElement('div');
+    head.className = 'ui-card-head';
+    if (opts.title) {
+      const t = document.createElement('span');
+      t.className = 'ui-card-title';
+      t.textContent = opts.title;
+      head.appendChild(t);
+    }
+    for (const a of opts.actions || []) head.appendChild(a);
+    el.appendChild(head);
+  }
+  if (opts.children) {
+    const body = document.createElement('div');
+    body.className = 'ui-card-body';
+    if (typeof opts.children === 'string') body.innerHTML = opts.children;
+    else body.appendChild(opts.children);
+    el.appendChild(body);
+  }
+  return el;
+}
+
+export function listItem(opts: { title: string; subtitle?: string; icon?: IconName; onClick?: () => void; danger?: boolean; trailing?: HTMLElement }): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = `ui-list-item${opts.danger ? ' ui-list-item-danger' : ''}`;
+  if (opts.icon) el.insertAdjacentHTML('afterbegin', iconSvg(opts.icon, { width: 16, height: 16 }));
+  const meta = document.createElement('div');
+  meta.className = 'ui-list-meta';
+  meta.innerHTML = `<div class="ui-list-title">${escapeHtml(opts.title)}</div>${opts.subtitle ? `<div class="ui-list-sub">${escapeHtml(opts.subtitle)}</div>` : ''}`;
+  el.appendChild(meta);
+  if (opts.trailing) el.appendChild(opts.trailing);
+  if (opts.onClick) el.addEventListener('click', () => opts.onClick!());
+  return el;
+}
+
+export function divider(): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'ui-divider';
   return el;
 }
 
@@ -46,9 +178,7 @@ export function overlay(): HTMLDivElement {
 
 export interface DialogOpts {
   title: string;
-  /** 可为 HTML 字符串 */
   body?: string;
-  /** 底部动作按钮 */
   actions?: HTMLElement[];
   onClose?: () => void;
 }
@@ -65,15 +195,11 @@ export function dialog(opts: DialogOpts): { overlay: HTMLDivElement; close: () =
   for (const a of opts.actions || []) actions.appendChild(a);
   const close = (): void => ov.remove();
   ov.addEventListener('click', (e) => {
-    if (e.target === ov) {
-      close();
-      opts.onClose?.();
-    }
+    if (e.target === ov) { close(); opts.onClose?.(); }
   });
   return { overlay: ov, close };
 }
 
-// ── 输入弹窗（标题 + 输入 + 确认）────────────────────
 export interface InputDialogOpts {
   title: string;
   placeholder?: string;
@@ -84,35 +210,28 @@ export interface InputDialogOpts {
   onCancel?: () => void;
 }
 export function inputDialog(opts: InputDialogOpts): void {
-  const input = document.createElement('input');
-  input.className = 'ui-input';
-  input.type = opts.type || 'text';
-  input.placeholder = opts.placeholder || '';
-  input.value = opts.value || '';
-
+  const inputEl = input({ placeholder: opts.placeholder, value: opts.value, type: opts.type });
   const cancel = button({ label: '取消', variant: 'ghost', onClick: () => { dlg.close(); opts.onCancel?.(); } });
   const confirm = button({
     label: opts.confirmLabel || '确定',
     variant: 'primary',
     onClick: async () => {
-      const val = input.value.trim();
+      const val = inputEl.value.trim();
       if (!val) return;
       dlg.close();
       try {
         await opts.onConfirm(val);
       } catch (e) {
-        toast(e instanceof Error ? e.message : String(e));
+        showToast(e instanceof Error ? e.message : String(e));
       }
     },
   });
-
   const dlg = dialog({ title: opts.title, actions: [cancel, confirm] });
-  dlg.overlay.querySelector('.ui-dialog')!.append(input);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirm.click(); });
-  input.focus();
+  dlg.overlay.querySelector('.ui-dialog')!.append(inputEl);
+  inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirm.click(); });
+  inputEl.focus();
 }
 
-// ── 确认弹窗 ──────────────────────────────────────────
 export function confirm(opts: { title?: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void | Promise<void> }): void {
   const dlg = dialog({
     title: opts.title || '确认',
@@ -124,29 +243,95 @@ export function confirm(opts: { title?: string; message: string; confirmLabel?: 
     label: opts.confirmLabel || '确认',
     variant: 'primary',
     danger: opts.danger,
-    onClick: async () => {
-      dlg.close();
-      try {
-        await opts.onConfirm();
-      } catch { /* 调用方处理 */ }
-    },
+    onClick: async () => { dlg.close(); try { await opts.onConfirm(); } catch { /* 调用方处理 */ } },
   });
   dlg.overlay.querySelector('.ui-dialog-actions')!.append(cancel, ok);
 }
 
-// ── 加载指示 ──────────────────────────────────────────
+// ── 标签页 ────────────────────────────────────────────
+export function tabs(opts: { items: Array<{ id: string; label: string; icon?: IconName }>; active: string; onChange: (id: string) => void }): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'ui-tabs';
+  for (const it of opts.items) {
+    const t = document.createElement('button');
+    t.className = `ui-tab${it.id === opts.active ? ' active' : ''}`;
+    t.dataset.id = it.id;
+    if (it.icon) t.insertAdjacentHTML('afterbegin', iconSvg(it.icon, { width: 14, height: 14 }));
+    t.appendChild(document.createTextNode(it.label));
+    t.addEventListener('click', () => opts.onChange(it.id));
+    el.appendChild(t);
+  }
+  return el;
+}
+
+// ── 下拉菜单 ──────────────────────────────────────────
+export interface MenuItem {
+  label: string;
+  icon?: IconName;
+  danger?: boolean;
+  action?: () => void | Promise<void>;
+}
+export function menu(anchor: HTMLElement, items: MenuItem[], position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' = 'bottom-left'): void {
+  document.querySelectorAll('.ui-menu').forEach((m) => m.remove());
+  const el = document.createElement('div');
+  el.className = 'ui-menu';
+  el.innerHTML = items.map((it, i) => `
+    <button class="ui-menu-item${it.danger ? ' ui-menu-item-danger' : ''}" data-i="${i}">
+      ${it.icon ? iconSvg(it.icon, { width: 15, height: 15 }) : ''}
+      <span>${escapeHtml(it.label)}</span>
+    </button>`).join('');
+  document.body.appendChild(el);
+  const rect = anchor.getBoundingClientRect();
+  el.style.position = 'fixed';
+  if (position.startsWith('bottom')) el.style.top = `${rect.bottom + 6}px`;
+  else el.style.top = `${rect.top - el.offsetHeight - 6}px`;
+  if (position.endsWith('right')) el.style.right = `${window.innerWidth - rect.right}px`;
+  else el.style.left = `${rect.left}px`;
+  el.style.zIndex = '200';
+
+  el.querySelectorAll<HTMLButtonElement>('.ui-menu-item').forEach((b) => {
+    b.addEventListener('click', () => {
+      const it = items[Number(b.dataset.i)];
+      el.remove();
+      void it.action?.();
+    });
+  });
+  const outside = (e: MouseEvent): void => {
+    if (!el.contains(e.target as Node)) { el.remove(); document.removeEventListener('click', outside); }
+  };
+  setTimeout(() => document.addEventListener('click', outside), 0);
+}
+
+// ── 搜索框 ────────────────────────────────────────────
+export function search(opts: { placeholder?: string; value?: string; onChange?: (v: string) => void }): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'ui-search';
+  el.innerHTML = iconSvg('search', { width: 14, height: 14 });
+  const inp = document.createElement('input');
+  inp.className = 'ui-search-input';
+  inp.placeholder = opts.placeholder || '搜索…';
+  inp.value = opts.value || '';
+  inp.addEventListener('input', () => opts.onChange?.(inp.value));
+  el.appendChild(inp);
+  return el;
+}
+
+// ── 加载 / 空状态 ─────────────────────────────────────
 export function spinner(): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'ui-spinner';
   return el;
 }
 
-// ── 空状态 ────────────────────────────────────────────
 export function empty(text: string): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'ui-empty';
   el.textContent = text;
   return el;
+}
+
+export function toast(msg: string): void {
+  showToast(msg);
 }
 
 function escapeHtml(s: string): string {
@@ -156,5 +341,13 @@ function escapeHtml(s: string): string {
 }
 
 /** 聚合导出 */
-export const ui = { button, iconButton, overlay, dialog, inputDialog, confirm, spinner, empty };
+export const ui = {
+  button, iconButton,
+  input, textarea, select, field, switch_,
+  chip, badge, avatar,
+  card, listItem, divider,
+  overlay, dialog, inputDialog, confirm,
+  tabs, menu, search,
+  spinner, empty, toast,
+};
 export default ui;
