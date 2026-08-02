@@ -225,6 +225,14 @@ async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
   const chatId = e.chat_id as number;
   const text = (e.text as string) || '';
 
+  // 收到的任何消息:若所属会话是未接受的 contact request,自动 accept
+  // (幂等,已接受会话无副作用),使 1:1 会话进入 chatlist 并显示消息/已读状态
+  if (chatId != null) {
+    try {
+      await call('accept_chat', { chatId });
+    } catch {}
+  }
+
   // [CARD] 消息同步:解析卡片消息并同步本地卡片数据库
   if (text.startsWith(CARD_PREFIX)) {
     try {
