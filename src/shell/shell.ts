@@ -7,7 +7,7 @@ import { renderRightDrawer } from './rightDrawer.js';
 import { bindColumnResizers } from './columnResizer.js';
 import { loadState, saveState } from '../persist.js';
 import { showToast } from '../toast.js';
-import { stateLabel, renderReactionsHtml, updateReactionsCache } from '../chat/message.js';
+import { stateLabel, updateReactionsCache } from '../chat/message.js';
 import { appendNewMessages } from '../chat/chatView.js';
 import type { MsgState, MsgDto } from '../types.js';
 
@@ -117,7 +117,8 @@ export async function renderShell(): Promise<void> {
   onEvent('MsgFailed', (e) => updateMsgState(e.msg_id as number, 'failed'));
   onEvent('MsgDeleted', (e) => removeMsg(e.msg_id as number));
   onEvent('ReactionsChanged', (e) => {
-    void refreshMsgReactions(e.msg_id as number);
+    // 延迟拉取:事件先于数据库写入,等库落定后再拉反应并重渲染可视区
+    setTimeout(() => void refreshMsgReactions(e.msg_id as number), 200);
   });
   onEvent('MsgRead', (e) => updateMsgState(e.msg_id as number, 'read'));
   onEvent('MsgsNoticed', () => {
@@ -370,36 +371,13 @@ function removeMsg(msgId: number): void {
 async function refreshMsgReactions(msgId: number): Promise<void> {
   try {
     const reactions = await call<Reaction[]>('get_reactions', { msgId });
-    // 修复:同步更新 message.js 的 reactions 缓存,虚拟化重渲染时直接命中缓存
+    // 更新 message.ts 的 reactions 缓存,重渲染时 renderReactions 直接命中
     updateReactionsCache(msgId, reactions);
-    const msgEl = document.querySelector(`[data-msg="${msgId}"]`);
-    if (!msgEl) return;
-    let el = msgEl.querySelector<HTMLElement>('.msg-reactions');
-    const html = renderReactionsHtml(reactions, msgId);
-    if (el) {
-      el.innerHTML = html;
-    } else if (html) {
-      // 之前没有 reactions 节点,新建一个插入到 reaction picker 之前
-      el = document.createElement('div');
-      el.className = 'msg-reactions';
-      el.innerHTML = html;
-      const picker = msgEl.querySelector('.msg-reaction-picker');
-      if (picker) msgEl.insertBefore(el, picker);
-      else msgEl.appendChild(el);
-    }
-    // 重新绑定 reaction toggle(新 capsules 没有 listener)
-    if (el) {
-      el.querySelectorAll<HTMLElement>('.msg-reaction').forEach((r) => {
-        r.addEventListener('click', async () => {
-          const emoji = r.dataset.emoji || '';
-          try {
-            await call('send_reaction', { chatId: state.currentChatId, msgId, emoji });
-          } catch (e) {
-            showToast(e instanceof Error ? e.message : String(e));
-          }
-        });
-      });
-    }
+    // 移除该消息的 DOM 节点,强制重建(读最新反应缓存),否则虚拟化复用旧节点不更新
+    const oldEl = document.querySelector(`[data-msg="${msgId}"]`);
+    if (oldEl) oldEl.remove();
+    const { refreshVisibleMessages } = await import('../chat/chatView.js');
+    refreshVisibleMessages();
   } catch {}
 }
 

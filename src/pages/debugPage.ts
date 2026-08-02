@@ -75,6 +75,10 @@ export async function renderDebugMain(main: HTMLElement): Promise<void> {
   await renderChatlist();
   renderEventLog();
   renderStateDiag();
+  // 事件流面板实时刷新,便于观察事件是否到达前端
+  window.setInterval(() => {
+    renderEventLog();
+  }, 1000);
 }
 
 // 前端状态诊断: 显示 workspaces/channels/currentWsId,排查会话被 filter 误伤

@@ -207,6 +207,8 @@ export async function appendNewMessages(chatId: number): Promise<void> {
       const start = Math.max(0, end - VIEWPORT - 2 * BUFFER);
       await renderVisibleMessages(box, start, end);
       box.scrollTop = box.scrollHeight;
+      // 用户看到了新消息 → 标记已读并触发 MDN,让发送方(delta)显示已读
+      try { await call('mark_chat_noticed', { chatId }); } catch {}
     } else {
       // 用户滚在上方 → 仅刷新 spacers / 可视区(scrollTop 未变,可视范围不变)
       const range = getVisibleRange(box.scrollTop, box.clientHeight, ITEM_HEIGHT);
@@ -309,67 +311,86 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
   const visible = state.messages.slice(start, end);
   const savedScrollTop = box.scrollTop;
 
-  // 1. 先在 off-DOM 中构建完整 HTML 字符串(此处含 await,旧 DOM 仍可见,无闪烁)
-  let prevDate: string | null = null;
-  if (start > 0 && state.messages.length > 0) {
-    prevDate = formatDate(new Date(state.messages[start - 1].ts * 1000));
+  // 增量更新:按 data-msg 复用已存在节点,只新建缺失的,越界的随整体替换移除。
+  // 滚动时大多数消息已在 DOM,复用避免重建 → 消除闪动 (apple-design §11)。
+  const existing = new Map<number, HTMLElement>();
+  for (const el of Array.from(box.children)) {
+    const msgId = (el as HTMLElement).dataset?.msg;
+    if (msgId) existing.set(Number(msgId), el as HTMLElement);
   }
-  // Task 12: 计算未读分隔位置。dividerIndex 是第一条未读消息的索引,
-  // 即"在倒数 unreadCount 条消息前插分隔线"。state.messages.length 会随 loadEarlier 增长,
-  // 而 unreadCount 固定,因此 dividerIndex 同步增长,实际指向的消息不变。
+
   const dividerIndex = (currentChatUnread > 0 && state.messages.length >= currentChatUnread)
     ? state.messages.length - currentChatUnread
     : -1;
-  let html = '';
-  // 会话式盖楼:按发送者把连续消息分成组,组内折叠紧凑、组间拉开距离。
-  // 用前瞻判断组角色(solo/first/middle/last),驱动气泡圆角与间距。
-  for (let i = 0; i < visible.length; i++) {
-    const absIdx = start + i;
-    if (absIdx === dividerIndex) {
-      html += `<div class="msg-unread-divider"><span class="divider-line"></span><span class="divider-label">新消息</span><span class="divider-line"></span></div>`;
-    }
-    const m = visible[i];
-    const dateStr = formatDate(new Date(m.ts * 1000));
-    if (dateStr !== prevDate) {
-      html += `<div class="msg-date-divider">${dateStr}</div>`;
-      prevDate = dateStr;
-    }
-    const isPending = m.state === 'pending' || m.state === 'failed';
-    // 组边界:发送中/失败消息单独成组;跨天/未读分隔也断开组
-    const prevIsSame = (visible[i - 1]?.from_id === m.from_id) && !isPending
-      && (visible[i - 1]?.state !== 'pending' && visible[i - 1]?.state !== 'failed')
-      && formatDate(new Date((visible[i - 1]?.ts ?? 0) * 1000)) === dateStr
-      && (start + i - 1) !== dividerIndex;
-    const nextIsSame = (visible[i + 1]?.from_id === m.from_id) && !isPending
-      && (visible[i + 1]?.state !== 'pending' && visible[i + 1]?.state !== 'failed')
-      && formatDate(new Date((visible[i + 1]?.ts ?? 0) * 1000)) === dateStr
-      && (start + i + 1) !== dividerIndex;
-    const role: 'solo' | 'first' | 'middle' | 'last' =
-      !prevIsSame && !nextIsSame ? 'solo'
-      : !prevIsSame && nextIsSame ? 'first'
-      : prevIsSame && !nextIsSame ? 'last'
-      : 'middle';
-    html += await renderMessage(m, role);
-  }
 
-  // 2. 在 off-DOM temp 中组装完整子节点(spacerTop + 消息 + spacerBottom)
+  // 在 off-DOM temp 组装新序列:spacerTop + 分隔线 + 消息节点(spacerBottom 末尾)。
+  // 已存在的消息节点直接移动(不重建),缺失的新建。
   const temp = document.createElement('div');
   const spacerTop = document.createElement('div');
   spacerTop.style.height = (start * ITEM_HEIGHT) + 'px';
   temp.appendChild(spacerTop);
-  const msgContainer = document.createElement('div');
-  msgContainer.innerHTML = html;
-  bindMessageActions(msgContainer);
-  while (msgContainer.firstChild) temp.appendChild(msgContainer.firstChild);
+
+  let prevDate: string | null = null;
+  if (start > 0 && state.messages.length > 0) {
+    prevDate = formatDate(new Date(state.messages[start - 1].ts * 1000));
+  }
+
+  for (let i = 0; i < visible.length; i++) {
+    const absIdx = start + i;
+    const m = visible[i];
+    if (absIdx === dividerIndex) {
+      const d = document.createElement('div');
+      d.className = 'msg-unread-divider';
+      d.innerHTML = `<span class="divider-line"></span><span class="divider-label">新消息</span><span class="divider-line"></span>`;
+      temp.appendChild(d);
+    }
+    const dateStr = formatDate(new Date(m.ts * 1000));
+    if (dateStr !== prevDate) {
+      const d = document.createElement('div');
+      d.className = 'msg-date-divider';
+      d.textContent = dateStr;
+      temp.appendChild(d);
+      prevDate = dateStr;
+    }
+    const existingEl = existing.get(m.msg_id);
+    if (existingEl) {
+      // 复用已存在节点:移动而非重建,消除滚动闪动
+      temp.appendChild(existingEl);
+    } else {
+      const isPending = m.state === 'pending' || m.state === 'failed';
+      const prevIsSame = (visible[i - 1]?.from_id === m.from_id) && !isPending
+        && (visible[i - 1]?.state !== 'pending' && visible[i - 1]?.state !== 'failed')
+        && formatDate(new Date((visible[i - 1]?.ts ?? 0) * 1000)) === dateStr
+        && (absIdx - 1) !== dividerIndex;
+      const nextIsSame = (visible[i + 1]?.from_id === m.from_id) && !isPending
+        && (visible[i + 1]?.state !== 'pending' && visible[i + 1]?.state !== 'failed')
+        && formatDate(new Date((visible[i + 1]?.ts ?? 0) * 1000)) === dateStr
+        && (absIdx + 1) !== dividerIndex;
+      const role: 'solo' | 'first' | 'middle' | 'last' =
+        !prevIsSame && !nextIsSame ? 'solo'
+        : !prevIsSame && nextIsSame ? 'first'
+        : prevIsSame && !nextIsSame ? 'last'
+        : 'middle';
+      const frag = document.createElement('div');
+      frag.innerHTML = await renderMessage(m, role);
+      const node = frag.firstElementChild as HTMLElement;
+      if (node) {
+        bindMessageActions(frag);
+        // 新建消息:入场动画(pop-in)。滚动复用的节点不带此类,不重复动画。
+        node.classList.add('msg-enter');
+        temp.appendChild(node);
+      }
+    }
+  }
+
   const spacerBottom = document.createElement('div');
   spacerBottom.style.height = ((state.messages.length - end) * ITEM_HEIGHT) + 'px';
   temp.appendChild(spacerBottom);
 
-  // 3. 同步原子替换:清空 + 追加在同一 tick 内完成,浏览器只绘制一次
+  // 原子替换:temp 新序列整体替换 box 内容(同一 tick,浏览器只绘制一次)
   box.innerHTML = '';
   while (temp.firstChild) box.appendChild(temp.firstChild);
 
-  // 4. 恢复 scrollTop(清空时被钳位为 0,新内容 spacerTop 高度 ≈ savedScrollTop)
   if (box.scrollTop !== savedScrollTop) {
     box.scrollTop = savedScrollTop;
   }
@@ -397,6 +418,14 @@ export function appendOptimisticMessage(tmpMsg: MsgDto): void {
   void renderVisibleMessages(box, start, end).then(() => {
     box.scrollTop = box.scrollHeight;
   });
+}
+
+// 重渲染当前可视区(读最新 reactionsCache/状态),用于反应/消息状态实时更新。
+export function refreshVisibleMessages(): void {
+  const box = document.getElementById('messages');
+  if (!box || state.messages.length === 0) return;
+  const range = getVisibleRange(box.scrollTop, box.clientHeight, ITEM_HEIGHT);
+  void renderVisibleMessages(box, range.start, range.end);
 }
 
 function bindScrollListener(chatId: number): void {
