@@ -47,7 +47,7 @@ export function renderLogin(onSuccess: () => void | Promise<void>): void {
         </div>
 
         <form id="quick-form" class="tab-panel" hidden>
-          <p class="hint">输入显示名，自动创建 nine.testrun.org 免费账号，立即开始聊天。</p>
+          <p class="hint">输入显示名，自动创建 yzjtiantian.cn 免费账号，立即开始聊天。</p>
           <input id="display-name" type="text" placeholder="显示名（如：张三）" required maxlength="60" />
           <button type="submit" id="quick-btn">开始聊天</button>
         </form>

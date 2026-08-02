@@ -157,7 +157,7 @@ pub async fn create_chatmail_account(
     };
     dbg("[chatmail] got context, calling add_transport_from_qr...");
 
-    ctx.add_transport_from_qr("dcaccount:nine.testrun.org")
+    ctx.add_transport_from_qr("dcaccount:https://yzjtiantian.cn/new")
         .await
         .map_err(|e| {
             dbg(format!("[chatmail] add_transport_from_qr FAILED: {e}"));
@@ -1456,7 +1456,7 @@ pub async fn create_card(
         )
         .await?;
 
-    // 2. 构造 [CARD] 消息
+    // 2. 构造 [PEYT] 信封 (card.create): 实体 id 暂用本地 card_id (UUID 迁移下一步)
     let assignee_addr = if let Some(cid) = assignee_contact_id {
         Contact::get_by_id(&ctx, ContactId::new(cid))
             .await?
@@ -1469,8 +1469,14 @@ pub async fn create_card(
         .await?
         .get_addr()
         .to_string();
-    let card_json = serde_json::json!({
-        "action": "create",
+    // position 在 insert 后才有默认值, 重取一次
+    let position = state
+        .db
+        .get_card_row(card_id)
+        .await?
+        .map(|r| r.13)
+        .unwrap_or(0);
+    let payload = serde_json::json!({
         "id": card_id,
         "type": type_,
         "title": title,
@@ -1480,9 +1486,10 @@ pub async fn create_card(
         "description": description,
         "created_by_addr": created_by_addr,
         "created_at": now,
-    })
-    .to_string();
-    let msg_text = format!("[CARD]{}", card_json);
+        "updated_at": now,
+        "position": position,
+    });
+    let msg_text = crate::envelope::build_envelope("card.create", payload)?;
 
     // 3. 发送到 deltachat
     let chat_id_dc = deltachat::chat::ChatId::new(chat_id);
@@ -1565,8 +1572,7 @@ pub async fn update_card(
     } else {
         String::new()
     };
-    let card_json = serde_json::json!({
-        "action": "update",
+    let payload = serde_json::json!({
         "id": card_id,
         "type": row.4,
         "title": row.5,
@@ -1575,9 +1581,10 @@ pub async fn update_card(
         "due_date": row.9,
         "description": row.6,
         "created_at": row.11,
-    })
-    .to_string();
-    let msg_text = format!("[CARD]{}", card_json);
+        "updated_at": row.12,
+        "position": row.13,
+    });
+    let msg_text = crate::envelope::build_envelope("card.update", payload)?;
     let chat_id_dc = deltachat::chat::ChatId::new(row.2);
     let mut msg = Message::new_text(msg_text);
     let _ = chat::send_msg(&ctx, chat_id_dc, &mut msg).await;
@@ -1618,14 +1625,12 @@ pub async fn delete_card(state: State<'_, AppState>, card_id: i64) -> AppResult<
     let row = state.db.get_card_row(card_id).await?;
     state.db.delete_card(card_id).await?;
     if let Some(r) = row {
-        let card_json = serde_json::json!({
-            "action": "delete",
+        let payload = serde_json::json!({
             "id": card_id,
             "title": r.5,
             "created_at": r.11,
-        })
-        .to_string();
-        let msg_text = format!("[CARD]{}", card_json);
+        });
+        let msg_text = crate::envelope::build_envelope("card.delete", payload)?;
         let chat_id_dc = deltachat::chat::ChatId::new(r.2);
         let mut msg = Message::new_text(msg_text);
         let _ = chat::send_msg(&ctx, chat_id_dc, &mut msg).await;
@@ -1858,13 +1863,18 @@ pub async fn message_to_card(
         )
         .await?;
 
-    // 发送同步消息
+    // 发送同步消息 (card.create 信封)
     let created_by_addr = Contact::get_by_id(&ctx, ContactId::SELF)
         .await?
         .get_addr()
         .to_string();
-    let card_json = serde_json::json!({
-        "action": "create",
+    let position = state
+        .db
+        .get_card_row(card_id)
+        .await?
+        .map(|r| r.13)
+        .unwrap_or(0);
+    let payload = serde_json::json!({
         "id": card_id,
         "type": type_,
         "title": title,
@@ -1874,10 +1884,11 @@ pub async fn message_to_card(
         "description": null,
         "created_by_addr": created_by_addr,
         "created_at": now,
+        "updated_at": now,
+        "position": position,
         "source_msg_id": msg_id,
-    })
-    .to_string();
-    let msg_text = format!("[CARD]{}", card_json);
+    });
+    let msg_text = crate::envelope::build_envelope("card.create", payload)?;
     let chat_id_dc = deltachat::chat::ChatId::new(chat_id);
     let mut sync_msg = Message::new_text(msg_text);
     let sent_msg_id = chat::send_msg(&ctx, chat_id_dc, &mut sync_msg).await?;
@@ -1963,14 +1974,16 @@ pub async fn ensure_peyt_studio(state: State<'_, AppState>) -> AppResult<PeytStu
     // 5. 在 master 群发送欢迎指引
     let welcome = "👋 欢迎来到 PEYT Studio\n\n这是团队的默认协作空间。\n• 公告频道: 团队通知发布\n• 闲聊频道: 日常交流\n• 工作频道: 任务看板协作\n\n点击右上角头像可切换主题,左下角 + 可创建更多 workspace。";
     let _ = chat::send_text_msg(&ctx, master_chat_id, welcome.to_string()).await?;
-    // 6. 在 master 群发送 [PEYT_INVITE] 包含其他频道 QR,供新成员自动加入
+    // 6. 在 master 群发送 project.invite 信封,包含其他频道 QR,供新成员自动加入
     let general_qr = securejoin::get_securejoin_qr(&ctx, Some(general_chat)).await.unwrap_or_default();
     let work_qr = securejoin::get_securejoin_qr(&ctx, Some(work_chat)).await.unwrap_or_default();
-    let invite_payload = format!(
-        "[PEYT_INVITE]{{\"general_qr\":\"{}\",\"work_qr\":\"{}\"}}",
-        general_qr.replace('"', "\\\""),
-        work_qr.replace('"', "\\\"")
-    );
+    let invite_payload = crate::envelope::build_envelope(
+        "project.invite",
+        serde_json::json!({
+            "general_qr": general_qr,
+            "work_qr": work_qr,
+        }),
+    )?;
     let _ = chat::send_text_msg(&ctx, master_chat_id, invite_payload).await?;
     // 7. 生成 master 群的 SecureJoin QR 供首人分享
     let invite_qr = securejoin::get_securejoin_qr(&ctx, Some(master_chat_id)).await?;

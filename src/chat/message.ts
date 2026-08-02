@@ -3,7 +3,7 @@ import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { showDropdown, type DropdownItem } from '../components/dropdown.js';
 import { showInlineConfirm } from '../components/inlineConfirm.js';
-import { iconSvg, type IconName } from '../components/icon.js';
+import { iconSvg } from '../components/icon.js';
 import hljs from 'highlight.js/lib/core';
 import rust from 'highlight.js/lib/languages/rust';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -43,13 +43,16 @@ interface Reaction {
   count: number;
 }
 
-// Reaction symbols (non-emoji per design constraint: ↑/+/★/!)
-// Reaction 选项:展示用专业图标,data-emoji 保留后端识别的文本值
-const reactionSymbols: ReadonlyArray<{ emoji: string; icon: 'thumbs-up' | 'plus' | 'star' | 'alert-circle' }> = [
-  { emoji: 'thumbsup', icon: 'thumbs-up' },
-  { emoji: '+', icon: 'plus' },
-  { emoji: '★', icon: 'star' },
-  { emoji: '!', icon: 'alert-circle' },
+// 反应 = 原生 emoji (Delta Chat 互通)。常用快捷栏 + 完整面板。
+const reactionQuick: string[] = ['👍', '❤️', '😂', '😮', '😢', '😭', '🔥'];
+// 完整面板:精选常用 emoji (覆盖情绪/动作/符号/动物),零依赖内嵌。
+const reactionPanel: string[] = [
+  '👍', '❤️', '😂', '😮', '😢', '😭', '🔥', '🎉',
+  '👏', '🙏', '💯', '✨', '😍', '🤔', '😴', '🤯',
+  '😅', '🥳', '😎', '🥺', '😤', '🤝', '💪', '👀',
+  '👍🏻', '👍🏼', '👍🏽', '👍🏾', '👍🏿',
+  '❤️‍🔥', '💖', '💔', '✅', '❌', '⚠️', '❗', '❓',
+  '⭐', '🌟', '☀️', '🌙', '☕', '🍻', '🎁', '🏆',
 ];
 
 // Module-level reactions cache: avoids repeated get_reactions IPC on virtualization re-render.
@@ -209,10 +212,11 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
       <button class="msg-action-btn" data-action="more" data-msg="${msg.msg_id}" title="更多">${iconSvg('more-horizontal', { width: 16, height: 16 })}</button>
     </div>
   `;
-  // Reaction picker (embedded, toggled by react button). 专业图标 + 后端 emoji 值
-  const pickerHtml = reactionSymbols.map((r) =>
-    `<span class="msg-reaction-pick" data-emoji="${r.emoji}" title="${r.emoji}">${iconSvg(r.icon, { width: 18, height: 18, strokeWidth: 1.8 })}</span>`
-  ).join('');
+  // Reaction picker (embedded, toggled by react button). 常用 emoji + 更多按钮。
+  const pickerHtml = [
+    ...reactionQuick.map((e) => `<span class="msg-reaction-pick" data-emoji="${e}" title="${e}">${e}</span>`),
+    `<span class="msg-reaction-more" id="more-${msg.msg_id}" title="更多表情">${iconSvg('smile-plus', { width: 18, height: 18, strokeWidth: 1.8 })}</span>`,
+  ].join('');
   // Task 8: outgoing messages show send state; failed messages show resend button.
   const stateHtml = isOut
     ? `<span class="msg-state state-${msg.state || 'pending'}" data-msg-state="${msg.msg_id}">${stateLabel(msg.state)}</span>`
@@ -318,25 +322,12 @@ async function renderReactions(msgId: number): Promise<string> {
 // Input: get_reactions return array. Output: inner capsules HTML (without .msg-reactions wrapper).
 export function renderReactionsHtml(reactions: Reaction[] | null, msgId: number): string {
   if (!reactions || reactions.length === 0) return '';
-  // 反应图标化:后端 emoji 值 → lucide icon (与反应选择器同一图标集)。
-  // 未知 emoji 回退渲染原文 (仅文本)。
-  const iconFor = (emoji: string): IconName | '' => {
-    const e = emoji.trim();
-    // U+1F44D = thumbs up, U+2795 = heavy plus sign, U+2605 = star
-    if (e === '\u{1F44D}' || e === '+1' || e === 'thumbsup') return 'thumbs-up';
-    if (e === '\u2795' || e === 'plus') return 'plus';
-    if (e === '\u2605' || e === 'star') return 'star';
-    if (e === '!') return 'alert-circle';
-    return '';
-  };
+  // 反应 = 原生 emoji:直接渲染 emoji 文本 + 计数,与 Delta Chat 互通。
   return reactions.map((r) => {
-    const icon = iconFor(r.emoji);
-    const glyph = icon ? iconSvg(icon, { width: 13, height: 13, strokeWidth: 2 }) : escapeHtml(r.emoji.trim());
     const count = r.count > 1 ? `<span class="msg-reaction-count">${r.count}</span>` : '';
-    return `<span class="msg-reaction" data-msg="${msgId}" data-emoji="${escapeAttr(r.emoji)}">${glyph}${count}</span>`;
+    return `<span class="msg-reaction" data-msg="${msgId}" data-emoji="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji.trim())}${count}</span>`;
   }).join('');
 }
-
 export function bindMessageActions(container: HTMLElement): void {
   // Reaction toggle (click existing reaction capsule)
   container.querySelectorAll<HTMLElement>('.msg-reaction').forEach((el) => {
@@ -373,7 +364,7 @@ export function bindMessageActions(container: HTMLElement): void {
     });
   });
 
-  // Reaction picker options (专业图标;点击发对应反应,picker 由 hover 控制显隐)
+  // Reaction picker options (emoji;点击发对应反应)
   container.querySelectorAll<HTMLElement>('.msg-reaction-pick').forEach((s) => {
     s.addEventListener('click', async (ev) => {
       ev.stopPropagation();
@@ -383,6 +374,17 @@ export function bindMessageActions(container: HTMLElement): void {
       if (!picker) return;
       const msgIdStr = picker.id.replace('rp-', '');
       await sendReaction(msgIdStr, emoji);
+    });
+  });
+
+  // 更多表情:弹出完整 emoji 面板
+  container.querySelectorAll<HTMLElement>('.msg-reaction-more').forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const picker = btn.closest<HTMLElement>('.msg-reaction-picker');
+      if (!picker) return;
+      const msgIdStr = picker.id.replace('rp-', '');
+      openReactionPanel(picker, msgIdStr);
     });
   });
 
@@ -467,6 +469,26 @@ function toggleReactionPicker(msgIdStr: string): void {
   // 光标移出消息时关闭
   const msgEl = picker.closest<HTMLElement>('.msg');
   msgEl?.addEventListener('mouseleave', () => picker.classList.remove('show'), { once: true });
+}
+
+// 弹出完整 emoji 面板:点击"更多"时在 picker 上方显示 reactionPanel 网格。
+// 每次点击重建,保证与其他弹层状态一致。
+function openReactionPanel(picker: HTMLElement, msgIdStr: string): void {
+  document.querySelectorAll('.msg-reaction-panel').forEach((el) => el.remove());
+  const panel = document.createElement('div');
+  panel.className = 'msg-reaction-panel';
+  panel.innerHTML = reactionPanel
+    .map((e) => `<span class="msg-reaction-pick" data-emoji="${escapeAttr(e)}" title="${e}">${e}</span>`)
+    .join('');
+  panel.addEventListener('click', async (ev) => {
+    const target = (ev.target as HTMLElement).closest<HTMLElement>('.msg-reaction-pick');
+    if (!target) return;
+    const emoji = target.dataset.emoji;
+    if (!emoji) return;
+    await sendReaction(msgIdStr, emoji);
+    panel.remove();
+  });
+  picker.appendChild(panel);
 }
 
 // Dispatch composer:set-reply event for chatView to render reply preview

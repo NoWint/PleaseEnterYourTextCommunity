@@ -311,12 +311,12 @@ html { background: var(--bg); }
 .msg .msg-reaction {
   display: inline-flex; align-items: center; gap: 4px;
   background: var(--capsule); border: 1px solid var(--border-strong); border-radius: var(--radius-md);
-  padding: 2px 8px; font-size: var(--font-scale-secondary); color: var(--text-weak); cursor: pointer;
+  padding: 2px 8px; font-size: 14px; line-height: 1.2; color: var(--text-weak); cursor: pointer;
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
   transition: background 100ms, border-color 100ms;
 }
 .msg .msg-reaction:hover { background: var(--active); border-color: var(--text-weak); }
-.msg .msg-reaction svg { display: block; }
-.msg-reaction-count { font-size: var(--font-scale-micro); font-weight: 600; color: var(--text-mute); line-height: 1; }
+.msg-reaction-count { font-size: var(--font-scale-micro); font-weight: 600; color: var(--text-mute); line-height: 1; margin-left: 1px; }
 /* 输入区:胶囊输入条 + 圆形发送按钮 (iMessage 式) */
 /* 输入区:回复条在卡片内顶部,textarea+发送按钮在下方一行 */
 .composer {
@@ -590,21 +590,63 @@ html { background: var(--bg); }
   transform: translateY(0) scale(1);
   pointer-events: auto;
 }
-.msg-reaction-picker span {
+.msg-reaction-picker > span {
   cursor: pointer;
-  padding: 3px;
+  padding: 3px 5px;
   border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  line-height: 1.2;
+  color: var(--text);
+  transition: background 100ms, transform 100ms;
+}
+.msg-reaction-picker > span:hover {
+  background: var(--surface-hover);
+}
+.msg-reaction-picker > span:active { transform: scale(0.9); }
+.msg-reaction-picker > .msg-reaction-more {
+  font-size: 0; /* 图标按钮,不继承 emoji 字号 */
+  color: var(--text-mute);
+}
+.msg-reaction-picker > .msg-reaction-more:hover { color: var(--text); }
+.msg-reaction-picker > .msg-reaction-more svg { display: block; }
+
+/* 完整 emoji 面板:点"更多"弹出,picker 上方网格 */
+.msg-reaction-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+  z-index: 20;
+  animation: pop-in 140ms ease-out;
+}
+.msg-reaction-panel .msg-reaction-pick {
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  font-size: 20px;
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  line-height: 1.2;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-mute);
-  transition: background 100ms, color 100ms;
+  transition: background 100ms, transform 100ms;
 }
-.msg-reaction-picker span:hover {
-  background: var(--surface-hover);
-  color: var(--text);
+.msg-reaction-panel .msg-reaction-pick:hover { background: var(--surface-hover); }
+.msg-reaction-panel .msg-reaction-pick:active { transform: scale(0.9); }
+@media (prefers-reduced-motion: reduce) {
+  .msg-reaction-panel { animation: none; }
 }
-.msg-reaction-picker span:active { transform: scale(0.9); }
 
 /* msg sending/failed state (状态由 .msg-state SVG 图标呈现,不再用 emoji 后缀) */
 .msg.sending { opacity: 0.6; }

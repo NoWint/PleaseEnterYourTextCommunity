@@ -6,7 +6,7 @@ import {
   ArrowUp, Star, AlertCircle, ThumbsUp, Package, Terminal, Download,
   Calendar, List, Clock, Inbox,
   Columns3, GitCommitHorizontal,
-  RefreshCw, Ban, PinOff, Bug,
+  RefreshCw, Ban, PinOff, Bug, SmilePlus,
 } from 'lucide';
 import type { IconNode, SVGProps } from 'lucide';
 
@@ -28,7 +28,9 @@ export type IconName =
   // 置顶 / 取消置顶
   | 'pin-off'
   // 调试: 消息原文列表页
-  | 'bug';
+  | 'bug'
+  // 反应: 更多表情面板入口
+  | 'smile-plus';
 
 export interface IconOpts {
   width?: number;
@@ -91,6 +93,7 @@ const iconMap: Record<IconName, IconNode> = {
   'ban': Ban,
   'pin-off': PinOff,
   'bug': Bug,
+  'smile-plus': SmilePlus,
 };
 
 const defaultAttributes: SVGProps = {

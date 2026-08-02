@@ -45,7 +45,7 @@ npm run tauri build
 
 ### 快速开始（无需邮箱）
 
-登录界面选「快速开始」标签，输入昵称即可。会自动在 `nine.testrun.org` chatmail 服务上创建一个随机邮箱账号。
+登录界面选「快速开始」标签，输入昵称即可。会自动在 `yzjtiantian.cn` chatmail 服务上创建一个随机邮箱账号。
 
 ### 邮箱登录
 

@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod dto;
+mod envelope;
 mod error;
 mod events;
 mod plugins;
