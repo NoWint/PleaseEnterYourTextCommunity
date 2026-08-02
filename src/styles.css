@@ -724,7 +724,8 @@ html { background: var(--bg); }
    入场 = 材料浮现 (scale+opacity,transform-origin 锚定触发点);
    出场 = 同路径收束 (JS 加 .closing 后延时移除,见 dropdown/search/plugin-confirm/message)。 */
 @media (prefers-reduced-motion: no-preference) {
-  .msg { animation: msg-fade-in 150ms ease-out; }
+  /* 只让最新一条消息淡入;整列表重渲染时不重放,避免闪烁 */
+  .msg:last-child { animation: msg-fade-in 150ms ease-out; }
   @keyframes msg-fade-in {
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
@@ -760,25 +761,13 @@ html { background: var(--bg); }
   .search-overlay.closing { animation: fade-out 140ms ease-in forwards; }
   .img-fullscreen-overlay.closing { animation: fade-out 160ms ease-in forwards; }
 
-  /* 页面切换转场:主内容淡入 + 轻微上移 */
-  @keyframes page-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  #chat-main > * { animation: page-in 200ms ease-out; }
-
-  /* 全局微交互:统一过渡 + 按压反馈 */
-  button, [role="button"], .clickable, .nav-item, .chat-item, .home-item,
-  .rail-icon, .channel-item, .nav-channel, .plugin-row, .member-item {
-    transition: opacity 140ms ease, background 140ms ease, color 140ms ease,
-                border-color 140ms ease, transform 140ms ease;
-  }
+  /* 全局微交互:仅保留按压反馈,不做整页/列表重放动画(避免重渲染闪烁) */
   button:not(:disabled):active, [role="button"]:active, .clickable:active {
     transform: scale(0.97);
   }
-  .nav-item:hover, .chat-item:hover, .home-item:hover, .channel-item:hover,
-  .nav-channel:hover, .plugin-row:hover, .member-item:hover {
-    transform: translateX(2px);
+  .nav-item, .chat-item, .home-item, .channel-item, .nav-channel,
+  .plugin-row, .member-item {
+    transition: background 120ms ease, color 120ms ease;
   }
 }
 
@@ -786,8 +775,7 @@ html { background: var(--bg); }
 @media (prefers-reduced-motion: reduce) {
   .dropdown-menu, .plugin-confirm, .search-overlay, .search-dialog,
   .img-fullscreen-overlay, .nav-banner, .inline-confirm-active,
-  .mention-list, .reply-preview, .msg-hover-actions, .msg-reaction-picker,
-  #chat-main > * {
+  .mention-list, .reply-preview, .msg-hover-actions, .msg-reaction-picker {
     animation: none !important;
   }
 }
