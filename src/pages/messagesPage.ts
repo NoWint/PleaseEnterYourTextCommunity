@@ -4,7 +4,7 @@ import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { showDropdown, type DropdownItem } from '../components/dropdown.js';
-import { createInlineInput } from '../components/inlineInput.js';
+import { showInputDialog } from '../components/dialog.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import type { ChatListItem } from '../types.js';
 
@@ -101,71 +101,48 @@ function bindAddButton(): void {
 }
 
 function showInlineEmailInput(): void {
-  const list = document.getElementById('messages-list');
-  if (!list) return;
-  const input = createInlineInput({
-    placeholder: '输入邮箱地址',
+  showInputDialog({
+    title: '添加好友',
+    placeholder: '输入对方邮箱地址',
+    type: 'email',
     confirmLabel: '添加',
     onConfirm: async (email) => {
-      try {
-        const chatId = await call<number>('create_chat_by_email', { email });
-        state.currentChatId = chatId;
-        saveState();
-        await renderMessagesPage(panel!);
-        const { renderMain } = await import('../shell/navPanel.js');
-        await renderMain();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : String(e));
-        throw e;
-      }
+      const chatId = await call<number>('create_chat_by_email', { email });
+      state.currentChatId = chatId;
+      saveState();
+      await renderMessagesPage(panel!);
+      const { renderMain } = await import('../shell/navPanel.js');
+      await renderMain();
     },
-    onCancel: () => { void renderMessagesPage(panel!); },
   });
-  list.insertBefore(input, list.firstChild);
 }
 
 function showInlineQrInput(): void {
-  const list = document.getElementById('messages-list');
-  if (!list) return;
-  const input = createInlineInput({
-    placeholder: '粘贴 QR 邀请链接',
+  showInputDialog({
+    title: '通过 QR 加入',
+    placeholder: '粘贴 QR 邀请链接 (dccontact: / dcgroup:)',
     confirmLabel: '加入',
     onConfirm: async (qr) => {
-      try {
-        await call('secure_join', { qr });
-        await renderMessagesPage(panel!);
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : String(e));
-        throw e;
-      }
+      await call('secure_join', { qr });
+      await renderMessagesPage(panel!);
     },
-    onCancel: () => { void renderMessagesPage(panel!); },
   });
-  list.insertBefore(input, list.firstChild);
 }
 
 function showInlineGroupInput(): void {
-  const list = document.getElementById('messages-list');
-  if (!list) return;
-  const input = createInlineInput({
+  showInputDialog({
+    title: '创建群',
     placeholder: '输入群名称',
     confirmLabel: '创建',
     onConfirm: async (name) => {
-      try {
-        const chatId = await call<number>('create_group_chat', { name });
-        state.currentChatId = chatId;
-        saveState();
-        await renderMessagesPage(panel!);
-        const { renderMain } = await import('../shell/navPanel.js');
-        await renderMain();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : String(e));
-        throw e;
-      }
+      const chatId = await call<number>('create_group_chat', { name });
+      state.currentChatId = chatId;
+      saveState();
+      await renderMessagesPage(panel!);
+      const { renderMain } = await import('../shell/navPanel.js');
+      await renderMain();
     },
-    onCancel: () => { void renderMessagesPage(panel!); },
   });
-  list.insertBefore(input, list.firstChild);
 }
 
 async function joinPeytStudio(): Promise<void> {

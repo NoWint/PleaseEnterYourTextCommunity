@@ -368,6 +368,30 @@ html { background: var(--bg); }
 /* 通用 */
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-weak); }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.dialog {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  min-width: 320px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--shadow-lg);
+}
+.dialog h2 { margin: 0; font-size: var(--font-scale-lg); font-weight: 600; color: var(--text); }
+.dialog .dialog-field {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--capsule);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--font-scale-body);
+}
+.dialog .dialog-field:focus { outline: none; border-color: var(--text-weak); }
 .error { color: var(--text); background: var(--capsule); padding: 8px; border-radius: 4px; font-size: 11px; border: 1px solid var(--border-strong); }
 .hint { font-size: 11px; color: var(--text-mute); line-height: 1.5; margin: 0; }
 
