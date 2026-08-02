@@ -271,12 +271,9 @@ html { background: var(--bg); }
 .messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: none; }
 .messages::-webkit-scrollbar { display: none; }
 
-/* 全站滚动条:苹果式细条 — 6px 宽、透明轨道、thumb 用边框色,不喧宾夺主 */
-* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
-*::-webkit-scrollbar { width: 6px; height: 6px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
-*::-webkit-scrollbar-thumb:hover { background: var(--text-mute); }
+/* 全站隐藏滚动条(保留滚动功能) */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
 /* 消息 meta/text 的排版统一定义在下方 .msg-bubble .msg-* (更高优先级),此处仅保留旧块独有规则 */
 .msg .msg-role { border: 1px solid var(--border-strong); padding: 0 5px; border-radius: var(--radius-xs); font-size: var(--font-scale-micro); color: var(--text-weak); margin-left: 6px; }
 .msg .msg-reply-mark { color: var(--text-faint); margin-left: 8px; }
