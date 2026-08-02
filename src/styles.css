@@ -759,13 +759,35 @@ html { background: var(--bg); }
   .plugin-confirm.closing { animation: pop-out 110ms ease-in forwards; }
   .search-overlay.closing { animation: fade-out 140ms ease-in forwards; }
   .img-fullscreen-overlay.closing { animation: fade-out 160ms ease-in forwards; }
+
+  /* 页面切换转场:主内容淡入 + 轻微上移 */
+  @keyframes page-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  #chat-main > * { animation: page-in 200ms ease-out; }
+
+  /* 全局微交互:统一过渡 + 按压反馈 */
+  button, [role="button"], .clickable, .nav-item, .chat-item, .home-item,
+  .rail-icon, .channel-item, .nav-channel, .plugin-row, .member-item {
+    transition: opacity 140ms ease, background 140ms ease, color 140ms ease,
+                border-color 140ms ease, transform 140ms ease;
+  }
+  button:not(:disabled):active, [role="button"]:active, .clickable:active {
+    transform: scale(0.97);
+  }
+  .nav-item:hover, .chat-item:hover, .home-item:hover, .channel-item:hover,
+  .nav-channel:hover, .plugin-row:hover, .member-item:hover {
+    transform: translateX(2px);
+  }
 }
 
 /* 减少动效:关闭全部入场/出场动画,保留静态呈现 */
 @media (prefers-reduced-motion: reduce) {
   .dropdown-menu, .plugin-confirm, .search-overlay, .search-dialog,
   .img-fullscreen-overlay, .nav-banner, .inline-confirm-active,
-  .mention-list, .reply-preview, .msg-hover-actions, .msg-reaction-picker {
+  .mention-list, .reply-preview, .msg-hover-actions, .msg-reaction-picker,
+  #chat-main > * {
     animation: none !important;
   }
 }
