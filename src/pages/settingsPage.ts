@@ -1,11 +1,10 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
-import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from '../components/icon.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { getCurrentTheme, applyTheme } from '../theme.js';
-import { showInlineConfirm } from '../components/inlineConfirm.js';
+import { ui } from '../components/ui.js';
 import { createInlineInput } from '../components/inlineInput.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
 
@@ -54,57 +53,62 @@ async function renderPlugins(main: HTMLElement): Promise<void> {
   await renderPluginSettings(main);
 }
 
+// ── 账号 ──────────────────────────────────────────────
 async function renderAccount(main: HTMLElement): Promise<void> {
+  main.innerHTML = '';
+  const section = document.createElement('div');
+  section.className = 'settings-section';
+  section.innerHTML = '<h2>账号</h2>';
+
+  // 头像行
   const avatarHtml = state.self ? await renderAvatarHtml(state.self) : '';
-  main.innerHTML = `
-    <div class="settings-section">
-      <h2>账号</h2>
-      <div class="settings-avatar-row">
-        <div class="settings-avatar-large" id="settings-avatar">${avatarHtml}</div>
-        <div class="settings-avatar-options" id="avatar-options" style="display:none">
-          <button class="settings-btn" id="avatar-upload">${iconSvg('upload', { width: 14, height: 14 })} 上传</button>
-          <button class="settings-btn settings-btn-danger" id="avatar-remove">${iconSvg('trash', { width: 14, height: 14 })} 移除</button>
-        </div>
-      </div>
-      <div class="settings-field">
-        <label>显示名</label>
-        <input type="text" id="settings-name" value="${escapeAttr(state.self?.name || '')}" />
-      </div>
-      <div class="settings-field">
-        <label>邮箱</label>
-        <div class="settings-readonly">${escapeHtml(state.self?.addr || '—')}</div>
-      </div>
-    </div>
-  `;
-  const avatar = document.getElementById('settings-avatar');
-  const options = document.getElementById('avatar-options');
-  avatar?.addEventListener('click', () => {
-    if (options) options.style.display = options.style.display === 'none' ? 'block' : 'none';
-  });
-  document.getElementById('avatar-upload')?.addEventListener('click', () => triggerAvatarUpload(main));
-  document.getElementById('avatar-remove')?.addEventListener('click', async () => {
+  const avatarRow = document.createElement('div');
+  avatarRow.className = 'settings-avatar-row';
+  avatarRow.innerHTML = `<div class="settings-avatar-large" id="settings-avatar">${avatarHtml}</div>`;
+  section.appendChild(avatarRow);
+
+  const options = document.createElement('div');
+  options.className = 'settings-avatar-options';
+  options.style.display = 'none';
+  options.appendChild(ui.button({ label: '上传', icon: 'upload', size: 'sm', onClick: () => triggerAvatarUpload(main) }));
+  options.appendChild(ui.button({ label: '移除', icon: 'trash', size: 'sm', danger: true, onClick: async () => {
     try {
       await call('update_profile', { name: null, avatarPath: '' });
       state.self = await call<SelfProfile>('get_self_profile');
       const { renderRail } = await import('../shell/rail.js');
       await renderRail();
       await renderAccount(main);
-      showToast('头像已移除');
-    } catch (e) { showToast(e instanceof Error ? e.message : String(e)); }
+      ui.toast('头像已移除');
+    } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+  } }));
+  avatarRow.appendChild(options);
+  avatarRow.querySelector('#settings-avatar')?.addEventListener('click', () => {
+    options.style.display = options.style.display === 'none' ? 'flex' : 'none';
   });
-  const nameInput = document.getElementById('settings-name');
-  nameInput?.addEventListener('blur', async () => {
-    const name = (nameInput as HTMLInputElement).value.trim();
+
+  // 显示名
+  const nameInput = ui.input({ value: state.self?.name || '', placeholder: '显示名' });
+  nameInput.addEventListener('blur', async () => {
+    const name = nameInput.value.trim();
     if (name && name !== state.self?.name) {
       try {
         await call('update_profile', { name, avatarPath: null });
         state.self = await call<SelfProfile>('get_self_profile');
         const { renderRail } = await import('../shell/rail.js');
         await renderRail();
-        showToast('已保存');
-      } catch (e) { showToast(e instanceof Error ? e.message : String(e)); }
+        ui.toast('已保存');
+      } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
     }
   });
+  section.appendChild(ui.field({ label: '显示名', children: nameInput }));
+
+  // 邮箱
+  const addr = document.createElement('div');
+  addr.className = 'settings-readonly';
+  addr.textContent = state.self?.addr || '—';
+  section.appendChild(ui.field({ label: '邮箱', children: addr }));
+
+  main.appendChild(section);
 }
 
 function triggerAvatarUpload(main: HTMLElement): void {
@@ -124,15 +128,15 @@ function triggerAvatarUpload(main: HTMLElement): void {
       const { renderRail } = await import('../shell/rail.js');
       await renderRail();
       await renderAccount(main);
-      showToast('头像已更新');
-    } catch (e) { showToast(e instanceof Error ? e.message : String(e)); }
+      ui.toast('头像已更新');
+    } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
   });
   input.click();
 }
 
+// ── 外观 ──────────────────────────────────────────────
 function renderAppearance(main: HTMLElement): void {
   const current = getCurrentTheme();
-  // 内置主题（渐变 swatch class）+ 插件注册主题（内联色）
   const builtin: Array<{ id: string; label: string; cls: string }> = [
     { id: 'nowint', label: 'Nowint', cls: 'swatch-nowint' },
     { id: 'violet', label: 'Violet', cls: 'swatch-violet' },
@@ -154,9 +158,7 @@ function renderAppearance(main: HTMLElement): void {
   main.innerHTML = `
     <div class="settings-section">
       <h2>外观</h2>
-      <div class="settings-themes">
-        ${themesHtml}
-      </div>
+      <div class="settings-themes">${themesHtml}</div>
     </div>
   `;
   main.querySelectorAll<HTMLElement>('.settings-theme').forEach((el) => {
@@ -169,79 +171,83 @@ function renderAppearance(main: HTMLElement): void {
   });
 }
 
+// ── 当前团队 ──────────────────────────────────────────
 async function renderTeam(main: HTMLElement): Promise<void> {
   const ws = state.workspaces.find((w) => w.id === state.currentWsId);
+  const section = document.createElement('div');
+  section.className = 'settings-section';
+  section.innerHTML = '<h2>当前团队</h2>';
+
   if (!ws) {
-    main.innerHTML = `
-      <div class="settings-section">
-        <h2>当前团队</h2>
-        <p class="settings-empty">未加入任何团队</p>
-        <div class="settings-field">
-          <label>加入 PEYT Studio</label>
-          <div id="team-join-area"></div>
-        </div>
-      </div>
-    `;
-    const joinArea = document.getElementById('team-join-area');
-    if (joinArea) {
-      const input = createInlineInput({
-        placeholder: '粘贴邀请链接 (dcgroup:... 或 OPENPGP4FPR:...)',
-        confirmLabel: '加入',
-        onConfirm: async (qr) => {
-          try {
-            const r = await call<{ workspace_id: number }>('join_peyt_studio', { qr });
-            state.currentWsId = r.workspace_id;
-            saveState();
-            const { refreshWorkspaces, renderRail } = await import('../shell/rail.js');
-            await refreshWorkspaces();
-            await renderRail();
-            await renderTeam(main);
-            showToast('已加入 PEYT Studio');
-          } catch (e) {
-            showToast(e instanceof Error ? e.message : String(e));
-            throw e;
-          }
-        },
-      });
-      joinArea.appendChild(input);
-    }
+    section.appendChild(ui.empty('未加入任何团队'));
+    const joinArea = document.createElement('div');
+    const input = createInlineInput({
+      placeholder: '粘贴邀请链接 (dcgroup:... 或 OPENPGP4FPR:...)',
+      confirmLabel: '加入',
+      onConfirm: async (qr) => {
+        try {
+          const r = await call<{ workspace_id: number }>('join_peyt_studio', { qr });
+          state.currentWsId = r.workspace_id;
+          saveState();
+          const { refreshWorkspaces, renderRail } = await import('../shell/rail.js');
+          await refreshWorkspaces();
+          await renderRail();
+          await renderTeam(main);
+          ui.toast('已加入 PEYT Studio');
+        } catch (e) {
+          ui.toast(e instanceof Error ? e.message : String(e));
+          throw e;
+        }
+      },
+    });
+    joinArea.appendChild(input);
+    section.appendChild(ui.field({ label: '加入 PEYT Studio', children: joinArea }));
+    main.appendChild(section);
     return;
   }
+
   let inviteLink = '';
   try { inviteLink = await call<string>('get_securejoin_qr', { chatId: ws.master_chat_id }); } catch {}
   const memberCount = state.wsMembers[ws.id] || 0;
   const channelCount = state.channels.filter((c) => c.workspace_id === ws.id).length;
-  main.innerHTML = `
-    <div class="settings-section">
-      <h2>当前团队</h2>
-      <div class="settings-field"><label>团队名</label><div class="settings-readonly">${escapeHtml(ws.name)}</div></div>
-      <div class="settings-field"><label>成员数</label><div class="settings-readonly">${memberCount}</div></div>
-      <div class="settings-field"><label>频道数</label><div class="settings-readonly">${channelCount}</div></div>
-      <div class="settings-field">
-        <label>邀请链接</label>
-        <div class="settings-invite-row">
-          <input type="text" readonly value="${escapeAttr(inviteLink)}" id="team-invite-input" />
-          <button class="settings-btn" id="team-invite-copy">${iconSvg('copy', { width: 14, height: 14 })} 复制</button>
-        </div>
-      </div>
-      <div class="settings-danger-zone">
-        <button class="settings-btn settings-btn-danger" id="team-leave">${iconSvg('log-out', { width: 14, height: 14 })} 退出团队</button>
-      </div>
-    </div>
-  `;
-  document.getElementById('team-invite-copy')?.addEventListener('click', async () => {
-    const input = document.getElementById('team-invite-input') as HTMLInputElement;
+
+  const name = document.createElement('div');
+  name.className = 'settings-readonly';
+  name.textContent = ws.name;
+  section.appendChild(ui.field({ label: '团队名', children: name }));
+
+  const members = document.createElement('div');
+  members.className = 'settings-readonly';
+  members.textContent = String(memberCount);
+  section.appendChild(ui.field({ label: '成员数', children: members }));
+
+  const chans = document.createElement('div');
+  chans.className = 'settings-readonly';
+  chans.textContent = String(channelCount);
+  section.appendChild(ui.field({ label: '频道数', children: chans }));
+
+  // 邀请链接 + 复制
+  const inviteInput = ui.input({ value: inviteLink });
+  inviteInput.readOnly = true;
+  const copyBtn = ui.button({ label: '复制', icon: 'copy', size: 'sm', onClick: async () => {
     try {
-      await navigator.clipboard.writeText(input.value);
-      showToast('邀请链接已复制');
-    } catch (e) { showToast(e instanceof Error ? e.message : String(e)); }
-  });
-  const leaveBtn = document.getElementById('team-leave');
-  leaveBtn?.addEventListener('click', () => {
-    showInlineConfirm(leaveBtn, {
+      await navigator.clipboard.writeText(inviteInput.value);
+      ui.toast('邀请链接已复制');
+    } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+  } });
+  const inviteRow = document.createElement('div');
+  inviteRow.className = 'settings-invite-row';
+  inviteRow.appendChild(inviteInput);
+  inviteRow.appendChild(copyBtn);
+  section.appendChild(ui.field({ label: '邀请链接', children: inviteRow }));
+
+  // 退出团队
+  const leaveBtn = ui.button({ label: '退出团队', icon: 'log-out', variant: 'danger', onClick: () => {
+    ui.confirm({
+      title: '退出团队',
       message: '确定退出当前团队?退出后将无法查看团队频道。',
       confirmLabel: '退出',
-      successLabel: '已退出团队',
+      danger: true,
       onConfirm: async () => {
         await call('leave_workspace', { id: ws.id });
         state.currentWsId = null;
@@ -253,69 +259,72 @@ async function renderTeam(main: HTMLElement): Promise<void> {
         await renderTeam(main);
       },
     });
-  });
+  } });
+  const zone = document.createElement('div');
+  zone.className = 'settings-danger-zone';
+  zone.appendChild(leaveBtn);
+  section.appendChild(zone);
+
+  main.appendChild(section);
 }
 
+// ── 通知 ──────────────────────────────────────────────
 function renderNotifications(main: HTMLElement): void {
   const desktopEnabled = Notification.permission === 'granted';
   const badgeEnabled = localStorage.getItem('peyt.badgeEnabled') !== 'false';
-  main.innerHTML = `
-    <div class="settings-section">
-      <h2>通知</h2>
-      <div class="settings-toggle-row">
-        <span>桌面通知</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-desktop" ${desktopEnabled ? 'checked' : ''} />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="settings-toggle-row">
-        <span>Dock 角标</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="toggle-badge" ${badgeEnabled ? 'checked' : ''} />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-    </div>
-  `;
-  document.getElementById('toggle-desktop')?.addEventListener('change', async (e) => {
-    const checked = (e.target as HTMLInputElement).checked;
-    if (checked && Notification.permission !== 'granted') {
-      await Notification.requestPermission();
-    }
-  });
-  document.getElementById('toggle-badge')?.addEventListener('change', (e) => {
-    const checked = (e.target as HTMLInputElement).checked;
-    localStorage.setItem('peyt.badgeEnabled', String(checked));
-  });
+  const section = document.createElement('div');
+  section.className = 'settings-section';
+  section.innerHTML = '<h2>通知</h2>';
+
+  const desktopSwitch = ui.switch_({ checked: desktopEnabled, onChange: async (v) => {
+    if (v && Notification.permission !== 'granted') await Notification.requestPermission();
+  } });
+  const desktopRow = document.createElement('div');
+  desktopRow.className = 'settings-toggle-row';
+  desktopRow.append('桌面通知', desktopSwitch);
+  section.appendChild(desktopRow);
+
+  const badgeSwitch = ui.switch_({ checked: badgeEnabled, onChange: (v) => {
+    localStorage.setItem('peyt.badgeEnabled', String(v));
+  } });
+  const badgeRow = document.createElement('div');
+  badgeRow.className = 'settings-toggle-row';
+  badgeRow.append('Dock 角标', badgeSwitch);
+  section.appendChild(badgeRow);
+
+  main.appendChild(section);
 }
 
+// ── 关于 ──────────────────────────────────────────────
 function renderAbout(main: HTMLElement): void {
-  main.innerHTML = `
-    <div class="settings-section">
-      <h2>关于</h2>
-      <div class="settings-field"><label>版本</label><div class="settings-readonly">0.1.0</div></div>
-      <div class="settings-danger-zone">
-        <button class="settings-btn settings-btn-danger" id="about-logout">${iconSvg('log-out', { width: 14, height: 14 })} 登出</button>
-      </div>
-    </div>
-  `;
-  const logoutBtn = document.getElementById('about-logout');
-  logoutBtn?.addEventListener('click', () => {
-    showInlineConfirm(logoutBtn, {
+  const section = document.createElement('div');
+  section.className = 'settings-section';
+  section.innerHTML = '<h2>关于</h2>';
+  const version = document.createElement('div');
+  version.className = 'settings-readonly';
+  version.textContent = '0.1.0';
+  section.appendChild(ui.field({ label: '版本', children: version }));
+
+  const logoutBtn = ui.button({ label: '登出', icon: 'log-out', variant: 'danger', onClick: () => {
+    ui.confirm({
+      title: '登出',
       message: '确定登出当前账号?',
       confirmLabel: '登出',
+      danger: true,
       onConfirm: async () => {
-        // 成功 → location.reload() 刷新页面,外层 toast 不会执行;
-        // 失败 → throw 让 inlineConfirm 外层显示具体错误 (而非默认 "已删除")。
         await call('logout');
         location.reload();
       },
     });
-  });
+  } });
+  const zone = document.createElement('div');
+  zone.className = 'settings-danger-zone';
+  zone.appendChild(logoutBtn);
+  section.appendChild(zone);
+
+  main.appendChild(section);
 }
 
 function escapeHtml(s: string): string {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
-function escapeAttr(s: string): string { return escapeHtml(s); }
