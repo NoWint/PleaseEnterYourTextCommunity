@@ -761,13 +761,24 @@ html { background: var(--bg); }
   .search-overlay.closing { animation: fade-out 140ms ease-in forwards; }
   .img-fullscreen-overlay.closing { animation: fade-out 160ms ease-in forwards; }
 
-  /* 全局微交互:仅保留按压反馈,不做整页/列表重放动画(避免重渲染闪烁) */
+  /* 页面切换转场:主内容淡入(排除启动空占位,避免启动闪屏;消息刷新不重放) */
+  @keyframes page-in {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  #chat-main > *:not(.empty) { animation: page-in 180ms ease-out; }
+
+  /* 全局微交互:按压反馈 + 列表悬停 + 统一过渡 */
   button:not(:disabled):active, [role="button"]:active, .clickable:active {
     transform: scale(0.97);
   }
   .nav-item, .chat-item, .home-item, .channel-item, .nav-channel,
   .plugin-row, .member-item {
-    transition: background 120ms ease, color 120ms ease;
+    transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  }
+  .nav-item:hover, .chat-item:hover, .home-item:hover, .channel-item:hover,
+  .nav-channel:hover, .plugin-row:hover, .member-item:hover {
+    transform: translateX(2px);
   }
 }
 
@@ -775,7 +786,8 @@ html { background: var(--bg); }
 @media (prefers-reduced-motion: reduce) {
   .dropdown-menu, .plugin-confirm, .search-overlay, .search-dialog,
   .img-fullscreen-overlay, .nav-banner, .inline-confirm-active,
-  .mention-list, .reply-preview, .msg-hover-actions, .msg-reaction-picker {
+  .mention-list, .reply-preview, .msg-hover-actions, .msg-reaction-picker,
+  #chat-main > *:not(.empty) {
     animation: none !important;
   }
 }
