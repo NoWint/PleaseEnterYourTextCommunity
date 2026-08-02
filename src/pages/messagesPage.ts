@@ -1,10 +1,8 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
-import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
-import { showDropdown, type DropdownItem } from '../components/dropdown.js';
-import { createInlineInput } from '../components/inlineInput.js';
+import { ui } from '../components/ui.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import type { ChatListItem } from '../types.js';
 
@@ -53,36 +51,41 @@ async function renderMessageList(): Promise<void> {
   const messages = chats.filter((c) => !wsChatIds.has(c.chat_id));
 
   if (messages.length === 0) {
-    list.innerHTML = `<div class="nav-empty">暂无会话,点击 + 开始</div>`;
+    list.appendChild(ui.empty('暂无会话,点击 + 开始'));
     return;
   }
 
-  const items = await Promise.all(messages.map(async (c) => {
-    const time = c.last_ts ? formatTime(c.last_ts) : '';
-    const unread = c.unread > 0 ? `<span class="nav-unread">${c.unread}</span>` : '';
-    return `<div class="nav-chat-item ${state.currentChatId === c.chat_id ? 'active' : ''}" data-id="${c.chat_id}">
-      <div class="nav-chat-name">${escapeHtml(c.name)}</div>
-      <div class="nav-chat-preview">${escapeHtml(c.last_msg?.slice(0, 40) || '')}</div>
-      <div class="nav-chat-time">${time}</div>
-      ${unread}
-    </div>`;
-  }));
-  list.innerHTML = items.join('');
+  for (const c of messages) {
+    const trailing = document.createElement('div');
+    trailing.className = 'nav-item-trailing';
+    if (c.last_ts) {
+      const t = document.createElement('span');
+      t.className = 'nav-chat-time';
+      t.textContent = formatTime(c.last_ts);
+      trailing.appendChild(t);
+    }
+    if (c.unread > 0) trailing.appendChild(ui.badge({ text: String(c.unread) }));
 
-  list.querySelectorAll<HTMLElement>('.nav-chat-item').forEach((el) => {
-    el.addEventListener('click', async () => {
-      const id = Number(el.dataset.id);
-      state.currentChatId = id;
-      saveState();
-      await renderMessagesPage(panel!);
-      const { renderMain } = await import('../shell/navPanel.js');
-      await renderMain();
+    const item = ui.listItem({
+      title: c.name,
+      subtitle: c.last_msg?.slice(0, 40) || '',
+      trailing,
+      onClick: async () => {
+        state.currentChatId = c.chat_id;
+        saveState();
+        await renderMessagesPage(panel!);
+        const { renderMain } = await import('../shell/navPanel.js');
+        await renderMain();
+      },
     });
-    el.addEventListener('contextmenu', (e) => {
+    item.dataset.id = String(c.chat_id);
+    if (state.currentChatId === c.chat_id) item.classList.add('active');
+    item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      showChatContextMenu(el);
+      showChatContextMenu(item, c.chat_id);
     });
-  });
+    list.appendChild(item);
+  }
 }
 
 function bindAddButton(): void {
@@ -90,82 +93,58 @@ function bindAddButton(): void {
   if (!btn) return;
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    const items: DropdownItem[] = [
+    ui.menu(btn as HTMLElement, [
       { label: '添加好友(邮箱)', icon: 'user', action: () => showInlineEmailInput() },
       { label: '通过 QR 加入', icon: 'hash', action: () => showInlineQrInput() },
       { label: '创建群', icon: 'users', action: () => showInlineGroupInput() },
       { label: '加入 PEYT Studio', icon: 'layout-grid', action: () => { void joinPeytStudio(); } },
-    ];
-    showDropdown(btn as HTMLElement, items, { position: 'bottom-left' });
+    ], 'bottom-left');
   });
 }
 
 function showInlineEmailInput(): void {
-  const list = document.getElementById('messages-list');
-  if (!list) return;
-  const input = createInlineInput({
-    placeholder: '输入邮箱地址',
+  ui.inputDialog({
+    title: '添加好友',
+    placeholder: '输入对方邮箱地址',
+    type: 'email',
     confirmLabel: '添加',
     onConfirm: async (email) => {
-      try {
-        const chatId = await call<number>('create_chat_by_email', { email });
-        state.currentChatId = chatId;
-        saveState();
-        await renderMessagesPage(panel!);
-        const { renderMain } = await import('../shell/navPanel.js');
-        await renderMain();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : String(e));
-        throw e;
-      }
+      const chatId = await call<number>('create_chat_by_email', { email });
+      state.currentChatId = chatId;
+      saveState();
+      await renderMessagesPage(panel!);
+      const { renderMain } = await import('../shell/navPanel.js');
+      await renderMain();
     },
-    onCancel: () => { void renderMessagesPage(panel!); },
   });
-  list.insertBefore(input, list.firstChild);
 }
 
 function showInlineQrInput(): void {
-  const list = document.getElementById('messages-list');
-  if (!list) return;
-  const input = createInlineInput({
-    placeholder: '粘贴 QR 邀请链接',
+  ui.inputDialog({
+    title: '通过 QR 加入',
+    placeholder: '粘贴 QR 邀请链接 (dccontact: / dcgroup:)',
     confirmLabel: '加入',
     onConfirm: async (qr) => {
-      try {
-        await call('secure_join', { qr });
-        await renderMessagesPage(panel!);
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : String(e));
-        throw e;
-      }
+      await call('secure_join', { qr });
+      await renderMessagesPage(panel!);
     },
-    onCancel: () => { void renderMessagesPage(panel!); },
   });
-  list.insertBefore(input, list.firstChild);
 }
 
 function showInlineGroupInput(): void {
-  const list = document.getElementById('messages-list');
-  if (!list) return;
-  const input = createInlineInput({
+  ui.inputDialog({
+    title: '创建群',
     placeholder: '输入群名称',
     confirmLabel: '创建',
     onConfirm: async (name) => {
-      try {
-        const chatId = await call<number>('create_group_chat', { name });
-        state.currentChatId = chatId;
-        saveState();
-        await renderMessagesPage(panel!);
-        const { renderMain } = await import('../shell/navPanel.js');
-        await renderMain();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : String(e));
-        throw e;
-      }
+      const chatId = await call<number>('create_group_chat', { name });
+      state.currentChatId = chatId;
+      saveState();
+      await renderMessagesPage(panel!);
+      const { renderMain } = await import('../shell/navPanel.js');
+      await renderMain();
     },
-    onCancel: () => { void renderMessagesPage(panel!); },
   });
-  list.insertBefore(input, list.firstChild);
 }
 
 async function joinPeytStudio(): Promise<void> {
@@ -181,24 +160,23 @@ async function joinPeytStudio(): Promise<void> {
     const { renderNavPanel } = await import('../shell/navPanel.js');
     await renderNavPanel();
   } catch (e) {
-    showToast(e instanceof Error ? e.message : String(e));
+    ui.toast(e instanceof Error ? e.message : String(e));
   }
 }
 
-function showChatContextMenu(anchor: HTMLElement): void {
-  const id = Number(anchor.dataset.id);
-  const items: DropdownItem[] = [
-    { label: '查看资料', icon: 'user', action: () => showToast('查看资料(开发中)') },
+function showChatContextMenu(anchor: HTMLElement, id: number): void {
+  ui.menu(anchor, [
+    { label: '查看资料', icon: 'user', action: () => ui.toast('查看资料(开发中)') },
     {
       label: '屏蔽',
       icon: 'volume-x',
       action: async () => {
         try {
           await call('block_chat', { chatId: id });
-          showToast('已屏蔽');
+          ui.toast('已屏蔽');
           await renderMessagesPage(panel!);
         } catch (e) {
-          showToast(e instanceof Error ? e.message : String(e));
+          ui.toast(e instanceof Error ? e.message : String(e));
         }
       },
     },
@@ -213,17 +191,16 @@ function showChatContextMenu(anchor: HTMLElement): void {
             state.currentChatId = null;
             saveState();
           }
-          showToast('已删除');
+          ui.toast('已删除');
           await renderMessagesPage(panel!);
           const { renderMain } = await import('../shell/navPanel.js');
           await renderMain();
         } catch (e) {
-          showToast(e instanceof Error ? e.message : String(e));
+          ui.toast(e instanceof Error ? e.message : String(e));
         }
       },
     },
-  ];
-  showDropdown(anchor, items, { position: 'bottom-right' });
+  ], 'bottom-right');
 }
 
 function bindUserBar(): void {

@@ -3,9 +3,8 @@ import { state } from '../state.js';
 import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache } from './message.js';
 import { renderComposer } from './composer.js';
 import { renderRightDrawer } from '../shell/rightDrawer.js';
-import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
-import { iconSvg } from '../components/icon.js';
+import { ui } from '../components/ui.js';
 import type { MsgDto, RoleDto, MemberDto, ChannelDto, ChatListItem, AppState } from '../types.js';
 
 interface ChatInfo {
@@ -71,7 +70,11 @@ export async function renderChatView(chatId: number): Promise<void> {
   (state as LegacyState).homeMode = false;
   main.dataset.renderedChatId = String(chatId);
   // 加载态
-  main.innerHTML = `<div class="spinner"><span></span></div>`;
+  main.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'ui-spinner-wrap';
+  wrap.appendChild(ui.spinner());
+  main.appendChild(wrap);
   try {
     // 拉 roles(用于 role tag 和 @mention)
     if (state.currentWsId != null) {
@@ -98,16 +101,6 @@ export async function renderChatView(chatId: number): Promise<void> {
       state.currentMembers = [];
     }
     // 渲染骨架(含 Task 13 头部按钮:members / pin,触发 detail panel)
-    const headerActions = `
-      <div class="chat-header-actions">
-        <button class="chat-header-btn ${state.detailPanelOpen && state.detailTab === 'members' ? 'active' : ''}" data-action="members" title="成员">
-          ${iconSvg('users', { width: 18, height: 18 })}
-        </button>
-        <button class="chat-header-btn ${state.detailPanelOpen && state.detailTab === 'pin' ? 'active' : ''}" data-action="pin" title="置顶 · ${pinCount}">
-          ${iconSvg('pin', { width: 18, height: 18 })}
-        </button>
-      </div>
-    `;
     // 成员数标签:state.currentMembers 来自上面 get_chat_info,失败为空则隐藏
     const memberCount = state.currentMembers?.length || 0;
     const membersTag = memberCount > 0
@@ -120,7 +113,7 @@ export async function renderChatView(chatId: number): Promise<void> {
           ${membersTag}
           <span class="ch-topic">${escapeHtml(topic)}</span>
         </div>
-        ${headerActions}
+        <div class="chat-header-actions"></div>
       </div>
       <div class="messages" id="messages"></div>
       <div id="composer-area"></div>
@@ -129,21 +122,26 @@ export async function renderChatView(chatId: number): Promise<void> {
     // 同 tab 已展开 → 折叠;否则展开并切到该 tab。同时确保 rightDrawerOpen=true 让抽屉可见。
     const headerEl = main.querySelector<HTMLElement>('.chat-header-actions');
     if (headerEl) {
-      headerEl.querySelectorAll<HTMLButtonElement>('.chat-header-btn').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const action = btn.dataset.action;
-          const tab = action as 'members' | 'pin';
-          if (state.detailPanelOpen && state.detailTab === tab) {
-            state.detailPanelOpen = false;
-          } else {
-            state.detailPanelOpen = true;
-            state.detailTab = tab;
-            state.rightDrawerOpen = true;
-          }
-          saveState();
-          renderRightDrawer();
-        });
-      });
+      const membersBtn = ui.iconButton({ icon: 'users', title: '成员' });
+      const pinBtn = ui.iconButton({ icon: 'pin', title: `置顶 · ${pinCount}` });
+      const toggle = (tab: 'members' | 'pin'): void => {
+        if (state.detailPanelOpen && state.detailTab === tab) {
+          state.detailPanelOpen = false;
+        } else {
+          state.detailPanelOpen = true;
+          state.detailTab = tab;
+          state.rightDrawerOpen = true;
+        }
+        saveState();
+        renderRightDrawer();
+        membersBtn.classList.toggle('active', state.detailPanelOpen && state.detailTab === 'members');
+        pinBtn.classList.toggle('active', state.detailPanelOpen && state.detailTab === 'pin');
+      };
+      membersBtn.addEventListener('click', () => toggle('members'));
+      pinBtn.addEventListener('click', () => toggle('pin'));
+      if (state.detailPanelOpen && state.detailTab === 'members') membersBtn.classList.add('active');
+      if (state.detailPanelOpen && state.detailTab === 'pin') pinBtn.classList.add('active');
+      headerEl.append(membersBtn, pinBtn);
     }
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
     // Task 12: 在 mark_chat_noticed 之前拉取 unread count,
@@ -177,7 +175,7 @@ export async function renderChatView(chatId: number): Promise<void> {
     }
   } catch (e) {
     main.innerHTML = `<div class="guide-card">加载失败:${escapeHtml(e instanceof Error ? e.message : String(e))}</div>`;
-    showToast(e instanceof Error ? e.message : String(e));
+    ui.toast(e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -220,7 +218,7 @@ async function refreshMessages(chatId: number): Promise<void> {
   try {
     msgs = await call<MsgDto[]>('get_chat_msgs', { chatId, beforeMsgId: null });
   } catch (e) {
-    showToast(e instanceof Error ? e.message : String(e));
+    ui.toast(e instanceof Error ? e.message : String(e));
     return;
   }
   state.messages = msgs;
@@ -229,7 +227,7 @@ async function refreshMessages(chatId: number): Promise<void> {
   const box = document.getElementById('messages');
   if (!box) return;
   if (msgs.length === 0) {
-    box.innerHTML = `<div class="guide-card">这个频道还没有消息,发第一条吧</div>`;
+    box.appendChild(ui.empty('这个频道还没有消息,发第一条吧'));
     return;
   }
   // Task 11: 虚拟化渲染 — 初始展示底部(最新消息)范围,spacers 撑住总高度,
@@ -248,7 +246,7 @@ async function loadEarlier(chatId: number): Promise<void> {
   try {
     older = await call<MsgDto[]>('get_chat_msgs', { chatId, beforeMsgId: state.messagesOldestId });
   } catch (e) {
-    showToast(e instanceof Error ? e.message : String(e));
+    ui.toast(e instanceof Error ? e.message : String(e));
     loadingEarlier = false;
     return;
   }
