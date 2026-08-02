@@ -1,4 +1,5 @@
 use deltachat::chat::{self, Chat, ChatItem};
+use deltachat::context::Context;
 use deltachat::chatlist::Chatlist;
 use deltachat::config::Config;
 use deltachat::constants::Chattype;
@@ -14,7 +15,7 @@ use tauri::State;
 use crate::dto::{
     ActivityDto, AdvancedLogin, CardDto, ChannelDto, ChatDto, ChatInfoDto, ContactDto,
     ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PeytStudioDto, PinDto, ProfileDto,
-    ReactionDto, RoleDto, SearchResultDto, WorkspaceDto,
+    RawMsgDto, ReactionDto, RoleDto, SearchResultDto, WorkspaceDto,
 };
 use crate::error::{AppError, AppResult};
 use crate::plugins::{PluginStatus, RegistryPlugin};
@@ -1236,6 +1237,98 @@ pub async fn search_msgs(
         }
     }
     Ok(out)
+}
+
+/// Debug 页: 遍历全部聊天, 收集所有消息, 按时间倒序分页返回原文。
+/// 用 core 公开 API (Chatlist + get_chat_msgs), 不依赖 internals feature,
+/// 避免改动 deltachat 编译特征触发 openssl 重编。
+/// 先收集全部 (id, ts), 排序后再分页, 保证跨聊天全局时间序。
+#[tauri::command]
+pub async fn get_all_messages(
+    state: State<'_, AppState>,
+    cursor: Option<i64>, // 上一页最后一条的 ts; None = 第一页
+    limit: Option<i64>,
+) -> AppResult<Vec<RawMsgDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let limit = limit.unwrap_or(20).clamp(1, 100);
+
+    // 1. 遍历所有聊天, 收集全部 (ts, msg_id) (load 一次拿时间戳, 供排序)
+    let mut all: Vec<(i64, MsgId)> = Vec::new();
+    let chatlist = Chatlist::try_load(&ctx, 0, None, None).await?;
+    for i in 0..chatlist.len() {
+        let chat_id = match chatlist.get_chat_id(i) {
+            Ok(id) => id,
+            Err(_) => continue,
+        };
+        let items = match chat::get_chat_msgs(&ctx, chat_id).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        for item in items {
+            if let ChatItem::Message { msg_id } = item {
+                if let Ok(m) = Message::load_from_db(&ctx, msg_id).await {
+                    all.push((m.get_timestamp(), msg_id));
+                }
+            }
+        }
+    }
+
+    // 2. 按 ts 倒序排序 (同 ts 按 id 倒序)
+    all.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.to_u32().cmp(&a.1.to_u32())));
+
+    // 3. 游标分页: 取 ts < cursor 的前 limit 条
+    let mut out = Vec::with_capacity(limit as usize);
+    for (ts, msg_id) in all {
+        if let Some(c) = cursor {
+            if ts >= c {
+                continue;
+            }
+        }
+        let m = match Message::load_from_db(&ctx, msg_id).await {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let from_id = m.get_from_id();
+        let from_name = if from_id == ContactId::SELF {
+            "我".to_string()
+        } else {
+            Contact::get_by_id(&ctx, from_id)
+                .await
+                .map(|c| c.get_display_name().to_string())
+                .unwrap_or_default()
+        };
+        out.push(RawMsgDto {
+            msg_id: msg_id.to_u32(),
+            chat_id: m.get_chat_id().to_u32(),
+            chat_name: chat_name(&ctx, m.get_chat_id()).await,
+            from_name,
+            is_out: matches!(
+                m.get_state(),
+                MessageState::OutDraft
+                    | MessageState::OutPending
+                    | MessageState::OutFailed
+                    | MessageState::OutDelivered
+                    | MessageState::OutMdnRcvd
+            ),
+            ts: m.get_timestamp(),
+            view_type: viewtype_str(m.get_viewtype()).to_string(),
+            text: m.get_text(),
+        });
+        if out.len() >= limit as usize {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+async fn chat_name(ctx: &Context, chat_id: deltachat::chat::ChatId) -> String {
+    Chat::load_from_db(ctx, chat_id)
+        .await
+        .map(|c| c.get_name().to_string())
+        .unwrap_or_default()
 }
 
 // ── card commands ───────────────────────────────────────────────────────────

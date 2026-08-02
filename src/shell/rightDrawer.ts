@@ -4,6 +4,7 @@ import { saveState } from '../persist.js';
 import { showToast } from '../toast.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { iconSvg } from '../components/icon.js';
+import { updatePinnedCache } from '../chat/message.js';
 import type { MemberDto, MsgDto } from '../types.js';
 
 interface ContactRole {
@@ -16,16 +17,31 @@ interface ChannelPin {
   channel_chat_id: number;
 }
 
+// 外部点击关闭:抽屉展开时绑定 document click,点击抽屉外区域隐藏侧栏。
+// 模块级管理,避免 renderRightDrawer 多次调用时重复绑定。
+let outsideClickHandler: ((e: MouseEvent) => void) | null = null;
+
 // Task 8: 4 页不同处理 — settings 隐藏 / work 卡片详情 / messages·groups 成员·置顶。
 // renderRightDrawer 为同步函数 (rail.ts 未 await),内部异步渲染通过 void 触发。
 export function renderRightDrawer(): void {
   const drawer = document.getElementById('right-drawer');
   if (!drawer) return;
+  // 每次渲染都同步头部按钮选中态:抽屉折叠/切换/隐藏时,成员/置顶按钮的 active 随弹窗关闭恢复
+  syncHeaderButtons();
 
   // 页4: settings — 不显示 detail panel
   if (state.currentPage === 'settings') {
     drawer.classList.add('collapsed');
     drawer.innerHTML = '';
+    unbindOutsideDismiss();
+    return;
+  }
+
+  // 调试页 — 不显示 detail panel (消息原文列表为主区全宽)
+  if (state.currentPage === 'debug') {
+    drawer.classList.add('collapsed');
+    drawer.innerHTML = '';
+    unbindOutsideDismiss();
     return;
   }
 
@@ -42,6 +58,7 @@ export function renderRightDrawer(): void {
   if (state.currentPage === 'work') {
     drawer.classList.add('collapsed');
     drawer.innerHTML = '';
+    unbindOutsideDismiss();
     return;
   }
 
@@ -50,16 +67,18 @@ export function renderRightDrawer(): void {
   drawer.classList.toggle('collapsed', collapsed);
   if (!state.detailPanelOpen) {
     showExpandButton();
+    unbindOutsideDismiss();
     return;
   }
+  bindOutsideDismiss();
 
   // detail panel 展开时清理残留的 expand 按钮
   document.querySelectorAll('#chat-main .detail-expand').forEach((el) => el.remove());
 
   const tab = state.detailTab;
   const tabsHtml = `
-    <span class="rd-tab ${tab === 'members' ? 'active' : ''}" data-tab="members">${iconSvg('users', { width: 14, height: 14 })} members</span>
-    <span class="rd-tab ${tab === 'pin' ? 'active' : ''}" data-tab="pin">${iconSvg('pin', { width: 14, height: 14 })} pin</span>
+    <span class="rd-tab ${tab === 'members' ? 'active' : ''}" data-tab="members">${iconSvg('users', { width: 14, height: 14 })}<span>成员</span></span>
+    <span class="rd-tab ${tab === 'pin' ? 'active' : ''}" data-tab="pin">${iconSvg('pin', { width: 14, height: 14 })}<span>置顶</span></span>
     <span class="rd-flex"></span>
     <span class="rd-collapse" title="折叠">${iconSvg('chevron-right', { width: 16, height: 16 })}</span>
   `;
@@ -68,6 +87,7 @@ export function renderRightDrawer(): void {
   drawer.querySelectorAll<HTMLElement>('.rd-tab').forEach((el) => {
     el.addEventListener('click', () => {
       state.detailTab = el.dataset.tab as 'members' | 'pin';
+      saveState();
       renderRightDrawer();
     });
   });
@@ -77,6 +97,43 @@ export function renderRightDrawer(): void {
     renderRightDrawer();
   });
   void renderRdBody();
+}
+
+// 同步 chat-header 的 members/pin 按钮 active 态,使与抽屉当前 tab 一致
+function syncHeaderButtons(): void {
+  document.querySelectorAll<HTMLElement>('.chat-header-btn[data-action]').forEach((btn) => {
+    const action = btn.dataset.action;
+    const active = state.detailPanelOpen && state.detailTab === action;
+    btn.classList.toggle('active', !!active);
+  });
+}
+
+// 抽屉展开时绑定:点击抽屉外区域 (非抽屉、非折叠按钮、非头部触发按钮) 即关闭侧栏。
+// 用 capture + 延迟到事件冒泡后判断,避免点击展开按钮/菜单本身时误关。
+function bindOutsideDismiss(): void {
+  if (outsideClickHandler) return;
+  outsideClickHandler = (e: MouseEvent) => {
+    const drawer = document.getElementById('right-drawer');
+    if (!drawer || drawer.classList.contains('collapsed')) return;
+    const target = e.target as Node;
+    // 点击侧栏内部 → 不关 (成员/置顶内容可交互)
+    if (drawer.contains(target)) return;
+    // 点击头部触发按钮 (members/pin) → 不关,交给按钮自身 toggle 逻辑
+    if ((e.target as HTMLElement).closest?.('.chat-header-btn[data-action]')) return;
+    // 点击折叠/展开按钮 → 不关
+    if ((e.target as HTMLElement).closest?.('.rd-collapse, .detail-expand')) return;
+    state.detailPanelOpen = false;
+    saveState();
+    renderRightDrawer();
+  };
+  document.addEventListener('click', outsideClickHandler, true);
+}
+
+function unbindOutsideDismiss(): void {
+  if (outsideClickHandler) {
+    document.removeEventListener('click', outsideClickHandler, true);
+    outsideClickHandler = null;
+  }
 }
 
 // detail panel 折叠时在 chat-main 右侧显示展开按钮
@@ -154,13 +211,14 @@ async function renderMembers(body: HTMLElement): Promise<void> {
           const items = await Promise.all(
             list.map(async (m) => {
               const avatarHtml = await renderAvatarHtml(m);
-              return `<div class="rd-member ${m.is_self ? '' : 'muted'}" data-name="${escapeAttr(m.name)}" ${m.is_self ? '' : `data-cid="${m.contact_id}" style="cursor:pointer"`}>
+              return `<div class="rd-member ${m.is_self ? 'self' : 'clickable'}" data-name="${escapeAttr(m.name)}" ${m.is_self ? '' : `data-cid="${m.contact_id}"`}>
                 ${avatarHtml}
                 <span class="rd-name">${escapeHtml(m.name)}</span>
+                ${m.is_self ? `<span class="rd-self-tag">我</span>` : ''}
               </div>`;
             })
           );
-          return `<div class="rd-group">${escapeHtml(name.toUpperCase())} · ${list.length}</div>${items.join('')}`;
+          return `<div class="rd-group">${escapeHtml(groupLabel(name))} · ${list.length}</div>${items.join('')}`;
         })
     );
     body.innerHTML =
@@ -201,6 +259,10 @@ async function renderPins(body: HTMLElement): Promise<void> {
     body.innerHTML = `<div class="rd-empty">加载失败</div>`;
     return;
   }
+  // 同步 chat-header 置顶按钮的计数徽标
+  document.querySelectorAll<HTMLElement>('.chat-header-btn[data-action="pin"]').forEach((btn) => {
+    btn.title = `置顶 · ${pins.length}`;
+  });
   if (pins.length === 0) {
     body.innerHTML = `<div class="rd-empty">无置顶消息</div>`;
     return;
@@ -212,9 +274,13 @@ async function renderPins(body: HTMLElement): Promise<void> {
         const msg = msgs.find((m) => m.msg_id === p.msg_id);
         if (!msg) return '';
         return `<div class="rd-pin-item" data-chat="${p.channel_chat_id}" data-msg="${p.msg_id}">
-          <div class="rd-pin-from">${escapeHtml(msg.from_name)}</div>
-          <div class="rd-pin-text">${escapeHtml((msg.text || '').slice(0, 60))}</div>
-          <div class="rd-pin-time">${formatRelativeTime(msg.ts)}</div>
+          <div class="rd-pin-icon">${iconSvg('pin', { width: 12, height: 12 })}</div>
+          <div class="rd-pin-body">
+            <div class="rd-pin-from">${escapeHtml(msg.from_name)}</div>
+            <div class="rd-pin-text">${escapeHtml((msg.text || '').slice(0, 60))}</div>
+            <div class="rd-pin-time">${formatRelativeTime(msg.ts)}</div>
+          </div>
+          <button class="rd-pin-unpin" title="取消置顶" data-chat="${p.channel_chat_id}" data-msg="${p.msg_id}">${iconSvg('pin-off', { width: 14, height: 14 })}</button>
         </div>`;
       } catch {
         return '';
@@ -241,6 +307,34 @@ async function renderPins(body: HTMLElement): Promise<void> {
       }, 200);
     });
   });
+  // 取消置顶按钮:阻止冒泡到整条点击,调后端移除后刷新 pin 列表
+  body.querySelectorAll<HTMLElement>('.rd-pin-unpin').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const chatId = Number(btn.dataset.chat);
+      const msgId = Number(btn.dataset.msg);
+      try {
+        await call('toggle_pin', {
+          workspaceId: state.currentWsId,
+          chatId,
+          msgId,
+        });
+        showToast('已取消置顶');
+        // 同步右键菜单的置顶缓存,避免下一次右键显示过期状态
+        const remaining = await call<ChannelPin[]>('get_channel_pins', { chatId: state.currentChatId });
+        updatePinnedCache(remaining.map((p) => p.msg_id));
+        await renderPins(body);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : String(err));
+      }
+    });
+  });
+}
+
+// 成员分组标题本地化:core/Members → 中文,其余 role 名保留
+function groupLabel(name: string): string {
+  const labels: Record<string, string> = { core: '核心', Members: '成员' };
+  return labels[name] ?? name;
 }
 
 function formatRelativeTime(ts: number): string {

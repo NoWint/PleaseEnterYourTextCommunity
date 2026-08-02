@@ -328,8 +328,16 @@ html { background: var(--bg); }
 }
 .composer input { width: 100%; padding: 8px 12px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font-size: var(--font-scale-body); font-family: var(--font); }
 
-.right-drawer { width: var(--drawer-w, 300px); background: var(--bg); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
-.right-drawer.collapsed { width: 0; overflow: hidden; }
+.right-drawer {
+  width: var(--drawer-w, 300px); background: var(--bg); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden; /* 出入动画期间内容按固定宽裁剪,不回流 */
+}
+.right-drawer.collapsed { width: 0; }
+/* 抽屉子内容固定为抽屉全宽:展开/收起动画时被容器裁剪,形成干净的揭示/收起 */
+.right-drawer > * { flex-shrink: 0; width: var(--drawer-w, 300px); }
+.right-drawer #rd-body { flex: 1; min-width: 0; width: var(--drawer-w, 300px); }
+/* 拖动调整宽度期间禁用过渡,保证 1:1 跟踪 (columnResizer 增删此类) */
+.right-drawer.no-anim { transition: none !important; }
 
 /* 列宽拖动手柄:透明热区 + hover/拖动时的反馈条;越过 min/max 边界时高亮边界反馈条 */
 .col-resizer {
@@ -349,19 +357,29 @@ html { background: var(--bg); }
 /* 抽屉折叠时其右侧手柄一并隐藏 */
 .right-drawer.collapsed + #drawer-resizer { display: none; }
 
-.rd-tabs { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 10px; display: flex; gap: 14px; }
-.rd-tab { color: var(--text-weak); cursor: pointer; }
+.rd-tabs { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 10px; display: flex; align-items: center; gap: 14px; }
+.rd-tab { color: var(--text-weak); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.rd-tab svg { display: block; flex-shrink: 0; }
 .rd-tab.active { font-weight: 600; color: var(--text); border-bottom: 1px solid var(--text); padding-bottom: 6px; }
 .rd-flex { flex: 1; }
-.rd-collapse { color: var(--text-weak); cursor: pointer; }
+.rd-collapse { color: var(--text-weak); cursor: pointer; display: inline-flex; align-items: center; }
+.rd-collapse svg { display: block; }
 .rd-search { padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .rd-search input { width: 100%; padding: 5px 8px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 3px; color: var(--text); font-size: 10px; font-family: inherit; }
 .rd-group { color: var(--text-weak); font-size: var(--font-scale-secondary); font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin: 8px 0 4px; padding: 0 16px; }
-.rd-member { padding: 4px 16px; display: flex; align-items: center; gap: 8px; }
-.rd-avatar { width: 24px; height: 24px; background: var(--border-strong); border-radius: 50%; font-size: 10px; font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
-.rd-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.rd-member { padding: 6px 16px; display: flex; align-items: center; gap: 10px; }
+/* 成员列表头像:苹果规范小头像 24px (renderAvatarHtml 输出 .avatar 基类,此处约束尺寸) */
+.rd-member .avatar { width: 24px; height: 24px; font-size: 10px; flex-shrink: 0; }
+.rd-member .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .rd-member .rd-name { font-size: 11px; }
-.rd-member.muted .rd-name { color: var(--text-mute); }
+.rd-member.clickable { cursor: pointer; transition: background 120ms; }
+.rd-member.clickable:hover { background: var(--capsule); }
+.rd-member.self { opacity: 0.6; }
+.rd-self-tag {
+  margin-left: auto; font-size: var(--font-scale-micro); color: var(--text-weak);
+  background: var(--capsule); border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
+  padding: 0 5px; font-weight: 600;
+}
 .detail-expand { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 20px; height: 40px; background: var(--panel); border: 1px solid var(--border); border-right: none; border-radius: 4px 0 0 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-mute); z-index: 10; }
 
 /* 通用 */
@@ -782,12 +800,26 @@ html { background: var(--bg); }
 /* Task 12: pin tab 消息预览项 */
 .rd-empty { padding: 16px; color: var(--text-weak); font-size: 11px; }
 .rd-pin-item {
+  display: flex; align-items: flex-start; gap: 10px;
   padding: 8px 16px; border-bottom: 1px solid var(--border); cursor: pointer;
+  transition: background 120ms;
 }
 .rd-pin-item:hover { background: var(--capsule); }
+.rd-pin-icon {
+  flex-shrink: 0; margin-top: 1px; color: var(--text-weak);
+  display: flex; align-items: center; justify-content: center;
+}
+.rd-pin-body { flex: 1; min-width: 0; }
 .rd-pin-from { font-size: 10px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
 .rd-pin-text { font-size: var(--font-scale-secondary); color: var(--text-mute); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .rd-pin-time { font-size: var(--font-scale-secondary); color: var(--text-weak); margin-top: 4px; }
+.rd-pin-unpin {
+  flex-shrink: 0; background: none; border: none; color: var(--text-weak);
+  cursor: pointer; padding: 4px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 100ms, color 100ms;
+}
+.rd-pin-unpin:hover { background: var(--surface-hover); color: var(--danger); }
 
 /* Task 13: 头像样式 — 各处头像统一规则(图片用 object-fit: cover;字母用 flex 居中)。
    按任务简报 Step 10 尺寸:app-avatar 36px / msg-avatar 28px / home-avatar 32px /
@@ -1941,3 +1973,68 @@ body {
 .term-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .term-holder { flex: 1; min-height: 0; padding: 6px 8px; }
 .term-holder .xterm { height: 100%; }
+
+/* ── Debug 页: 消息原文列表 ─────────────────────────────── */
+.dbg-toolbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.dbg-count { font-size: 12px; color: var(--text-weak); font-variant-numeric: tabular-nums; }
+.dbg-filter { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-mute); }
+.dbg-filter label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.dbg-filter input { accent-color: var(--text); }
+.dbg-refresh {
+  margin-left: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-mute); cursor: pointer;
+}
+.dbg-refresh:hover { background: var(--capsule); color: var(--text); }
+
+.dbg-list { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; }
+.dbg-item {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  margin-bottom: 10px; background: var(--panel); overflow: hidden;
+}
+.dbg-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--text-mute);
+}
+.dbg-tag {
+  font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-xs);
+}
+.dbg-tag.out { background: color-mix(in srgb, var(--active) 60%, transparent); color: var(--text); }
+.dbg-tag.in { background: var(--capsule); color: var(--text-weak); }
+.dbg-chat { color: var(--text); font-weight: 500; }
+.dbg-type {
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 10px; color: var(--text-faint);
+}
+.dbg-id { font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace; color: var(--text-faint); }
+.dbg-ts { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+.dbg-body { padding: 10px 12px; }
+.dbg-code {
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 12px; line-height: 1.6; color: var(--text-body);
+  white-space: pre-wrap; word-break: break-all;
+}
+.dbg-json {
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 12px; line-height: 1.6; color: #e8e6e3;
+  background: #1b1b1e; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  margin: 0; overflow-x: auto;
+}
+.dbg-footer {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 10px 16px; border-top: 1px solid var(--border); flex-shrink: 0;
+}
+.dbg-more {
+  background: var(--capsule); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); padding: 6px 18px; font-size: 12px; cursor: pointer;
+}
+.dbg-more:hover { background: var(--surface-hover); }
+.dbg-status { font-size: 11px; color: var(--text-weak); }

@@ -133,7 +133,9 @@ export async function renderChatView(chatId: number): Promise<void> {
         btn.addEventListener('click', () => {
           const action = btn.dataset.action;
           const tab = action as 'members' | 'pin';
-          if (state.detailPanelOpen && state.detailTab === tab) {
+          // 仅在抽屉已展开且停留在同一 tab 时才切换关闭;否则打开对应 tab。
+          // 避免启动时 detailPanelOpen=true 但 rightDrawerOpen=false 导致首次点击反而收起。
+          if (state.detailPanelOpen && state.detailTab === tab && state.rightDrawerOpen) {
             state.detailPanelOpen = false;
           } else {
             state.detailPanelOpen = true;
