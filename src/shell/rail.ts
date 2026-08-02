@@ -151,6 +151,14 @@ function showUserMenu(anchor: HTMLElement): void {
       },
     },
     {
+      label: '重启',
+      icon: 'refresh-cw',
+      action: () => {
+        // 重载前端:重新 boot + 全量拉取,排查事件流/会话刷新问题
+        location.reload();
+      },
+    },
+    {
       label: '登出',
       icon: 'log-out',
       danger: true,

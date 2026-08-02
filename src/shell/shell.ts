@@ -146,11 +146,19 @@ export async function renderShell(): Promise<void> {
   onEvent('IncomingMsgBunch', () => {
     // no-op
   });
-  onEvent('SecurejoinJoinerProgress', () => {
-    // no-op
+  onEvent('SecurejoinJoinerProgress', (e) => {
+    // 握手完成(progress>=1000)时新会话建立,强制刷新侧栏让 1:1 会话出现
+    if ((e.progress as number) >= 1000) {
+      void refreshSidebar();
+      void updateBadge();
+    }
   });
-  onEvent('SecurejoinInviterProgress', () => {
-    // no-op
+  onEvent('SecurejoinInviterProgress', (e) => {
+    // 对方加入我们发起的会话时同样刷新(本机作为邀请方)
+    if ((e.progress as number) >= 1000) {
+      void refreshSidebar();
+      void updateBadge();
+    }
   });
   onEvent('WebxdcStatusUpdate', () => {
     // no-op
