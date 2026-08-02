@@ -4,7 +4,7 @@ import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { showDropdown, type DropdownItem } from '../components/dropdown.js';
-import { showInputDialog } from '../components/dialog.js';
+import { ui } from '../components/ui.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import type { ChatListItem } from '../types.js';
 
@@ -101,7 +101,7 @@ function bindAddButton(): void {
 }
 
 function showInlineEmailInput(): void {
-  showInputDialog({
+  ui.inputDialog({
     title: '添加好友',
     placeholder: '输入对方邮箱地址',
     type: 'email',
@@ -118,7 +118,7 @@ function showInlineEmailInput(): void {
 }
 
 function showInlineQrInput(): void {
-  showInputDialog({
+  ui.inputDialog({
     title: '通过 QR 加入',
     placeholder: '粘贴 QR 邀请链接 (dccontact: / dcgroup:)',
     confirmLabel: '加入',
@@ -130,7 +130,7 @@ function showInlineQrInput(): void {
 }
 
 function showInlineGroupInput(): void {
-  showInputDialog({
+  ui.inputDialog({
     title: '创建群',
     placeholder: '输入群名称',
     confirmLabel: '创建',

@@ -392,6 +392,86 @@ html { background: var(--bg); }
   font-size: var(--font-scale-body);
 }
 .dialog .dialog-field:focus { outline: none; border-color: var(--text-weak); }
+
+/* === UI 组件库 === */
+/* 按钮 */
+.ui-button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 16px; border-radius: var(--radius-sm);
+  background: var(--capsule); color: var(--text);
+  border: 1px solid var(--border-strong);
+  font: inherit; font-size: var(--font-scale-body); cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease, background 120ms ease,
+              border-color 120ms ease, box-shadow 120ms ease;
+}
+.ui-button:hover { border-color: var(--text-mute); }
+.ui-button:active { transform: scale(0.97); }
+.ui-button:disabled { opacity: 0.4; cursor: default; }
+.ui-button-primary { background: var(--text); color: var(--panel); border-color: var(--text); font-weight: 600; }
+.ui-button-primary:hover { background: var(--hover-bright); }
+.ui-button-ghost { background: transparent; color: var(--text-mute); }
+.ui-button-ghost:hover { color: var(--text); background: var(--active); }
+.ui-button-danger { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+.ui-button-danger:hover { background: var(--danger-bg-hover); }
+
+/* 图标按钮 */
+.ui-icon-button {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--capsule); border: 1px solid var(--border-strong); color: var(--text-mute);
+  border-radius: var(--radius-sm); cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.ui-icon-button svg { transition: transform 120ms ease; }
+.ui-icon-button:hover { color: var(--text); border-color: var(--text-mute); }
+.ui-icon-button:hover svg { transform: scale(1.1); }
+.ui-icon-button:active { transform: scale(0.93); }
+.ui-icon-button-danger:hover { color: var(--danger); border-color: var(--danger); }
+
+/* 遮罩 */
+.ui-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+  animation: ui-fade-in 150ms ease-out;
+}
+/* 弹窗 */
+.ui-dialog {
+  background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); padding: 20px; min-width: 320px; max-width: 420px;
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: var(--shadow-lg);
+  animation: ui-pop-in 180ms ease-out;
+}
+.ui-dialog h2 { margin: 0; font-size: var(--font-scale-lg); font-weight: 600; color: var(--text); }
+.ui-dialog-body { color: var(--text-body); font-size: var(--font-scale-body); line-height: 1.5; }
+.ui-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.ui-dialog-actions .ui-button { min-width: 72px; justify-content: center; }
+
+/* 输入框 */
+.ui-input {
+  width: 100%; padding: 8px 12px;
+  background: var(--capsule); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); color: var(--text);
+  font: inherit; font-size: var(--font-scale-body);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.ui-input:focus { outline: none; border-color: var(--text-weak); }
+
+/* 确认消息 */
+.ui-confirm-msg { color: var(--text-body); font-size: var(--font-scale-body); line-height: 1.5; }
+
+/* 空状态 */
+.ui-empty { color: var(--text-weak); text-align: center; padding: 40px 16px; font-size: var(--font-scale-body); }
+
+/* 加载指示 */
+.ui-spinner {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--border-strong); border-top-color: var(--text-mute);
+  animation: ui-spin 0.8s linear infinite;
+}
+
+@keyframes ui-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ui-pop-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes ui-spin { to { transform: rotate(360deg); } }
 .error { color: var(--text); background: var(--capsule); padding: 8px; border-radius: 4px; font-size: 11px; border: 1px solid var(--border-strong); }
 .hint { font-size: 11px; color: var(--text-mute); line-height: 1.5; margin: 0; }
 
