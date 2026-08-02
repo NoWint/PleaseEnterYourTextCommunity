@@ -132,8 +132,16 @@ function showInlineQrInput(): void {
     confirmLabel: '加入',
     onConfirm: async (qr) => {
       try {
-        await call('secure_join', { qr });
+        const chatId = await call<number>('secure_join', { qr });
+        // securejoin 完成后的 1:1 会话是 contact request,需 accept 才能进常规 chatlist 并显示消息
+        try {
+          await call('accept_chat', { chatId });
+        } catch {}
+        state.currentChatId = chatId;
+        saveState();
         await renderMessagesPage(panel!);
+        const { renderMain } = await import('../shell/navPanel.js');
+        await renderMain();
       } catch (e) {
         showToast(e instanceof Error ? e.message : String(e));
         throw e;
