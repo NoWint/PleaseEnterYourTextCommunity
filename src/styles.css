@@ -425,6 +425,7 @@ html { background: var(--bg); }
 .ui-icon-button:hover { color: var(--text); border-color: var(--text-mute); }
 .ui-icon-button:hover svg { transform: scale(1.1); }
 .ui-icon-button:active { transform: scale(0.93); }
+.ui-icon-button.active { background: var(--active); color: var(--text); }
 .ui-icon-button-danger:hover { color: var(--danger); border-color: var(--danger); }
 
 /* 遮罩 */
@@ -460,7 +461,7 @@ html { background: var(--bg); }
 .ui-confirm-msg { color: var(--text-body); font-size: var(--font-scale-body); line-height: 1.5; }
 
 /* 空状态 */
-.ui-empty { color: var(--text-weak); text-align: center; padding: 40px 16px; font-size: var(--font-scale-body); }
+.ui-empty { color: var(--text-weak); text-align: center; padding: 40px 16px; font-size: var(--font-scale-body); margin: auto; }
 
 /* 加载指示 */
 .ui-spinner {
@@ -468,6 +469,7 @@ html { background: var(--bg); }
   border: 2px solid var(--border-strong); border-top-color: var(--text-mute);
   animation: ui-spin 0.8s linear infinite;
 }
+.ui-spinner-wrap { display: flex; align-items: center; justify-content: center; height: 100%; }
 
 @keyframes ui-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ui-pop-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
@@ -553,10 +555,14 @@ html { background: var(--bg); }
   transition: background 120ms ease, transform 120ms ease;
 }
 .ui-list-item:hover { background: var(--capsule); transform: translateX(2px); }
+.ui-list-item.active { background: var(--active); }
+.ui-list-item.active .ui-list-title { font-weight: 600; }
 .ui-list-item-danger:hover { background: var(--danger-bg); }
 .ui-list-meta { flex: 1; min-width: 0; }
+.ui-list-title, .ui-list-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-list-title { font-size: var(--font-scale-body); color: var(--text); }
 .ui-list-sub { font-size: var(--font-scale-secondary); color: var(--text-mute); margin-top: 2px; }
+.nav-item-trailing { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .ui-divider { height: 1px; background: var(--border); margin: 8px 0; }
 
 /* 标签页 */
