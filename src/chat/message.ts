@@ -237,12 +237,13 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
       <div class="msg-meta">
         ${nameDisplay}
         ${roleTag}${replyMark}
+        ${stateHtml}
       </div>
       ${quoteBlock}
       <div class="msg-text">${textHtml}</div>
       ${attachmentHtml}
       ${reactionsHtml}
-      ${stateHtml} ${resendBtn}
+      ${resendBtn}
       <div class="msg-reaction-picker" id="rp-${msg.msg_id}">
         ${pickerHtml}
       </div>
@@ -258,11 +259,56 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   `;
 }
 
+// Emoji 放大 (仿 delta MessageBody):纯 emoji 且 ≤8 个 → 按数量分级放大。
+// 用 \p{Extended_Pictographic} 正则匹配 emoji 序列计数(无需 Intl.Segmenter)。
+const EMOJI_MAX_COUNT = 8;
+
+// 检测字符串是否只含 emoji(无文本/链接/空白外字符),返回 emoji 个数或 null
+function countEmojisIfOnlyEmoji(str: string): number | null {
+  const trimmed = str.trim();
+  if (trimmed.length === 0) return null;
+  // 快速排除含普通字母/数字的情况
+  if (/[A-Za-z0-9一-鿿]/.test(trimmed)) return null;
+  // 匹配单个 emoji 或 ZWJ 连接序列(👨‍👩‍👧 整体算 1 个;🎉🎉🎉 各算 1 个)。
+  // 仅用 ‍(ZWJ)连接,避免贪婪吞掉无 ZWJ 的连续 emoji。
+  const emojiRegex = /\p{Extended_Pictographic}(?:‍\p{Extended_Pictographic})*(?:\p{Emoji_Modifier})?/gu;
+  let count = 0;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = emojiRegex.exec(trimmed)) !== null) {
+    // 匹配之间有非空白字符 → 非纯 emoji
+    if (trimmed.slice(lastIndex, match.index).trim().length > 0) return null;
+    lastIndex = match.index + match[0].length;
+    count++;
+  }
+  // 末尾残留非空白 → 非纯 emoji
+  if (trimmed.slice(lastIndex).trim().length > 0) return null;
+  return count > 0 ? count : null;
+}
+
+function emojiSizeClass(count: number): string | null {
+  if (count > 8) return null;
+  if (count > 6) return 'small';
+  if (count > 4) return 'medium';
+  if (count > 2) return 'large';
+  return 'jumbo';
+}
+
 // Render message text with code block highlighting (hljs) and @mention highlighting.
 // Code blocks: ```lang\ncode``` → <div class="msg-code">highlighted</div>
 // Mentions: @self or @roleName → highlighted span
 // 普通文本段:escapeHtml 不转义换行,HTML 会折叠成空格 → 手动把 \n 换成 <br>,否则多行消息挤成一行。
 function renderText(text: string): string {
+  // Emoji 放大:纯 emoji 且无代码块时分级
+  if (!text.includes('```')) {
+    const emojiCount = countEmojisIfOnlyEmoji(text);
+    if (emojiCount != null && emojiCount <= EMOJI_MAX_COUNT) {
+      const cls = emojiSizeClass(emojiCount);
+      if (cls) {
+        return `<span class="emoji-container ${cls}">${escapeHtml(text.trim())}</span>`;
+      }
+    }
+  }
   const parts: string[] = [];
   const regex = /```(\w*)\n([\s\S]*?)```/g;
   let last = 0;
@@ -652,9 +698,35 @@ function inlineDeleteMsg(msgIdStr: string): void {
   });
 }
 
+// 相对时间 (仿 delta formatRelativeTime):今天→X小时/X分钟/刚刚;昨天→昨天;
+// 周内→星期几;同月→月日;跨年→年月日。用于消息 meta 行的时间戳。
 function formatTs(ts: number): string {
   const d = new Date(ts * 1000);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const sameDay = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  if (sameDay) {
+    if (diffMin < 1) return '刚刚';
+    if (diffMin < 60) return `${diffMin}分钟前`;
+    const h = Math.floor(diffMin / 60);
+    if (h < 24) return `${h}小时前`;
+    // 跨天但日期相同(极端时区),回落 HH:mm
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  }
+  if (isYesterday) return '昨天';
+  // 同一年 → 月/日 + 时间
+  if (d.getFullYear() === now.getFullYear()) {
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    return `${m}/${day}`;
+  }
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 function escapeHtml(s: unknown): string {

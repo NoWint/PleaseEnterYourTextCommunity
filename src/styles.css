@@ -753,9 +753,19 @@ html { background: var(--bg); }
 
 /* 消息附件 (image/file/audio/video) — 尺寸约束走 CSS 类而非内联样式 */
 .msg-attachment { margin-top: 6px; }
-.msg-attachment.img img { max-width: 240px; max-height: 180px; border-radius: var(--radius-xs); cursor: pointer; display: block; }
+/* 图片附件 (仿 delta):圆角 16px,cover 填满,max-width 450px,min-width 200px */
+.msg-attachment.img img {
+  max-width: 450px; min-width: 200px;
+  border-radius: 16px; cursor: pointer; display: block;
+  object-fit: cover; object-position: center;
+}
 .msg-attachment.audio audio { max-width: 280px; display: block; }
-.msg-attachment.video video { max-width: 280px; max-height: 200px; border-radius: var(--radius-xs); display: block; }
+/* 视频附件:仿 delta scale-down,黑底,固定高度 */
+.msg-attachment.video video {
+  max-width: 280px; height: 200px;
+  border-radius: 16px; display: block; object-fit: scale-down;
+  background-color: #000;
+}
 .msg-attachment.file {
   display: inline-flex; align-items: center; gap: 10px;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -773,7 +783,7 @@ html { background: var(--bg); }
 .img-fullscreen-overlay img { max-width: 90%; max-height: 90%; }
 
 /* Task 8: 消息发送状态指示 + 重发按钮 */
-.msg-state { display: inline-flex; align-items: center; margin-left: 4px; color: var(--text-mute); }
+.msg-state { display: inline-flex; align-items: center; margin-left: auto; color: var(--text-mute); flex-shrink: 0; }
 .msg-state svg { display: block; }
 .msg-state.state-delivered { color: var(--text-weak); }
 .msg-state.state-read { color: var(--success); }
@@ -946,6 +956,12 @@ html { background: var(--bg); }
 .msg-bubble .msg-name { font-weight: 600; }
 .msg-bubble .msg-time { font-size: var(--font-scale-micro); color: var(--text-weak); flex-shrink: 0; }
 .msg-bubble .msg-text { font-size: var(--font-scale-body); line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; }
+/* Emoji 放大 (仿 delta _emoji.scss):纯 emoji 消息按数量分级 */
+.emoji-container { font-size: 1.25em; line-height: 1em; display: inline-block; }
+.emoji-container.small { font-size: 1.35em; }
+.emoji-container.medium { font-size: 1.75em; }
+.emoji-container.large { font-size: 2.5em; }
+.emoji-container.jumbo { font-size: 3em; }
 /* 折叠消息:meta 只剩时间,收紧行距避免顶部空隙 */
 .msg-group-middle .msg-bubble .msg-meta,
 .msg-group-last .msg-bubble .msg-meta { margin-bottom: 0; line-height: 1; }
