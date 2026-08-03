@@ -165,7 +165,16 @@ export async function renderChatView(chatId: number): Promise<void> {
       shieldBtn.addEventListener('click', () => {
         void import('../components/protectionDialog.js').then(({ openProtectionDialog }) => openProtectionDialog(chatId));
       });
-      headerEl.append(searchBtn, galleryBtn, shieldBtn, membersBtn, pinBtn);
+      // macOS 顶栏模式:按钮移到顶部条(悬浮于聊天区右上),否则留在头部
+      const toolbar = document.getElementById('chat-toolbar');
+      if (toolbar && document.documentElement.classList.contains('window-overlay')) {
+        toolbar.innerHTML = '';
+        toolbar.style.display = 'flex';
+        toolbar.append(searchBtn, galleryBtn, shieldBtn, membersBtn, pinBtn);
+        repositionChatToolbar();
+      } else {
+        headerEl.append(searchBtn, galleryBtn, shieldBtn, membersBtn, pinBtn);
+      }
     }
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
     // Task 12: 在 mark_chat_noticed 之前拉取 unread count,
@@ -570,5 +579,41 @@ function channelName(chatId: number): string {
   }
   const ch = state.channels.find((c: ChannelDto) => c.chat_id === chatId);
   return ch ? ch.name : `#${chatId}`;
+}
+
+// macOS 顶栏模式:把 #chat-toolbar 对齐到聊天区右缘(抽屉/列宽变化时重定位)。
+// 非 macOS(window-overlay 类缺失)时工具栏隐藏,按钮留在头部,此函数为 no-op。
+let toolbarResizeBound = false;
+function ensureToolbarResizeBound(): void {
+  if (toolbarResizeBound) return;
+  toolbarResizeBound = true;
+  window.addEventListener('resize', () => repositionChatToolbar());
+}
+
+// macOS 顶栏模式:把 #chat-toolbar 对齐到聊天区右缘(抽屉/列宽变化时重定位)。
+// 非 macOS(window-overlay 类缺失)时工具栏隐藏,按钮留在头部,此函数为 no-op。
+export function repositionChatToolbar(): void {
+  if (!document.documentElement.classList.contains('window-overlay')) return;
+  const toolbar = document.getElementById('chat-toolbar');
+  if (!toolbar) return;
+  if (toolbar.childElementCount === 0) {
+    toolbar.style.display = 'none';
+    return;
+  }
+  const main = document.getElementById('chat-main');
+  if (!main) return;
+  const rect = main.getBoundingClientRect();
+  toolbar.style.left = `${rect.left}px`;
+  toolbar.style.right = `${window.innerWidth - rect.right}px`;
+  toolbar.style.display = 'flex';
+  ensureToolbarResizeBound();
+}
+
+// 离开聊天页时清空顶栏工具按钮(避免残留按钮悬浮在其它页面顶部)。
+export function clearChatToolbar(): void {
+  const toolbar = document.getElementById('chat-toolbar');
+  if (!toolbar) return;
+  toolbar.innerHTML = '';
+  toolbar.style.display = 'none';
 }
 
