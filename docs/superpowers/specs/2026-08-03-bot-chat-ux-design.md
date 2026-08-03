@@ -30,10 +30,10 @@ pub async fn ctx_for_bot(&self, owner_id: u32, bot_id: i64) -> AppResult<Context
 ### 2.2 `commands.rs` 4 个命令（均先 `state.bots.ctx_for_bot(owner, bot_id)`）
 | 命令 | 入参 | 返回 | 实现 |
 |---|---|---|---|
-| `bot_get_chatlist` | `bot_id: u32` | `Vec<ChatDto>` | 复用现有 `get_chatlist` 的 Chatlist 构建（抽 `&Context` 版 helper，含跳过 archived_link/alldone） |
-| `bot_get_chat_msgs` | `bot_id: u32, chat_id: u32` | `Vec<MsgDto>` | 复用现有 `get_chat_msgs` 的 MsgDto 构建逻辑（抽 `&Context` 版 helper） |
-| `bot_send_text` | `bot_id: u32, chat_id: u32, text: String` | `MsgDto` | 复用现有 `send_text` 逻辑（抽 `&Context` 版 helper） |
-| `bot_mark_chat_noticed` | `bot_id: u32, chat_id: u32` | — | 对 Bot context 调 `chat::marknoticed` |
+| `bot_get_chatlist` | `bot_id: i64` | `Vec<ChatDto>` | 复用现有 `get_chatlist` 的 Chatlist 构建（抽 `&Context` 版 helper，含跳过 archived_link/alldone） |
+| `bot_get_chat_msgs` | `bot_id: i64, chat_id: u32` | `Vec<MsgDto>` | 复用现有 `get_chat_msgs` 的 MsgDto 构建逻辑（抽 `&Context` 版 helper） |
+| `bot_send_text` | `bot_id: i64, chat_id: u32, text: String` | `MsgDto` | 复用现有 `send_text` 逻辑（抽 `&Context` 版 helper） |
+| `bot_mark_chat_noticed` | `bot_id: i64, chat_id: u32` | — | 对 Bot context 调 `chat::marknoticed_chat` |
 
 - owner 取 `state.current_id`（`current_owner_id` helper）。
 - 去重原则: 把现有 `get_chat_msgs`/`send_text`/`mark_chat_noticed` 中纯 `&Context` 的部分抽成私有 async helper，当前账号命令与 Bot 命令共用，避免约 150 行重复。
