@@ -455,11 +455,16 @@ async function refreshMsgReactions(msgId: number): Promise<void> {
     }
     // 移除已消失的胶囊
     for (const cap of existingCaps.values()) cap.remove();
-    // 若 reactions 节点原本不存在,插入 bubble 末尾(状态图标之前)
+    // 若 reactions 节点原本不存在,插入到 msg-bubble 内(reaction-picker 之前)。
+    // 必须插到 .msg-bubble 里:react 胶囊是消息内容的一部分,不能插到 .msg 直接子级
+    // (那会在气泡外面,且 insertBefore 的 reference 非同级会抛 DOMException → 反应不显示)。
     if (!wrap) {
-      const stateEl = msgEl.querySelector('.msg-state');
-      if (stateEl) msgEl.insertBefore(fragment, stateEl);
-      else msgEl.appendChild(fragment);
+      const bubble = msgEl.querySelector('.msg-bubble');
+      if (bubble) {
+        const picker = bubble.querySelector('.msg-reaction-picker');
+        if (picker) bubble.insertBefore(fragment, picker);
+        else bubble.appendChild(fragment);
+      }
     }
   } catch {}
 }
