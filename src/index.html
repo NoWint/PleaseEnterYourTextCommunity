@@ -12,16 +12,12 @@
     <div id="app"></div>
     <!-- macOS Overlay 标题栏:红黄绿三色按钮的拖拽区(仅 macOS 显示,见 styles.css) -->
     <div id="window-drag-region" data-tauri-drag-region></div>
-    <!-- 顶栏工具栏:左=上下文面包屑,中=VSCode 式居中搜索条,右=占位(让搜索居中) -->
+    <!-- 顶栏工具栏:VSCode 式居中搜索条(点击打开全局搜索) -->
     <div id="titlebar-tools">
-      <div id="titlebar-left"><span id="titlebar-context"></span></div>
-      <div id="titlebar-center">
-        <button id="titlebar-search" title="全局搜索">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          <span>搜索消息、联系人、频道…</span>
-        </button>
-      </div>
-      <div id="titlebar-right"></div>
+      <button id="titlebar-search" title="全局搜索">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span>搜索消息、联系人、频道…</span>
+      </button>
     </div>
     <!-- Windows/Linux 自绘窗口控制(最小化/最大化/关闭);macOS 用原生红绿灯 -->
     <div id="window-controls">
