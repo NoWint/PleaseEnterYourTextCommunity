@@ -46,17 +46,19 @@
 | `sage` | Sage | `#eef3ec` | `#f8faf4` | `#2f3a31` | `#3f7a55` |
 | `blush` | Blush | `#f7eef1` | `#fcf8f9` | `#423039` | `#b55670` |
 
-浅色套 `--theme-gradient` 置 `none`（或极淡竖渐变）、`--theme-mask` 置 `none`，`--surface` 用不透明浅色，`--on-accent` 用亮色。
+浅色套 `--theme-gradient: none`、`--theme-mask: none`（实色背景，无渐变遮罩），`--surface` 用不透明浅色，`--on-accent` 用亮色。
 
 ### 2.3 每套覆盖的变量清单（28 个）
 
 `--bg / --panel / --border / --border-strong / --active / --capsule / --text / --text-body / --text-mute / --text-weak / --text-faint / --border-dashed / --text-action / --hover-bright / --theme-gradient / --theme-mask / --surface / --surface-hover / --control-bg / --control-bg-hover / --danger / --danger-bg / --danger-bg-hover / --success / --on-accent / --bubble-self / --bubble-self-text`，加上 `--danger-bg-strong` 按需。
 
+`--danger` / `--danger-bg` / `--danger-bg-hover` / `--success` 的具体 hex 属于实现细节，由各套主题的色相族派生（如 Forest 用绿色系 success），具体取值在实施计划中逐个钉死并校验对比度。
+
 ## 3. 架构改动
 
 ### 3.1 `src/styles.css`
 - 在 GoldenHour 块后新增 8 个 `[data-theme="..."]` 块，结构与注释风格与 violet/goldenhour 一致。
-- 删除对 `.swatch-*` 固定类的依赖后，设置页色板改由内联渐变驱动；`.swatch-*` 预览类保留或清理（见 4.1）。
+- 删除设置页已不再引用的 `.swatch-nowint` / `.swatch-violet` / `.swatch-goldenhour` 三个预览类（第 1887–1889 行附近），色板改由内联渐变驱动。
 
 ### 3.2 `src/theme.ts`
 - `ThemeName` 联合类型扩展为 11 个 id。
@@ -89,7 +91,7 @@ export const BUILTIN_THEMES: BuiltinTheme[] = [
 
 ### 4.1 设置页「外观」网格（`src/pages/settingsPage.ts` `renderAppearance`）
 - 硬编码 3 项数组 → 从 `BUILTIN_THEMES` 渲染（插件主题仍追加在后面）。
-- 色板改为内联 `style="background:${t.swatch}"`（与插件主题同款），删除 `cls` 字段与 `.swatch-*` 依赖。
+- 色板改为内联 `style="background:${t.swatch}"`（与插件主题同款），`BuiltinTheme` 不再含 `cls` 字段，`.swatch-*` 类随之删除。
 - `.settings-themes` 增加 `flex-wrap: wrap` 保证 11 套换行。
 
 ### 4.2 rail 头像菜单 / 命令面板 / 搜索
