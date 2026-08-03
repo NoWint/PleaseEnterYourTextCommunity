@@ -79,7 +79,9 @@ export async function renderBots(main: HTMLElement): Promise<void> {
   }
 
   if (bots.length === 0) {
-    main.appendChild(ui.empty('还没有 Bot，点击右上角新建'));
+    const empty = ui.empty('还没有 Bot。\nBot 是一个独立的 AI 邮箱账号：创建后把它的邮箱发给任何人，对方发消息就会收到 LLM 自动回复。');
+    empty.style.whiteSpace = 'pre-line';
+    main.appendChild(empty);
     return;
   }
 
@@ -140,6 +142,18 @@ function renderBotRow(bot: BotDto, cfg: LlmConfigInput | null, onChanged: () => 
   // 阻止操作按钮点击冒泡到行级「查看会话」
   ops.addEventListener('click', (e) => e.stopPropagation());
   ops.appendChild(ui.iconButton({
+    icon: 'message-circle',
+    title: '对话',
+    size: 'sm',
+    onClick: () => void openBotChats(bot, main),
+  }));
+  ops.appendChild(ui.iconButton({
+    icon: 'users',
+    title: '拉入群聊',
+    size: 'sm',
+    onClick: () => void openAddBotToChat(bot),
+  }));
+  ops.appendChild(ui.iconButton({
     icon: 'settings',
     title: '配置',
     size: 'sm',
@@ -190,7 +204,7 @@ function isLlmConfigured(cfg: LlmConfigInput | null): boolean {
   return !!cfg && !!cfg.base_url && !!cfg.api_key && !!cfg.model;
 }
 
-// 新建 Bot:输入显示名 → 创建 → 自动打开 LLM 配置
+// 新建 Bot:输入显示名 → 创建 → 引导对话框(说明怎么用 + 去配置/打开对话)
 function onCreateBot(main: HTMLElement): void {
   ui.inputDialog({
     title: '新建 Bot',
@@ -198,10 +212,93 @@ function onCreateBot(main: HTMLElement): void {
     confirmLabel: '创建',
     onConfirm: async (displayName) => {
       const bot = await call<BotDto>('create_bot', { displayName });
-      ui.toast('Bot 已创建');
-      openLlmConfig(bot, () => void renderBots(main));
+      showCreateGuide(bot, main);
     },
   });
+}
+
+// 创建成功引导:展示 Bot 邮箱 + 使用说明,提供「配置 LLM」「打开对话」入口
+function showCreateGuide(bot: BotDto, main: HTMLElement): void {
+  const email = bot.addr || '';
+  const body = document.createElement('div');
+  body.style.cssText = 'display:flex;flex-direction:column;gap:10px';
+  body.innerHTML = `
+    <div style="font-size:13px;color:var(--text-mute);line-height:1.6">
+      已创建 <b>${escapeHtml(bot.display_name)}</b>。<br>
+      Bot 邮箱: <b>${escapeHtml(email)}</b><br>
+      把邮箱发给任何人即可对话，Bot 会用 AI 自动回复。
+      配置 LLM 后自动回复才会生效。
+    </div>
+  `;
+  const copyBtn = ui.button({ label: '复制邮箱', variant: 'ghost', size: 'sm', onClick: () => void copyText(email) });
+  body.appendChild(copyBtn);
+
+  const configBtn = ui.button({
+    label: '配置 LLM',
+    variant: 'primary',
+    onClick: () => { dlg?.close(); openLlmConfig(bot, () => void renderBots(main)); },
+  });
+  const chatBtn = ui.button({
+    label: '打开对话',
+    variant: 'ghost',
+    onClick: () => { dlg?.close(); void openBotChats(bot, main); },
+  });
+  let dlg: ReturnType<typeof ui.dialog> | null = null;
+  dlg = ui.dialog({
+    title: 'Bot 已创建',
+    actions: [chatBtn, configBtn],
+  });
+  const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(body, actionsEl);
+}
+
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    ui.toast('已复制');
+  } catch {
+    ui.toast('复制失败');
+  }
+}
+
+// 把 bot 拉入主账号的某个群聊/频道:选主账号的群组会话 → add_bot_to_chat
+async function openAddBotToChat(bot: BotDto): Promise<void> {
+  let chats: Array<{ chat_id: number; name: string }>;
+  try {
+    const all = await call<Array<{ chat_id: number; name: string; is_group: boolean }>>('get_chatlist');
+    chats = all.filter((c) => c.is_group);
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  if (chats.length === 0) {
+    ui.toast('还没有群聊或频道');
+    return;
+  }
+  const list = document.createElement('div');
+  list.style.cssText = 'max-height:320px;overflow-y:auto;display:flex;flex-direction:column';
+  for (const c of chats) {
+    list.appendChild(ui.listItem({
+      title: c.name,
+      onClick: async () => {
+        dlg?.close();
+        try {
+          await call('add_bot_to_chat', { botId: bot.id, chatId: c.chat_id });
+          ui.toast(`已把 ${bot.display_name} 加入「${c.name}」`);
+        } catch (e) {
+          ui.toast(e instanceof Error ? e.message : String(e));
+        }
+      },
+    }));
+  }
+  let dlg: ReturnType<typeof ui.dialog> | null = null;
+  dlg = ui.dialog({
+    title: `把 ${bot.display_name} 拉入群聊`,
+    body: '',
+    actions: [],
+  });
+  const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(list, actionsEl);
 }
 
 // 配置对话框:Base URL 预设/自定义 + 系统提示词 + API Key + 模型名。
@@ -233,21 +330,31 @@ function openLlmConfig(bot: BotDto, onSaved: () => void): void {
   body.appendChild(ui.field({ label: '模型名', children: modelInput }));
 
   const cancel = ui.button({ label: '取消', variant: 'ghost', onClick: () => dlg?.close() });
+  const test = ui.button({
+    label: '测试连接',
+    variant: 'ghost',
+    onClick: async () => {
+      test.disabled = true;
+      testLabel.textContent = '测试中…';
+      testLabel.style.color = 'var(--text-mute)';
+      try {
+        const reply = await call<string>('test_llm_config', { config: collectConfig() });
+        testLabel.textContent = `✓ 连接成功: ${reply.slice(0, 60)}`;
+        testLabel.style.color = 'var(--success)';
+      } catch (e) {
+        testLabel.textContent = '✗ ' + (e instanceof Error ? e.message : String(e));
+        testLabel.style.color = 'var(--danger)';
+      } finally {
+        test.disabled = false;
+      }
+    },
+  });
   const save = ui.button({
     label: '保存',
     variant: 'primary',
     onClick: async () => {
       try {
-        const config: LlmConfigInput = {};
-        const sp = promptArea.value.trim();
-        if (sp) config.system_prompt = sp;
-        const baseUrl = presetSelect.value === '__custom__' ? customInput.value.trim() : presetSelect.value;
-        if (baseUrl) config.base_url = baseUrl;
-        const ak = keyInput.value.trim();
-        if (ak) config.api_key = ak;
-        const m = modelInput.value.trim();
-        if (m) config.model = m;
-        await call('update_bot_llm', { botId: bot.id, config });
+        await call('update_bot_llm', { botId: bot.id, config: collectConfig() });
         ui.toast('配置已保存');
         dlg?.close();
       } catch (e) {
@@ -256,14 +363,32 @@ function openLlmConfig(bot: BotDto, onSaved: () => void): void {
     },
   });
 
+  // 汇总表单 → LLM 配置对象
+  function collectConfig(): LlmConfigInput {
+    const config: LlmConfigInput = {};
+    const sp = promptArea.value.trim();
+    if (sp) config.system_prompt = sp;
+    const baseUrl = presetSelect.value === '__custom__' ? customInput.value.trim() : presetSelect.value;
+    if (baseUrl) config.base_url = baseUrl;
+    const ak = keyInput.value.trim();
+    if (ak) config.api_key = ak;
+    const m = modelInput.value.trim();
+    if (m) config.model = m;
+    return config;
+  }
+
+  const testLabel = document.createElement('div');
+  testLabel.style.cssText = 'font-size:12px;min-height:16px;word-break:break-all';
+
   let dlg: ReturnType<typeof ui.dialog> | null = null;
   dlg = ui.dialog({
     title: `配置 Bot · ${bot.display_name}`,
-    actions: [cancel, save],
+    actions: [cancel, test, save],
     onClose: onSaved,
   });
   const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
   dlg.overlay.querySelector('.ui-dialog')!.insertBefore(body, actionsEl);
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(testLabel, actionsEl);
 
   // 预填已存的 LLM 配置
   void (async () => {
@@ -293,6 +418,10 @@ function openLlmConfig(bot: BotDto, onSaved: () => void): void {
 // 截断长文本(超长加省略号)
 function truncateText(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
 
 // Bot 会话双栏视图:左栏 = 返回 + Bot 信息 + 会话列表(固定 260px),

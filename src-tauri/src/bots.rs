@@ -81,6 +81,15 @@ impl BotService {
 
             ctx.start_io().await;
             let addr = ctx.get_config(Config::ConfiguredAddr).await?;
+            // 默认加为好友:主账号创建与 bot 的 1:1 会话,让 bot 出现在主账号会话列表
+            if let Some(bot_addr) = addr.as_deref() {
+                if let Some(owner_ctx) = self.accounts.lock().await.get_account(owner_id) {
+                    if let Ok(cid) = deltachat::contact::Contact::create(&owner_ctx, "", bot_addr).await
+                    {
+                        let _ = deltachat::chat::ChatId::create_for_contact(&owner_ctx, cid).await;
+                    }
+                }
+            }
             Ok(BotDto {
                 id: bot_id,
                 bot_account_id: id,
@@ -91,6 +100,13 @@ impl BotService {
             })
         }
         .await;
+
+        // 恢复主账号选中状态:core 的 add_account() 末尾会自动 select_account(新账号),
+        // 会把 bot 账号持久化为 selected_account。无论成功与否都必须改回 owner,
+        // 否则重启后应用会以 bot 为主账号。
+        if let Err(e) = self.accounts.lock().await.select_account(owner_id).await {
+            log::warn!("restore selected account to owner {owner_id} failed: {e}");
+        }
 
         match result {
             Ok(dto) => Ok(dto),
@@ -206,6 +222,11 @@ impl BotService {
                 ids.insert(row.bot_account_id);
             }
         }
+        // 自愈:若持久化选中的账号是 bot(历史 bug:create_bot 曾让 add_account 把 bot
+        // 设为 selected_account),切回 owner,避免应用把 bot 当主账号使用。
+        if let Some(owner) = self.ensure_selected_not_bot().await? {
+            log::warn!("selected account was a bot; switched back to owner {owner}");
+        }
         for row in rows {
             if let Some(ctx) = self.accounts.lock().await.get_account(row.bot_account_id) {
                 ctx.start_io().await;
@@ -218,6 +239,20 @@ impl BotService {
             }
         }
         Ok(())
+    }
+
+    /// 若持久化选中的账号是任一 bot 账号,切回其 owner 并返回修复后的 owner id。
+    /// 供 lib.rs 同步内存 current_id;无修复返回 None。
+    pub async fn ensure_selected_not_bot(&self) -> AppResult<Option<u32>> {
+        let mut accounts = self.accounts.lock().await;
+        let Some(sel) = accounts.get_selected_account_id() else {
+            return Ok(None);
+        };
+        if let Some(row) = self.db.get_bot_by_account_id(sel).await? {
+            accounts.select_account(row.owner_account_id).await?;
+            return Ok(Some(row.owner_account_id));
+        }
+        Ok(None)
     }
 
     /// 更新某个 bot 的 LLM 配置，并返回最新 DTO。

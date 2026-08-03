@@ -5,8 +5,9 @@ import { iconSvg } from '../components/icon.js';
 import { ui } from '../components/ui.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
+import { renderMemberDetail } from '../components/memberDetail.js';
 import { isEmail, parseInviteLink } from '../utils/inviteLink.js';
-import type { ChatListItem } from '../types.js';
+import type { ChatListItem, MemberDto } from '../types.js';
 
 let panel: HTMLElement | null = null;
 let showArchived = false;
@@ -297,13 +298,31 @@ function showInlineGroupInput(): void {
     placeholder: '输入群名称',
     confirmLabel: '创建',
     onConfirm: async (name) => {
-      const chatId = await call<number>('create_group_chat', { name });
+      const emails = await promptMemberEmails();
+      const chatId = emails.length > 0
+        ? await call<number>('create_group', { name, memberEmails: emails })
+        : await call<number>('create_group_chat', { name });
       state.currentChatId = chatId;
       saveState();
       await renderMessagesPage(panel!);
       const { renderMain } = await import('../shell/navPanel.js');
       await renderMain();
     },
+  });
+}
+
+/** 可选:输入群成员邮箱(逗号/空格分隔),为空返回 []。 */
+function promptMemberEmails(): Promise<string[]> {
+  return new Promise((resolve) => {
+    ui.inputDialog({
+      title: '添加成员（可跳过）',
+      placeholder: '邮箱,用逗号或空格分隔',
+      confirmLabel: '创建群',
+      onConfirm: (v) => {
+        const emails = v.split(/[,，\s]+/).map((e) => e.trim()).filter(Boolean);
+        resolve(emails);
+      },
+    });
   });
 }
 
@@ -333,8 +352,11 @@ function showChatContextMenu(anchor: HTMLElement, c: ChatListItem): void {
       label: '查看资料',
       icon: 'user',
       action: () => {
-        if (isMailing) void openMailingListProfile(c.chat_id, c);
-        else ui.toast('查看资料(开发中)');
+        if (isMailing) {
+          void openMailingListProfile(c.chat_id, c);
+          return;
+        }
+        void openChatProfile(c);
       },
     },
     {
@@ -384,6 +406,43 @@ function showChatContextMenu(anchor: HTMLElement, c: ChatListItem): void {
       },
     },
   ], 'bottom-right');
+}
+
+// 查看资料:1:1 会话渲染成员详情弹窗;群聊列出成员姓名/邮箱。
+async function openChatProfile(c: ChatListItem): Promise<void> {
+  try {
+    const info = await call<{ members: MemberDto[] }>('get_chat_info', { chatId: c.chat_id });
+    const members = info.members || [];
+    if (c.is_group) {
+      const rows = members.length
+        ? members.map((m) => `
+            <div class="ui-list-item">
+              <div class="ui-list-meta">
+                <div class="ui-list-title">${escapeHtml(m.name)}</div>
+                ${m.addr ? `<div class="ui-list-sub">${escapeHtml(m.addr)}</div>` : ''}
+              </div>
+            </div>`).join('')
+        : '<div style="padding:16px;color:var(--text-weak)">暂无成员</div>';
+      ui.dialog({ title: c.name, body: `<div>${rows}</div>`, size: 'md' });
+      return;
+    }
+    const other = members.find((m) => !m.is_self);
+    if (!other) {
+      ui.toast('暂无成员资料');
+      return;
+    }
+    const dlg = ui.dialog({ title: '成员资料', body: '<div></div>', size: 'md' });
+    const bodyEl = dlg.overlay.querySelector<HTMLElement>('.ui-dialog-body');
+    if (bodyEl) {
+      // renderMemberDetail 内部按 state.currentChatId 拉取成员,临时切换目标会话
+      const prevChatId = state.currentChatId;
+      state.currentChatId = c.chat_id;
+      await renderMemberDetail(bodyEl, other.contact_id);
+      state.currentChatId = prevChatId;
+    }
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e));
+  }
 }
 
 function bindUserBar(): void {
