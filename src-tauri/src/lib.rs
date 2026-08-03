@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod dto;
+mod envelope;
 mod error;
 mod events;
 mod plugins;
@@ -78,6 +79,8 @@ pub fn run() {
             commands::create_chat_by_contact,
             commands::get_asset_url,
             commands::search_msgs,
+            commands::get_all_messages,
+            commands::debug_chatlist,
             commands::create_card,
             commands::update_card,
             commands::delete_card,

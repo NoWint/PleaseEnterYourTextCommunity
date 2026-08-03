@@ -105,6 +105,19 @@ pub struct SearchResultDto {
     pub ts: i64,
 }
 
+/// Debug 页原始消息 (直查 core msgs 表, 非遍历聊天)
+#[derive(Debug, Serialize)]
+pub struct RawMsgDto {
+    pub msg_id: u32,
+    pub chat_id: u32,
+    pub chat_name: String,
+    pub from_name: String,
+    pub is_out: bool,
+    pub ts: i64,
+    pub view_type: String, // "Text"|"Image"|...
+    pub text: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct WorkspaceDto {
     pub id: i64,

@@ -41,14 +41,11 @@ async function renderMessageList(): Promise<void> {
   } catch {
     chats = [];
   }
-  const wsChatIds = new Set<number>();
-  for (const ws of state.workspaces) {
-    wsChatIds.add(ws.master_chat_id);
-    for (const ch of state.channels) {
-      if (ch.workspace_id === ws.id) wsChatIds.add(ch.chat_id);
-    }
-  }
-  const messages = chats.filter((c) => !wsChatIds.has(c.chat_id));
+  // 按会话类型过滤,而非 chat_id 集合:workspace 主群/频道都是群(排除),
+  // 保留单聊(1:1 会话)。用类型判断避免 chat_id 与 securejoin 会话冲突时误伤。
+  const messages = chats.filter((c) =>
+    !c.is_group && !c.is_self_talk && !c.is_contact_request
+  );
 
   if (messages.length === 0) {
     list.appendChild(ui.empty('暂无会话,点击 + 开始'));
@@ -125,8 +122,21 @@ function showInlineQrInput(): void {
     placeholder: '粘贴 QR 邀请链接 (dccontact: / dcgroup:)',
     confirmLabel: '加入',
     onConfirm: async (qr) => {
-      await call('secure_join', { qr });
-      await renderMessagesPage(panel!);
+      try {
+        const chatId = await call<number>('secure_join', { qr });
+        // securejoin 完成后的 1:1 会话是 contact request,需 accept 才能进常规 chatlist 并显示消息
+        try {
+          await call('accept_chat', { chatId });
+        } catch {}
+        state.currentChatId = chatId;
+        saveState();
+        await renderMessagesPage(panel!);
+        const { renderMain } = await import('../shell/navPanel.js');
+        await renderMain();
+      } catch (e) {
+        ui.toast(e instanceof Error ? e.message : String(e));
+        throw e;
+      }
     },
   });
 }

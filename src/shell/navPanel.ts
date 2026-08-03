@@ -85,6 +85,11 @@ export async function renderNavPanel(): Promise<void> {
         await renderSettingsNav(panel);
         break;
       }
+      case 'debug': {
+        const { renderDebugNav } = await import('../pages/debugPage.js');
+        await renderDebugNav(panel);
+        break;
+      }
     }
   } catch {
     panel.innerHTML = `<div class="empty">页面加载失败</div>`;
@@ -133,6 +138,16 @@ export async function renderMain(): Promise<void> {
       await renderInboxMain(main);
     } catch {
       main.innerHTML = `<div class="empty">通知加载失败</div>`;
+    }
+    return;
+  }
+
+  if (state.currentPage === 'debug') {
+    try {
+      const { renderDebugMain } = await import('../pages/debugPage.js');
+      await renderDebugMain(main);
+    } catch {
+      main.innerHTML = `<div class="empty">调试页加载失败</div>`;
     }
     return;
   }

@@ -229,7 +229,9 @@ pub fn spawn_event_forwarder(app: AppHandle, accounts: Arc<Mutex<Accounts>>) {
                 // 信息/警告/错误等日志类事件不转发(前端不需要)
                 _ => continue,
             };
-            let _ = app.emit("dc-event", payload);
+            let result = app.emit("dc-event", &payload);
+            // 诊断:确认事件循环活着 + emit 是否成功(排查事件流断)
+            log::debug!("[events] forwarded {}, emit result ok={}", payload.typ, result.is_ok());
         }
     });
 }

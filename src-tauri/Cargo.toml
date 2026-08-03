@@ -32,6 +32,7 @@ urlencoding = "2"
 socket2 = { version = "0.5", features = ["all"] }
 rusqlite = "0.37"
 chrono = { version = "0.4", features = ["clock"] }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

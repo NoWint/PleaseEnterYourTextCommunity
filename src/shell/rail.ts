@@ -47,6 +47,11 @@ export async function renderRail(): Promise<void> {
     ${iconSvg('terminal', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
+  // 调试入口 — 消息原文列表 (位于终端按钮下方, separator 之上)
+  const debugIconHtml = `<div class="rail-icon ${state.currentPage === 'debug' ? 'active' : ''}" data-page="debug" title="调试">
+    ${iconSvg('bug', { width: 24, height: 24, strokeWidth: 1.5 })}
+  </div>`;
+
   const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" title="设置">
     ${iconSvg('settings', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
@@ -57,6 +62,7 @@ export async function renderRail(): Promise<void> {
     ${pageIconsHtml}
     ${pluginIconHtml}
     ${terminalIconHtml}
+    ${debugIconHtml}
     <div class="rail-separator"></div>
     <div class="rail-flex"></div>
     ${settingsIconHtml}
@@ -142,6 +148,14 @@ function showUserMenu(anchor: HTMLElement): void {
       icon: 'user',
       action: () => {
         navigateToPage('settings').catch(reportError);
+      },
+    },
+    {
+      label: '重启',
+      icon: 'refresh-cw',
+      action: () => {
+        // 重载前端:重新 boot + 全量拉取,排查事件流/会话刷新问题
+        location.reload();
       },
     },
     {

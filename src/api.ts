@@ -15,12 +15,49 @@ export async function call<T = unknown>(cmd: string, args?: Record<string, unkno
   }
 }
 
+// 全局事件日志:记录最近收到的 dc-event,供 debug 页排查事件流
+export const eventLog: DcEvent[] = [];
+
+// 单一事件桥:一次 listen('dc-event'),按 typ 分发给注册的回调。
+// 模仿 delta 的单一 emitter 模型,避免每个 handler 独立 listen 导致事件丢失/不稳定。
+type Handler = (payload: DcEvent) => void;
+const handlers = new Map<string, Set<Handler>>();
+let bridgeStarted = false;
+
+let bridgeRetries = 0;
+
+async function startEventBridge(): Promise<void> {
+  if (bridgeStarted) return;
+  bridgeStarted = true;
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+    await listen('dc-event', (ev) => {
+      const payload = ev.payload as DcEvent;
+      eventLog.push(payload);
+      if (eventLog.length > 50) eventLog.shift();
+      const set = handlers.get(payload.typ);
+      if (set) for (const cb of set) cb(payload);
+    });
+    console.log('[event-bridge] dc-event listener started');
+  } catch (e) {
+    console.error('[event-bridge] failed to start dc-event listener:', e);
+    bridgeStarted = false;
+    // 延迟重试,应对 Tauri IPC 初始化竞态
+    if (bridgeRetries < 5) {
+      bridgeRetries++;
+      setTimeout(() => void startEventBridge(), 1000);
+    }
+  }
+}
+
 export async function onEvent(typ: string, cb: (payload: DcEvent) => void): Promise<() => void> {
-  const { listen } = await import('@tauri-apps/api/event');
-  return listen('dc-event', (ev) => {
-    const payload = ev.payload as DcEvent;
-    if (payload.typ === typ) cb(payload);
-  });
+  await startEventBridge();
+  if (!handlers.has(typ)) handlers.set(typ, new Set());
+  handlers.get(typ)!.add(cb);
+  console.log(`[onEvent] registered "${typ}"`);
+  return () => {
+    handlers.get(typ)?.delete(cb);
+  };
 }
 
 export async function transformBlobURL(path: string): Promise<string> {

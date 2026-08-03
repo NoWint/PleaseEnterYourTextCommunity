@@ -1,4 +1,5 @@
 use deltachat::chat::{self, Chat, ChatItem};
+use deltachat::context::Context;
 use deltachat::chatlist::Chatlist;
 use deltachat::config::Config;
 use deltachat::constants::Chattype;
@@ -14,7 +15,7 @@ use tauri::State;
 use crate::dto::{
     ActivityDto, AdvancedLogin, CardDto, ChannelDto, ChatDto, ChatInfoDto, ContactDto,
     ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PeytStudioDto, PinDto, ProfileDto,
-    ReactionDto, RoleDto, SearchResultDto, WorkspaceDto,
+    RawMsgDto, ReactionDto, RoleDto, SearchResultDto, WorkspaceDto,
 };
 use crate::error::{AppError, AppResult};
 use crate::plugins::{PluginStatus, RegistryPlugin};
@@ -156,7 +157,7 @@ pub async fn create_chatmail_account(
     };
     dbg("[chatmail] got context, calling add_transport_from_qr...");
 
-    ctx.add_transport_from_qr("dcaccount:nine.testrun.org")
+    ctx.add_transport_from_qr("dcaccount:https://yzjtiantian.cn/new")
         .await
         .map_err(|e| {
             dbg(format!("[chatmail] add_transport_from_qr FAILED: {e}"));
@@ -1238,6 +1239,121 @@ pub async fn search_msgs(
     Ok(out)
 }
 
+/// Debug 页: 遍历全部聊天, 收集所有消息, 按时间倒序分页返回原文。
+/// 用 core 公开 API (Chatlist + get_chat_msgs), 不依赖 internals feature,
+/// 避免改动 deltachat 编译特征触发 openssl 重编。
+/// 先收集全部 (id, ts), 排序后再分页, 保证跨聊天全局时间序。
+#[tauri::command]
+pub async fn get_all_messages(
+    state: State<'_, AppState>,
+    cursor: Option<i64>, // 上一页最后一条的 ts; None = 第一页
+    limit: Option<i64>,
+) -> AppResult<Vec<RawMsgDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let limit = limit.unwrap_or(20).clamp(1, 100);
+
+    // 1. 遍历所有聊天, 收集全部 (ts, msg_id) (load 一次拿时间戳, 供排序)
+    let mut all: Vec<(i64, MsgId)> = Vec::new();
+    let chatlist = Chatlist::try_load(&ctx, 0, None, None).await?;
+    for i in 0..chatlist.len() {
+        let chat_id = match chatlist.get_chat_id(i) {
+            Ok(id) => id,
+            Err(_) => continue,
+        };
+        let items = match chat::get_chat_msgs(&ctx, chat_id).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        for item in items {
+            if let ChatItem::Message { msg_id } = item {
+                if let Ok(m) = Message::load_from_db(&ctx, msg_id).await {
+                    all.push((m.get_timestamp(), msg_id));
+                }
+            }
+        }
+    }
+
+    // 2. 按 ts 倒序排序 (同 ts 按 id 倒序)
+    all.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.to_u32().cmp(&a.1.to_u32())));
+
+    // 3. 游标分页: 取 ts < cursor 的前 limit 条
+    let mut out = Vec::with_capacity(limit as usize);
+    for (ts, msg_id) in all {
+        if let Some(c) = cursor {
+            if ts >= c {
+                continue;
+            }
+        }
+        let m = match Message::load_from_db(&ctx, msg_id).await {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let from_id = m.get_from_id();
+        let from_name = if from_id == ContactId::SELF {
+            "我".to_string()
+        } else {
+            Contact::get_by_id(&ctx, from_id)
+                .await
+                .map(|c| c.get_display_name().to_string())
+                .unwrap_or_default()
+        };
+        out.push(RawMsgDto {
+            msg_id: msg_id.to_u32(),
+            chat_id: m.get_chat_id().to_u32(),
+            chat_name: chat_name(&ctx, m.get_chat_id()).await,
+            from_name,
+            is_out: matches!(
+                m.get_state(),
+                MessageState::OutDraft
+                    | MessageState::OutPending
+                    | MessageState::OutFailed
+                    | MessageState::OutDelivered
+                    | MessageState::OutMdnRcvd
+            ),
+            ts: m.get_timestamp(),
+            view_type: viewtype_str(m.get_viewtype()).to_string(),
+            text: m.get_text(),
+        });
+        if out.len() >= limit as usize {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+async fn chat_name(ctx: &Context, chat_id: deltachat::chat::ChatId) -> String {
+    Chat::load_from_db(ctx, chat_id)
+        .await
+        .map(|c| c.get_name().to_string())
+        .unwrap_or_default()
+}
+
+/// 诊断: 返回 chatlist 原始内容 + 每个 chat 的 type/is_contact_request,
+/// 用于排查 securejoin 会话为何不进侧栏。
+#[tauri::command]
+pub async fn debug_chatlist(state: State<'_, AppState>) -> AppResult<Vec<serde_json::Value>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let list = Chatlist::try_load(&ctx, 0, None, None).await?;
+    let mut out = Vec::with_capacity(list.len());
+    for i in 0..list.len() {
+        let chat_id = list.get_chat_id(i)?;
+        let chat = Chat::load_from_db(&ctx, chat_id).await?;
+        out.push(serde_json::json!({
+            "chat_id": chat_id.to_u32(),
+            "name": chat.get_name(),
+            "type": format!("{:?}", chat.get_type()),
+            "is_contact_request": chat.is_contact_request(),
+        }));
+    }
+    Ok(out)
+}
+
 // ── card commands ───────────────────────────────────────────────────────────
 
 async fn row_to_card_dto(
@@ -1363,7 +1479,7 @@ pub async fn create_card(
         )
         .await?;
 
-    // 2. 构造 [CARD] 消息
+    // 2. 构造 [PEYT] 信封 (card.create): 实体 id 暂用本地 card_id (UUID 迁移下一步)
     let assignee_addr = if let Some(cid) = assignee_contact_id {
         Contact::get_by_id(&ctx, ContactId::new(cid))
             .await?
@@ -1376,8 +1492,14 @@ pub async fn create_card(
         .await?
         .get_addr()
         .to_string();
-    let card_json = serde_json::json!({
-        "action": "create",
+    // position 在 insert 后才有默认值, 重取一次
+    let position = state
+        .db
+        .get_card_row(card_id)
+        .await?
+        .map(|r| r.13)
+        .unwrap_or(0);
+    let payload = serde_json::json!({
         "id": card_id,
         "type": type_,
         "title": title,
@@ -1387,9 +1509,10 @@ pub async fn create_card(
         "description": description,
         "created_by_addr": created_by_addr,
         "created_at": now,
-    })
-    .to_string();
-    let msg_text = format!("[CARD]{}", card_json);
+        "updated_at": now,
+        "position": position,
+    });
+    let msg_text = crate::envelope::build_envelope("card.create", payload)?;
 
     // 3. 发送到 deltachat
     let chat_id_dc = deltachat::chat::ChatId::new(chat_id);
@@ -1472,8 +1595,7 @@ pub async fn update_card(
     } else {
         String::new()
     };
-    let card_json = serde_json::json!({
-        "action": "update",
+    let payload = serde_json::json!({
         "id": card_id,
         "type": row.4,
         "title": row.5,
@@ -1482,9 +1604,10 @@ pub async fn update_card(
         "due_date": row.9,
         "description": row.6,
         "created_at": row.11,
-    })
-    .to_string();
-    let msg_text = format!("[CARD]{}", card_json);
+        "updated_at": row.12,
+        "position": row.13,
+    });
+    let msg_text = crate::envelope::build_envelope("card.update", payload)?;
     let chat_id_dc = deltachat::chat::ChatId::new(row.2);
     let mut msg = Message::new_text(msg_text);
     let _ = chat::send_msg(&ctx, chat_id_dc, &mut msg).await;
@@ -1525,14 +1648,12 @@ pub async fn delete_card(state: State<'_, AppState>, card_id: i64) -> AppResult<
     let row = state.db.get_card_row(card_id).await?;
     state.db.delete_card(card_id).await?;
     if let Some(r) = row {
-        let card_json = serde_json::json!({
-            "action": "delete",
+        let payload = serde_json::json!({
             "id": card_id,
             "title": r.5,
             "created_at": r.11,
-        })
-        .to_string();
-        let msg_text = format!("[CARD]{}", card_json);
+        });
+        let msg_text = crate::envelope::build_envelope("card.delete", payload)?;
         let chat_id_dc = deltachat::chat::ChatId::new(r.2);
         let mut msg = Message::new_text(msg_text);
         let _ = chat::send_msg(&ctx, chat_id_dc, &mut msg).await;
@@ -1765,13 +1886,18 @@ pub async fn message_to_card(
         )
         .await?;
 
-    // 发送同步消息
+    // 发送同步消息 (card.create 信封)
     let created_by_addr = Contact::get_by_id(&ctx, ContactId::SELF)
         .await?
         .get_addr()
         .to_string();
-    let card_json = serde_json::json!({
-        "action": "create",
+    let position = state
+        .db
+        .get_card_row(card_id)
+        .await?
+        .map(|r| r.13)
+        .unwrap_or(0);
+    let payload = serde_json::json!({
         "id": card_id,
         "type": type_,
         "title": title,
@@ -1781,10 +1907,11 @@ pub async fn message_to_card(
         "description": null,
         "created_by_addr": created_by_addr,
         "created_at": now,
+        "updated_at": now,
+        "position": position,
         "source_msg_id": msg_id,
-    })
-    .to_string();
-    let msg_text = format!("[CARD]{}", card_json);
+    });
+    let msg_text = crate::envelope::build_envelope("card.create", payload)?;
     let chat_id_dc = deltachat::chat::ChatId::new(chat_id);
     let mut sync_msg = Message::new_text(msg_text);
     let sent_msg_id = chat::send_msg(&ctx, chat_id_dc, &mut sync_msg).await?;
@@ -1870,14 +1997,16 @@ pub async fn ensure_peyt_studio(state: State<'_, AppState>) -> AppResult<PeytStu
     // 5. 在 master 群发送欢迎指引
     let welcome = "👋 欢迎来到 PEYT Studio\n\n这是团队的默认协作空间。\n• 公告频道: 团队通知发布\n• 闲聊频道: 日常交流\n• 工作频道: 任务看板协作\n\n点击右上角头像可切换主题,左下角 + 可创建更多 workspace。";
     let _ = chat::send_text_msg(&ctx, master_chat_id, welcome.to_string()).await?;
-    // 6. 在 master 群发送 [PEYT_INVITE] 包含其他频道 QR,供新成员自动加入
+    // 6. 在 master 群发送 project.invite 信封,包含其他频道 QR,供新成员自动加入
     let general_qr = securejoin::get_securejoin_qr(&ctx, Some(general_chat)).await.unwrap_or_default();
     let work_qr = securejoin::get_securejoin_qr(&ctx, Some(work_chat)).await.unwrap_or_default();
-    let invite_payload = format!(
-        "[PEYT_INVITE]{{\"general_qr\":\"{}\",\"work_qr\":\"{}\"}}",
-        general_qr.replace('"', "\\\""),
-        work_qr.replace('"', "\\\"")
-    );
+    let invite_payload = crate::envelope::build_envelope(
+        "project.invite",
+        serde_json::json!({
+            "general_qr": general_qr,
+            "work_qr": work_qr,
+        }),
+    )?;
     let _ = chat::send_text_msg(&ctx, master_chat_id, invite_payload).await?;
     // 7. 生成 master 群的 SecureJoin QR 供首人分享
     let invite_qr = securejoin::get_securejoin_qr(&ctx, Some(master_chat_id)).await?;

@@ -6,7 +6,7 @@ import {
   ArrowUp, Star, AlertCircle, ThumbsUp, Package, Terminal, Download,
   Calendar, List, Clock, Inbox,
   Columns3, GitCommitHorizontal,
-  RefreshCw, Ban,
+  RefreshCw, Ban, PinOff, Bug, SmilePlus,
 } from 'lucide';
 import type { IconNode, SVGProps } from 'lucide';
 
@@ -24,7 +24,13 @@ export type IconName =
   // SP7: ViewToggle 视图切换图标 (kanban / timeline)
   | 'calendar' | 'list' | 'clock' | 'inbox' | 'columns' | 'timeline'
   // 图标收口: 刷新 / 禁止 (替代 ↻ / ⛔)
-  | 'refresh-cw' | 'ban';
+  | 'refresh-cw' | 'ban'
+  // 置顶 / 取消置顶
+  | 'pin-off'
+  // 调试: 消息原文列表页
+  | 'bug'
+  // 反应: 更多表情面板入口
+  | 'smile-plus';
 
 export interface IconOpts {
   width?: number;
@@ -85,6 +91,9 @@ const iconMap: Record<IconName, IconNode> = {
   'timeline': GitCommitHorizontal,
   'refresh-cw': RefreshCw,
   'ban': Ban,
+  'pin-off': PinOff,
+  'bug': Bug,
+  'smile-plus': SmilePlus,
 };
 
 const defaultAttributes: SVGProps = {

@@ -68,6 +68,8 @@ export function bindColumnResizers(): void {
       e.preventDefault();
       dragging = true;
       handle.classList.add('dragging');
+      // 拖动期间禁用宽度过渡,保证 1:1 跟踪 (Apple 直接操控)
+      target.classList.add('no-anim');
       try { handle.setPointerCapture(e.pointerId); } catch { /* 合成事件下无活动指针,忽略 */ }
       startX = e.clientX;
       startW = target.getBoundingClientRect().width;
@@ -94,6 +96,7 @@ export function bindColumnResizers(): void {
       if (!dragging) return;
       dragging = false;
       handle.classList.remove('dragging', 'boundary');
+      target.classList.remove('no-anim');
       document.body.style.cursor = '';
       // 回弹到 min/max 边界
       const w = clamp(target.getBoundingClientRect().width, spec.min, spec.max);

@@ -7,7 +7,7 @@ import { renderRightDrawer } from './rightDrawer.js';
 import { bindColumnResizers } from './columnResizer.js';
 import { loadState, saveState } from '../persist.js';
 import { showToast } from '../toast.js';
-import { stateLabel, renderReactionsHtml, updateReactionsCache } from '../chat/message.js';
+import { stateLabel, updateReactionsCache } from '../chat/message.js';
 import { appendNewMessages } from '../chat/chatView.js';
 import type { MsgState, MsgDto } from '../types.js';
 
@@ -117,7 +117,8 @@ export async function renderShell(): Promise<void> {
   onEvent('MsgFailed', (e) => updateMsgState(e.msg_id as number, 'failed'));
   onEvent('MsgDeleted', (e) => removeMsg(e.msg_id as number));
   onEvent('ReactionsChanged', (e) => {
-    void refreshMsgReactions(e.msg_id as number);
+    // 延迟拉取:事件先于数据库写入,等库落定后再拉反应并重渲染可视区
+    setTimeout(() => void refreshMsgReactions(e.msg_id as number), 200);
   });
   onEvent('MsgRead', (e) => updateMsgState(e.msg_id as number, 'read'));
   onEvent('MsgsNoticed', () => {
@@ -146,11 +147,19 @@ export async function renderShell(): Promise<void> {
   onEvent('IncomingMsgBunch', () => {
     // no-op
   });
-  onEvent('SecurejoinJoinerProgress', () => {
-    // no-op
+  onEvent('SecurejoinJoinerProgress', (e) => {
+    // 握手完成(progress>=1000)时新会话建立,强制刷新侧栏让 1:1 会话出现
+    if ((e.progress as number) >= 1000) {
+      void refreshSidebar();
+      void updateBadge();
+    }
   });
-  onEvent('SecurejoinInviterProgress', () => {
-    // no-op
+  onEvent('SecurejoinInviterProgress', (e) => {
+    // 对方加入我们发起的会话时同样刷新(本机作为邀请方)
+    if ((e.progress as number) >= 1000) {
+      void refreshSidebar();
+      void updateBadge();
+    }
   });
   onEvent('WebxdcStatusUpdate', () => {
     // no-op
@@ -216,6 +225,14 @@ export async function renderShell(): Promise<void> {
 async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
   const chatId = e.chat_id as number;
   const text = (e.text as string) || '';
+
+  // 收到的任何消息:若所属会话是未接受的 contact request,自动 accept
+  // (幂等,已接受会话无副作用),使 1:1 会话进入 chatlist 并显示消息/已读状态
+  if (chatId != null) {
+    try {
+      await call('accept_chat', { chatId });
+    } catch {}
+  }
 
   // [CARD] 消息同步:解析卡片消息并同步本地卡片数据库
   if (text.startsWith(CARD_PREFIX)) {
@@ -354,36 +371,13 @@ function removeMsg(msgId: number): void {
 async function refreshMsgReactions(msgId: number): Promise<void> {
   try {
     const reactions = await call<Reaction[]>('get_reactions', { msgId });
-    // 修复:同步更新 message.js 的 reactions 缓存,虚拟化重渲染时直接命中缓存
+    // 更新 message.ts 的 reactions 缓存,重渲染时 renderReactions 直接命中
     updateReactionsCache(msgId, reactions);
-    const msgEl = document.querySelector(`[data-msg="${msgId}"]`);
-    if (!msgEl) return;
-    let el = msgEl.querySelector<HTMLElement>('.msg-reactions');
-    const html = renderReactionsHtml(reactions, msgId);
-    if (el) {
-      el.innerHTML = html;
-    } else if (html) {
-      // 之前没有 reactions 节点,新建一个插入到 reaction picker 之前
-      el = document.createElement('div');
-      el.className = 'msg-reactions';
-      el.innerHTML = html;
-      const picker = msgEl.querySelector('.msg-reaction-picker');
-      if (picker) msgEl.insertBefore(el, picker);
-      else msgEl.appendChild(el);
-    }
-    // 重新绑定 reaction toggle(新 capsules 没有 listener)
-    if (el) {
-      el.querySelectorAll<HTMLElement>('.msg-reaction').forEach((r) => {
-        r.addEventListener('click', async () => {
-          const emoji = r.dataset.emoji || '';
-          try {
-            await call('send_reaction', { chatId: state.currentChatId, msgId, emoji });
-          } catch (e) {
-            showToast(e instanceof Error ? e.message : String(e));
-          }
-        });
-      });
-    }
+    // 移除该消息的 DOM 节点,强制重建(读最新反应缓存),否则虚拟化复用旧节点不更新
+    const oldEl = document.querySelector(`[data-msg="${msgId}"]`);
+    if (oldEl) oldEl.remove();
+    const { refreshVisibleMessages } = await import('../chat/chatView.js');
+    refreshVisibleMessages();
   } catch {}
 }
 

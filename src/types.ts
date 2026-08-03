@@ -1,4 +1,4 @@
-export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'plugins' | 'terminal' | 'settings';
+export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'plugins' | 'terminal' | 'settings' | 'debug';
 export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about';
 export type PluginsTab = 'market' | 'installed';
 
@@ -160,4 +160,7 @@ export interface ChatListItem {
   last_ts: number | null;
   unread: number;
   is_archived: boolean;
+  is_group: boolean;
+  is_contact_request: boolean;
+  is_self_talk: boolean;
 }
