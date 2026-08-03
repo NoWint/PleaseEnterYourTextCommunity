@@ -3,7 +3,7 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from '../components/icon.js';
 import { renderAvatarHtml } from '../components/avatar.js';
-import { getCurrentTheme, applyTheme, BUILTIN_THEMES } from '../theme.js';
+import { getCurrentTheme, applyTheme, BUILTIN_THEMES, getCurrentFontScale, applyFontScale, FONT_SCALES, type FontScale } from '../theme.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
@@ -203,10 +203,15 @@ function renderAppearance(main: HTMLElement): void {
         <span>${escapeHtml(t.name)}</span>
       </div>`),
   ].join('');
+  const currentScale = getCurrentFontScale();
   main.innerHTML = `
     <div class="settings-section">
       <h2>外观</h2>
       <div class="settings-themes">${themesHtml}</div>
+      <div class="settings-font-row">
+        <div class="settings-font-label">字体大小</div>
+        <div id="font-scale-picker"></div>
+      </div>
     </div>
   `;
   main.querySelectorAll<HTMLElement>('.settings-theme').forEach((el) => {
@@ -217,6 +222,16 @@ function renderAppearance(main: HTMLElement): void {
       el.classList.add('active');
     });
   });
+  const picker = main.querySelector('#font-scale-picker');
+  if (picker) {
+    picker.appendChild(ui.segmented({
+      items: FONT_SCALES.map((s) => ({ value: s.id, label: s.label })),
+      value: currentScale,
+      onChange: (v) => {
+        applyFontScale(v as FontScale);
+      },
+    }));
+  }
 }
 
 // ── 当前团队 ──────────────────────────────────────────
