@@ -46,6 +46,26 @@ let mentionQueryStart = -1;
 // 草稿:输入防抖保存计时器(500ms 后写入后端)
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
+// 表情面板常用 emoji(微信风格常用集,零依赖内嵌)
+const EMOJI_PANEL: string[] = [
+  '😀', '😄', '😁', '😂', '🤣', '😊', '😍', '🥰',
+  '😘', '😉', '😎', '🤔', '😅', '😭', '😤', '😡',
+  '👍', '👎', '👏', '🙏', '💪', '🤝', '❤️', '💔',
+  '✨', '🎉', '🔥', '🌹', '🎂', '🍻', '☕', '💰',
+];
+
+// 在 textarea 光标处插入文本(表情等)
+function insertAtCursor(input: HTMLTextAreaElement, text: string): void {
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  input.value = input.value.slice(0, start) + text + input.value.slice(end);
+  const pos = start + text.length;
+  input.selectionStart = pos;
+  input.selectionEnd = pos;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+}
+
 export async function renderComposer(chatId: number, onSent: () => void): Promise<void> {
   const area = document.getElementById('composer-area');
   if (!area) return;
@@ -71,22 +91,36 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       `;
     }
   }
-  // 微信/QQ 式输入框:左侧录音按钮 + 计时,中间大 textarea,右侧圆形发送。
+  // 微信式输入框:上部 textarea 区(融入背景 + 右上角展开)+ 下部工具条
+  // (左侧图标组,右侧录音圆形 + 翠绿胶囊「发送」)。
   area.innerHTML = `
     <div class="composer">
       ${replyPreview}
-      <div class="composer-row">
-        <button type="button" class="composer-mic" id="composer-mic" title="录音">${iconSvg('mic', { width: 16, height: 16 })}</button>
-        <span class="composer-mic-timer" id="composer-mic-timer"></span>
+      <div class="composer-main">
         <textarea id="composer-input" placeholder="发消息到频道... (@提及 / #频道)" rows="1"></textarea>
-        <button type="button" class="composer-send" id="composer-send" title="发送" disabled>${iconSvg('arrow-up', { width: 18, height: 18, strokeWidth: 2.2 })}</button>
+        <button type="button" class="composer-expand" id="composer-expand" aria-label="展开输入框">
+          ${iconSvg('chevrons-up-down', { width: 14, height: 14 })}
+          <span class="composer-tooltip">展开输入框,Ctrl+Enter 换行</span>
+        </button>
+      </div>
+      <div class="composer-toolbar">
+        <div class="composer-tools">
+          <button type="button" class="composer-tool" id="composer-emoji" title="表情">${iconSvg('smile', { width: 18, height: 18 })}</button>
+          <button type="button" class="composer-tool" id="composer-attach" title="附件">${iconSvg('paperclip', { width: 18, height: 18 })}</button>
+          <button type="button" class="composer-tool" id="composer-more" title="更多">${iconSvg('more-horizontal', { width: 18, height: 18 })}</button>
+        </div>
+        <div class="composer-actions">
+          <span class="composer-mic-timer" id="composer-mic-timer"></span>
+          <button type="button" class="composer-mic" id="composer-mic" title="录音">${iconSvg('mic', { width: 16, height: 16 })}</button>
+          <button type="button" class="composer-send" id="composer-send" title="发送" disabled>发送</button>
+        </div>
       </div>
     </div>
   `;
   const input = document.getElementById('composer-input') as HTMLTextAreaElement | null;
   if (!input) return;
   const sendBtn = document.getElementById('composer-send') as HTMLButtonElement | null;
-  // 发送按钮:空输入禁用,有内容点亮 (iMessage 式,与 Enter 发送等价)
+  // 发送按钮:空输入禁用,有内容点亮 (微信式,与 Enter 发送等价)
   const updateSendState = () => {
     if (sendBtn) sendBtn.disabled = !input.value.trim();
   };
@@ -96,6 +130,42 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     await send(chatId, input, area, onSent);
     updateSendState();
   });
+  // 展开按钮:切换大/小输入框模式(微信「展开输入框」),CSS 类驱动高度
+  const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
+  expandBtn?.addEventListener('click', () => {
+    area.querySelector('.composer')?.classList.toggle('expanded');
+    // 展开/收起后刷新 textarea 高度 + 聚焦
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    input.focus();
+  });
+  // 表情按钮:弹出表情面板,点击插入 emoji 到光标处
+  const emojiBtn = document.getElementById('composer-emoji') as HTMLButtonElement | null;
+  emojiBtn?.addEventListener('click', () => {
+    const composer = area.querySelector('.composer');
+    if (!composer) return;
+    const existing = composer.querySelector('.composer-emoji-panel');
+    if (existing) { existing.remove(); return; }
+    const panel = document.createElement('div');
+    panel.className = 'composer-emoji-panel';
+    panel.innerHTML = EMOJI_PANEL
+      .map((e) => `<span class="composer-emoji" data-e="${e}">${e}</span>`)
+      .join('');
+    panel.addEventListener('click', (ev) => {
+      const t = (ev.target as HTMLElement).closest<HTMLElement>('.composer-emoji');
+      if (!t) return;
+      const e = t.dataset.e || '';
+      insertAtCursor(input, e);
+      input.dispatchEvent(new Event('input'));
+      input.focus();
+    });
+    composer.appendChild(panel);
+  });
+  // 附件按钮:占位(后端暂无 send_file 命令)
+  const attachBtn = document.getElementById('composer-attach') as HTMLButtonElement | null;
+  attachBtn?.addEventListener('click', () => showToast('附件发送暂未支持'));
+  // 更多按钮:占位
+  document.getElementById('composer-more')?.addEventListener('click', () => showToast('更多功能开发中'));
   // 录音按钮:点击开始 MediaRecorder 录音,再点停止发送 (Voice viewtype)
   initVoiceRecorder(chatId, onSent);
   // reply cancel
