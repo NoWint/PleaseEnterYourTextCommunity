@@ -52,6 +52,8 @@ export interface MsgDto {
   chat_id: number;
   from_id: number;
   from_name: string;
+  from_avatar: string | null;
+  from_color: number | null;
   text: string;
   ts: number;
   state: MsgState;

@@ -7,6 +7,7 @@ mod envelope;
 mod error;
 mod events;
 mod llm;
+mod notifications;
 mod plugins;
 mod state;
 
@@ -25,6 +26,11 @@ pub fn run() {
             let state = tauri::async_runtime::block_on(async move {
                 AppState::new(dir).await
             })?;
+            // 原生系统通知:注册点击回调(点击 → 聚焦窗口 + 事件给前端)。
+            // app_id 用 bundle identifier (Windows AUMID)。
+            let notif = notifications::Notifications::new("com.peytchat.app".into());
+            notif.initialize(app.handle().clone());
+            app.manage(notif);
             let handle = app.handle().clone();
             // 绑定 bot 账号 id 集合的 Arc，再传给事件转发器(过滤 bot 账号事件)
             let bot_ids = state.bots.bot_ids();
@@ -171,6 +177,10 @@ pub fn run() {
             commands::list_accounts,
             commands::switch_account,
             commands::add_bot_to_chat,
+            // 原生系统通知(user-notify)
+            notifications::show_notification,
+            notifications::get_notification_permission,
+            notifications::request_notification_permission,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

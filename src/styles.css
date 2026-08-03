@@ -120,18 +120,79 @@ html, body { height: 100%; color: var(--text); font-family: var(--font); font-si
 html { background: var(--bg); }
 #app { height: 100vh; display: flex; overflow: hidden; }
 
-/* ── macOS 无标题栏集成(titleBarStyle: Overlay)──────────────────
-   顶部 40px 为「虚拟标题栏」:红黄绿按钮(经 trafficLightPosition 下移)浮在其左端,
-   整条是窗口拖拽区(data-tauri-drag-region);#app 内容整体下移让出此条。
-   仅 html.window-overlay(macOS)生效,其余平台保留原生标题栏。 */
+/* ── 无边框窗口标题栏 ─────────────────────────────────────────
+   顶部 40px 为「虚拟标题栏」,固定覆盖全页面(登录页与主界面共用):
+   - macOS (window-overlay): titleBarStyle Overlay,原生红绿灯经 trafficLightPosition
+     浮在左端,整条是纯拖拽区(#app 内容下移让出)。
+   - Windows/Linux (window-frame): decorations:false,自绘标题栏 — 左「PEYT Chat」,
+     右最小化/最大化/关闭按钮,整条可拖拽。
+   (window-overlay 时按钮隐藏,不干扰原生红绿灯。) */
 #window-drag-region {
   position: fixed; top: 0; left: 0;
   width: 100%; height: 40px;
   z-index: 9999;
   display: none;
+  align-items: center;
+  /* 与侧栏(rail/nav)同色:panel 面,随主题明暗自适应,消除顶部与侧栏割裂 */
+  background: var(--panel);
 }
-html.window-overlay #window-drag-region { display: block; }
-html.window-overlay #app { padding-top: 40px; }
+html.window-overlay #window-drag-region,
+html.window-frame #window-drag-region { display: flex; }
+html.window-overlay #app,
+html.window-frame #app { padding-top: 40px; }
+
+/* 标题栏 LOGO:圆角小图标,左侧,点击穿透到拖拽区 */
+.wb-logo {
+  flex: none;
+  width: 20px; height: 20px;
+  margin-left: 12px;
+  border-radius: 5px; /* 圆角 */
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 标题文字:左侧,可拖拽(继承父级 data-tauri-drag-region)。
+   font-size 走全局字号体系(设置里的字体大小缩放);颜色用 --text
+   (暗色主题近白、亮色主题近黑,随主题自适应)。 */
+.wb-title {
+  flex: 0 1 auto;
+  padding-left: 8px;
+  font-size: var(--font-scale-title);
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none; /* 让点击穿透到拖拽区 */
+}
+
+/* 窗口控制按钮组:右侧,不作为拖拽区(按钮可点击) */
+.wb-controls {
+  margin-left: auto;
+  display: flex;
+  height: 40px;
+}
+.wb-btn {
+  width: 46px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; outline: none;
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+  -webkit-app-region: no-drag; /* 防御:确保按钮不触发窗口拖拽 */
+}
+.wb-btn:hover { background: var(--capsule); color: var(--text); }
+.wb-btn:active { background: var(--active); }
+.wb-btn svg { display: block; }
+/* 关闭按钮:悬停变红(Windows 惯例) */
+.wb-btn.wb-close:hover { background: var(--danger); color: #fff; }
+
+/* macOS Overlay:隐藏标题文字与控制按钮(原生红绿灯在左上) */
+html.window-overlay .wb-title,
+html.window-overlay .wb-controls { display: none; }
 
 /* 登录页上下布局：品牌区在上，表单在下 */
 .login-wrap {
@@ -1368,13 +1429,11 @@ html.window-overlay #app { padding-top: 40px; }
 .rd-pin-unpin:hover { background: var(--surface-hover); color: var(--danger); }
 
 /* Task 13: 头像样式 — 各处头像统一规则(图片用 object-fit: cover;字母用 flex 居中)。
-   按任务简报 Step 10 尺寸:app-avatar 36px / msg-avatar 28px / home-avatar 32px /
-   rd-avatar 24px(已在 .rd-avatar 定义)/ member-detail-avatar 80px /
-   settings-avatar 64px。
-   font-size:msg 11px / home 12px / settings-letter 28px / member-detail 32px。
-   注:这些尺寸不全在全局调色板,但 brief Step 10 明确给定,按 brief 执行。*/
+   尺寸:app-avatar 36px / msg-avatar 32px(聊天消息头像,2026-08 由 28px 放大)/
+   home-avatar 32px / rd-avatar 24px / member-detail-avatar 80px / settings-avatar 64px。
+   折叠消息的缩进 padding-left 需与 msg-avatar 尺寸联动(见下方 .msg-group-* 规则)。*/
 .msg-avatar {
-  width: 28px; height: 28px; background: var(--border-strong); border-radius: 50%;
+  width: 32px; height: 32px; background: var(--border-strong); border-radius: 50%;
   font-size: var(--font-scale-body); font-weight: 600; color: var(--text);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; overflow: hidden;
@@ -1390,7 +1449,13 @@ html.window-overlay #app { padding-top: 40px; }
 .msg:not([data-is-out="1"]) .msg-avatar { display: flex; }
 /* 自己的消息:隐藏头像(气泡直接靠右) */
 .msg[data-is-out="1"] .msg-avatar { display: none; }
-.msg-avatar-placeholder { width: 28px; flex-shrink: 0; }
+/* 折叠消息(组中/组尾):隐藏头像 → 紧凑流;头像仍占位让列对齐?
+   不 —— 折叠组头像隐藏后,后续组首消息的头像才出现,这是 WhatsApp 式紧凑流的预期。
+   头像显示/隐藏完全由类驱动,避免 applyGroupRole 改类后头像 HTML 残留错乱。 */
+.msg.collapsed .msg-avatar { display: none; }
+/* 折叠时名字也隐藏(组中/组尾),仅组首显示名字 */
+.msg.collapsed .msg-name { display: none; }
+.msg-avatar-placeholder { width: 32px; flex-shrink: 0; }
 
 .msg-bubble {
   max-width: 70%;
@@ -1458,9 +1523,9 @@ html.window-overlay #app { padding-top: 40px; }
 .msg-group-last .msg-meta { margin-bottom: 0; }
 .msg-group-middle .msg-avatar-placeholder,
 .msg-group-last .msg-avatar-placeholder { display: none; }
-/* 折叠消息的缩进 = 头像宽 28px + 行 gap 10px,保持与展开消息的文字列对齐 */
+/* 折叠消息的缩进 = 头像宽 32px + 行 gap 10px,保持与展开消息的文字列对齐 */
 .msg-group-middle:not([data-is-out="1"]) .msg-row,
-.msg-group-last:not([data-is-out="1"]) .msg-row { padding-left: calc(28px + 10px); }
+.msg-group-last:not([data-is-out="1"]) .msg-row { padding-left: calc(32px + 10px); }
 .msg-row .msg-body { flex: 1; min-width: 0; }
 .member-detail-avatar {
   width: 80px; height: 80px; background: var(--border-strong); border-radius: 50%;
