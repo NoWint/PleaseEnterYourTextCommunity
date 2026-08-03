@@ -446,9 +446,10 @@ html { background: var(--bg); }
 
 /* 遮罩 */
 .ui-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   display: flex; align-items: center; justify-content: center; z-index: 100;
-  animation: ui-fade-in 150ms ease-out;
+  animation: ui-fade-in 150ms var(--ease-out);
 }
 /* 弹窗 */
 .ui-dialog {
@@ -462,7 +463,7 @@ html { background: var(--bg); }
 .ui-dialog-sm { max-width: 320px; }
 .ui-dialog-lg { max-width: 520px; }
 .ui-dialog-head { display: flex; align-items: center; gap: 8px; }
-.ui-dialog-head h2 { margin: 0; font-size: var(--font-scale-title); font-weight: 600; letter-spacing: -0.2px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-dialog-head h2 { margin: 0; font-size: var(--font-scale-page); font-weight: 700; letter-spacing: -0.3px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-dialog-close {
   flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; border-radius: 999px; cursor: pointer;
@@ -472,11 +473,12 @@ html { background: var(--bg); }
 .ui-dialog-close:active { transform: scale(0.92); }
 .ui-dialog-body { color: var(--text-body); font-size: var(--font-scale-body); line-height: 1.55; overflow-y: auto; min-height: 0; }
 .ui-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0; }
-.ui-dialog-actions .ui-button { min-width: 72px; justify-content: center; }
 
-/* 弹窗内分组卡片:材质替代内联 border 卡片 */
+/* 弹窗内分组卡片:细边框苹果式卡片 */
 .ui-dialog-section {
-  background: var(--capsule); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
 }
 .ui-dialog-section + .ui-dialog-section { margin-top: 12px; }
