@@ -125,6 +125,13 @@ pub fn run() {
             commands::get_webxdc_info,
             commands::get_webxdc_status_updates,
             commands::send_webxdc_status_update,
+            // Delta 对齐批次 4
+            commands::get_appdata_dir,
+            commands::export_self_keys,
+            commands::import_self_keys,
+            commands::export_backup,
+            commands::import_backup,
+            commands::get_contact_encryption_info,
             // Terminal
             terminal::open_terminal,
             terminal::write_terminal,

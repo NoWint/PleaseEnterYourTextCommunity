@@ -2628,3 +2628,101 @@ pub async fn send_webxdc_status_update(
         .await?;
     Ok(())
 }
+
+// ==== Delta 对齐批次 4 ====
+
+/// 应用数据目录(供导出路径/备份默认目录)。
+#[tauri::command]
+pub fn get_appdata_dir(state: State<'_, AppState>) -> AppResult<String> {
+    Ok(state.data_dir.to_string_lossy().to_string())
+}
+
+/// 导出本机密钥(多设备绑定:第二台设备导入)。
+#[tauri::command]
+pub async fn export_self_keys(state: State<'_, AppState>, path: String) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    deltachat::imex::imex(
+        &ctx,
+        deltachat::imex::ImexMode::ExportSelfKeys,
+        std::path::Path::new(&path),
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
+/// 导入密钥(第二台设备登录同一账号)。
+#[tauri::command]
+pub async fn import_self_keys(state: State<'_, AppState>, path: String) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    deltachat::imex::imex(
+        &ctx,
+        deltachat::imex::ImexMode::ImportSelfKeys,
+        std::path::Path::new(&path),
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
+/// 导出加密备份(带密码)。
+#[tauri::command]
+pub async fn export_backup(
+    state: State<'_, AppState>,
+    path: String,
+    passphrase: String,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    deltachat::imex::imex(
+        &ctx,
+        deltachat::imex::ImexMode::ExportBackup,
+        std::path::Path::new(&path),
+        Some(passphrase),
+    )
+    .await?;
+    Ok(())
+}
+
+/// 导入备份(迁移)。
+#[tauri::command]
+pub async fn import_backup(
+    state: State<'_, AppState>,
+    path: String,
+    passphrase: String,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    deltachat::imex::imex(
+        &ctx,
+        deltachat::imex::ImexMode::ImportBackup,
+        std::path::Path::new(&path),
+        Some(passphrase),
+    )
+    .await?;
+    Ok(())
+}
+
+/// 联系人加密信息(指纹/状态文本)。供保护状态对话框。
+#[tauri::command]
+pub async fn get_contact_encryption_info(
+    state: State<'_, AppState>,
+    contact_id: u32,
+) -> AppResult<String> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let info = Contact::get_encrinfo(&ctx, ContactId::new(contact_id)).await?;
+    Ok(info)
+}

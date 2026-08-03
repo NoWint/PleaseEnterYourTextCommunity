@@ -18,6 +18,8 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub plugins: PluginManager,
     pub terminals: TerminalSessions,
+    /// 应用数据目录(Tauri app_data_dir),供导出路径/备份默认目录
+    pub data_dir: PathBuf,
 }
 
 impl AppState {
@@ -37,8 +39,9 @@ impl AppState {
             accounts: Arc::new(Mutex::new(accounts)),
             current_id: StdMutex::new(current_id),
             db: Arc::new(db),
-            plugins: PluginManager::new(app_data_dir),
+            plugins: PluginManager::new(app_data_dir.clone()),
             terminals: TerminalSessions::default(),
+            data_dir: app_data_dir,
         })
     }
 

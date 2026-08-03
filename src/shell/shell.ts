@@ -231,6 +231,48 @@ export async function renderShell(): Promise<void> {
   void updateBadge();
 }
 
+// 通知队列:多条新消息合并成一条聚合通知(对齐 Delta notifications.ts)
+interface QueuedNotif {
+  chatId: number;
+  name: string;
+  preview: string;
+}
+let notifQueue: QueuedNotif[] = [];
+let notifTimer: ReturnType<typeof setTimeout> | null = null;
+
+function queueNotification(chatId: number, name: string, preview: string): void {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  notifQueue.push({ chatId, name, preview });
+  if (notifTimer) clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => flushNotifications(), 800);
+}
+
+function flushNotifications(): void {
+  notifTimer = null;
+  if (notifQueue.length === 0) return;
+  const first = notifQueue[0];
+  const count = notifQueue.length;
+  const name = count === 1 ? first.name : `${count} 条新消息`;
+  const body =
+    count === 1
+      ? first.preview
+      : notifQueue
+          .map((n) => n.name)
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .join(', ');
+  const notif = new Notification(name, { body });
+  notif.onclick = () => {
+    // 聚焦第一条消息的 chat(复用现有聚焦逻辑)
+    state.currentChatId = first.chatId;
+    state.currentPage = 'messages';
+    state.currentWsId = null;
+    saveState();
+    void renderRail().then(() => renderNavPanel().then(() => renderMain()));
+    window.focus();
+  };
+  notifQueue = [];
+}
+
 async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
   const chatId = e.chat_id as number;
   const text = (e.text as string) || '';
@@ -310,19 +352,7 @@ async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
       const info = await call<ChatInfo>('get_chat_info', { chatId });
       const name = info.name || '新消息';
       const preview = (text || '').slice(0, 50);
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const notif = new Notification(name, { body: preview });
-        notif.onclick = () => {
-          state.currentChatId = chatId;
-          state.currentPage = 'messages';
-          state.currentWsId = null;
-          saveState();
-          void renderRail().then(() =>
-            renderNavPanel().then(() => renderMain())
-          );
-          window.focus();
-        };
-      }
+      queueNotification(chatId, name, preview);
     } catch {}
   }
   void refreshSidebar();

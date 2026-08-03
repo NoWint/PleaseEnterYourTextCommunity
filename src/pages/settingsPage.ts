@@ -108,6 +108,19 @@ async function renderAccount(main: HTMLElement): Promise<void> {
   addr.textContent = state.self?.addr || '—';
   section.appendChild(ui.field({ label: '邮箱', children: addr }));
 
+  // Delta 批次 4:多设备绑定 + 备份恢复入口
+  const actionsRow = document.createElement('div');
+  actionsRow.style.cssText = 'display:flex;gap:8px;margin-top:16px;flex-wrap:wrap';
+  actionsRow.appendChild(ui.button({
+    label: '多设备绑定', icon: 'package', size: 'sm',
+    onClick: () => { void import('../components/setupMultiDevice.js').then((m) => m.openMultiDeviceSetup()); },
+  }));
+  actionsRow.appendChild(ui.button({
+    label: '备份与恢复', icon: 'download', size: 'sm',
+    onClick: () => { void import('../components/backupDialog.js').then((m) => m.openBackupDialog()); },
+  }));
+  section.appendChild(actionsRow);
+
   main.appendChild(section);
 }
 

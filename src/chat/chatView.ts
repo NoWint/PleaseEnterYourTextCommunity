@@ -159,7 +159,12 @@ export async function renderChatView(chatId: number): Promise<void> {
       galleryBtn.addEventListener('click', () => {
         void import('../components/gallery.js').then(({ openGallery }) => openGallery(chatId));
       });
-      headerEl.append(searchBtn, galleryBtn, membersBtn, pinBtn);
+      // Delta 批次 4:保护状态徽章(点击打开加密指纹对话框)
+      const shieldBtn = ui.iconButton({ icon: 'shield', title: '保护状态' });
+      shieldBtn.addEventListener('click', () => {
+        void import('../components/protectionDialog.js').then(({ openProtectionDialog }) => openProtectionDialog(chatId));
+      });
+      headerEl.append(searchBtn, galleryBtn, shieldBtn, membersBtn, pinBtn);
     }
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
     // Task 12: 在 mark_chat_noticed 之前拉取 unread count,
