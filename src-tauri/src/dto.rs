@@ -246,6 +246,17 @@ pub struct ActivityDto {
     pub created_at: i64,
 }
 
+/// Bot 账号 DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BotDto {
+    pub id: i64,
+    pub bot_account_id: u32,
+    pub display_name: String,
+    pub addr: Option<String>,
+    pub io_running: bool,
+    pub created_at: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
