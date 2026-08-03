@@ -19,7 +19,13 @@ use crate::state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
+    // 默认过滤:全局 info(压掉第三方 pgp:: 等 debug 刷屏),
+    // 但 peytchat 自身保持 debug(事件转发/命令日志排查用)。
+    // 覆盖规则:全局 info,peytchat=debug,pgp=warn(密钥解析只留警告)。
+    // 用户可通过 RUST_LOG 环境变量覆盖。
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info,peytchat=debug,pgp=warn"),
+    )
         .format_timestamp_secs()
         .init();
     tauri::Builder::default()
