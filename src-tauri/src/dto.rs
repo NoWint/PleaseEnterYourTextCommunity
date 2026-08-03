@@ -57,6 +57,12 @@ pub struct ChatInfoDto {
     pub chat_type: String,
     pub is_encrypted: bool,
     pub members: Vec<MemberDto>,
+    pub description: String,
+    pub avatar: Option<String>,
+    pub color: Option<u32>,
+    pub past_members: Vec<MemberDto>,
+    pub can_send: bool,
+    pub self_in_group: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -81,6 +87,7 @@ pub struct MsgDto {
     pub height: Option<i32>,
     pub download_state: String, // "Done"|"Available"|"Failure"|"InProgress"|"Undecipherable"
     pub subject: Option<String>,
+    pub is_info: bool, // 系统消息标记(对齐 core Message::is_info)
 }
 
 #[derive(Debug, Serialize, Clone)]

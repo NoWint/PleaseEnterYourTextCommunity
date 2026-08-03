@@ -177,6 +177,16 @@ export async function renderChatView(chatId: number): Promise<void> {
       currentChatIsSelfTalk = chat?.is_self_talk === true;
       // 群聊标记存 state(message.ts 渲染气泡时也读):单聊隐藏 name/role tag
       state.currentChatIsGroup = chat?.is_group === true;
+      // 群聊 → 头部补「群信息」按钮(此时 headerEl 已存在,currentChatIsGroup 才赋值)。
+      // 对齐 Delta ChatView 头部 ViewGroup 入口。
+      if (state.currentChatIsGroup && headerEl && !headerEl.querySelector('[data-group-info]')) {
+        const groupBtn = ui.iconButton({ icon: 'users', title: '群信息' });
+        groupBtn.dataset.groupInfo = '1';
+        groupBtn.addEventListener('click', () => {
+          void import('../components/group/viewGroupDialog.js').then(({ openViewGroupDialog }) => openViewGroupDialog(chatId));
+        });
+        headerEl.appendChild(groupBtn);
+      }
     } catch {
       currentChatUnread = 0;
       currentChatIsSelfTalk = false;

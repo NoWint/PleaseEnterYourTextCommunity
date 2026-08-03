@@ -302,17 +302,29 @@ async function renderMembers(body: HTMLElement): Promise<void> {
         }
       });
     });
-    // 添加成员:输入邮箱加入当前群聊,成功后刷新成员列表
+    // 添加成员:成员选择器(搜索+多选+手输邮箱)加入当前群聊,成功后刷新成员列表。
+    // 仿 Delta AddMemberInnerDialog。
     body.querySelector<HTMLElement>('#rd-add-member')?.addEventListener('click', () => {
-      ui.inputDialog({
-        title: '添加成员',
-        placeholder: '成员邮箱',
-        type: 'email',
-        onConfirm: async (email) => {
-          await call('add_group_member', { chatId: state.currentChatId, email });
-          showToast('已添加');
-          await renderMembers(body);
-        },
+      void import('../components/group/memberPicker.js').then(({ openMemberPicker }) => {
+        openMemberPicker({
+          title: '添加成员',
+          existing: new Set(info.members.map((m) => m.contact_id)),
+          onOk: async (picks) => {
+            try {
+              for (const p of picks) {
+                await call('add_group_member', {
+                  chatId: state.currentChatId,
+                  email: p.email,
+                  contact_id: p.contact_id || null,
+                });
+              }
+              showToast(`已添加 ${picks.length} 位成员`);
+              await renderMembers(body);
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : String(e));
+            }
+          },
+        });
       });
     });
     // 成员角色选择:阻止冒泡避免触发成员详情;分配已有角色或走「新建角色」流程

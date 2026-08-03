@@ -299,37 +299,8 @@ function showInlineQrInput(): void {
 }
 
 function showInlineGroupInput(): void {
-  ui.inputDialog({
-    title: '创建群',
-    placeholder: '输入群名称',
-    confirmLabel: '创建',
-    onConfirm: async (name) => {
-      const emails = await promptMemberEmails();
-      const chatId = emails.length > 0
-        ? await call<number>('create_group', { name, memberEmails: emails })
-        : await call<number>('create_group_chat', { name });
-      state.currentChatId = chatId;
-      saveState();
-      await renderMessagesPage(panel!);
-      const { renderMain } = await import('../shell/navPanel.js');
-      await renderMain();
-    },
-  });
-}
-
-/** 可选:输入群成员邮箱(逗号/空格分隔),为空返回 []。 */
-function promptMemberEmails(): Promise<string[]> {
-  return new Promise((resolve) => {
-    ui.inputDialog({
-      title: '添加成员（可跳过）',
-      placeholder: '邮箱,用逗号或空格分隔',
-      confirmLabel: '创建群',
-      onConfirm: (v) => {
-        const emails = v.split(/[,，\s]+/).map((e) => e.trim()).filter(Boolean);
-        resolve(emails);
-      },
-    });
-  });
+  // 仿 Delta CreateGroup:名称/描述/头像/成员选择器统一在群创建对话框完成。
+  void import('../components/group/createGroupDialog.js').then(({ openCreateGroupDialog }) => openCreateGroupDialog());
 }
 
 async function joinPeytStudio(): Promise<void> {

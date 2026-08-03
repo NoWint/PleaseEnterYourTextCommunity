@@ -3445,3 +3445,127 @@ body {
   /* Toon 弹性过渡归零 */
   * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* ══════════ 群组功能对齐 Delta(CreateGroup/ViewGroup/AddMember) ══════════ */
+
+/* 系统消息:居中胶囊信息行(群成员/资料变更、加密状态等) */
+.msg-system {
+  display: flex; justify-content: center; align-items: center;
+  padding: 4px 0;
+}
+.msg-system span {
+  background: var(--capsule); color: var(--text-mute);
+  font-size: var(--font-scale-secondary);
+  padding: 3px 14px; border-radius: 999px;
+  max-width: 85%; text-align: center; line-height: 1.4;
+  overflow-wrap: break-word;
+}
+
+/* ── 成员选择器(memberPicker) ── */
+.mp-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; min-height: 0;
+}
+.mp-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--capsule); color: var(--text);
+  font-size: var(--font-scale-secondary);
+  padding: 3px 8px; border-radius: 999px;
+}
+.mp-chip-x {
+  display: inline-flex; cursor: pointer; color: var(--text-mute);
+  transition: color 120ms var(--ease-out);
+}
+.mp-chip-x:hover { color: var(--danger); }
+.mp-contact {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: background 120ms var(--ease-out);
+}
+.mp-contact:hover { background: var(--surface-hover); }
+.mp-contact.disabled { opacity: 0.55; cursor: not-allowed; }
+.mp-check {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex: none;
+  border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text-action);
+}
+.mp-contact.disabled .mp-check { color: var(--text-mute); }
+.mp-state { margin-left: auto; font-size: var(--font-scale-micro); color: var(--text-mute); }
+
+/* ── 群创建对话框(createGroupDialog) ── */
+.cg-top { display: flex; justify-content: center; }
+.cg-avatar-box {
+  width: 88px; height: 88px; border-radius: 50%; overflow: hidden;
+  background: var(--capsule); display: flex; align-items: center; justify-content: center;
+  margin: 0 auto;
+}
+.cg-avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.cg-avatar-ph { display: flex; color: var(--text-mute); }
+.cg-avatar-actions { display: flex; gap: 8px; justify-content: center; margin: 8px 0 4px; }
+.cg-desc {
+  width: 100%; min-height: 64px; box-sizing: border-box; resize: vertical;
+  background: var(--control-bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 10px;
+  font-family: var(--font); font-size: var(--font-scale-body);
+  margin-top: 10px;
+}
+.cg-desc:focus { outline: none; border-color: var(--text-action); }
+.cg-members-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 14px;
+}
+.cg-members-label { font-size: var(--font-scale-secondary); color: var(--text-mute); }
+.cg-members-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cg-member-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--capsule); color: var(--text);
+  font-size: var(--font-scale-secondary);
+  padding: 3px 8px; border-radius: 999px;
+}
+.cg-member-x { display: inline-flex; cursor: pointer; color: var(--text-mute); }
+.cg-member-x:hover { color: var(--danger); }
+
+/* ── 群信息弹窗(viewGroupDialog) ── */
+.vg-head { display: flex; align-items: center; gap: 14px; padding: 4px 0 10px; }
+.vg-avatar {
+  width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; font-weight: 600; color: #fff;
+}
+.vg-head-meta { min-width: 0; }
+.vg-name { font-size: var(--font-scale-page); font-weight: var(--font-weight-strong); color: var(--text); }
+.vg-sub { display: flex; align-items: center; gap: 8px; font-size: var(--font-scale-secondary); color: var(--text-mute); margin-top: 2px; }
+.vg-badge { display: inline-flex; align-items: center; gap: 3px; color: var(--success); }
+.vg-desc {
+  font-size: var(--font-scale-body); color: var(--text-weak);
+  background: var(--capsule); border-radius: var(--radius-sm);
+  padding: 8px 12px; margin-bottom: 6px;
+}
+.vg-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 4px; }
+.vg-section-title {
+  font-size: var(--font-scale-secondary); color: var(--text-mute);
+  margin: 14px 0 6px;
+}
+.vg-member {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: var(--radius-sm);
+  transition: background 120ms var(--ease-out);
+}
+.vg-member:hover { background: var(--surface-hover); }
+.vg-member-avatar {
+  width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600; color: #fff;
+}
+.vg-member-meta { min-width: 0; flex: 1; }
+.vg-member-name { font-size: var(--font-scale-body); color: var(--text); }
+.vg-self-tag {
+  font-size: var(--font-scale-micro); color: var(--text-weak);
+  margin-left: 4px;
+}
+.vg-member-addr { font-size: var(--font-scale-micro); color: var(--text-mute); }
+.vg-remove {
+  border: none; background: transparent; color: var(--text-mute); cursor: pointer;
+  padding: 4px; border-radius: var(--radius-sm);
+  display: inline-flex; transition: color 120ms var(--ease-out), background 120ms var(--ease-out);
+}
+.vg-remove:hover { color: var(--danger); background: var(--danger-bg); }

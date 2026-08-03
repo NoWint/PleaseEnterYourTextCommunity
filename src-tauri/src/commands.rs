@@ -359,6 +359,23 @@ pub async fn get_chatlist(
     build_chatlist(&ctx, archived_only).await
 }
 
+/// 联系人 → MemberDto(群成员/历史成员共用)。
+async fn member_to_dto(ctx: &Context, cid: ContactId) -> AppResult<MemberDto> {
+    let c = Contact::get_by_id(ctx, cid).await?;
+    let avatar = c
+        .get_profile_image(ctx)
+        .await?
+        .map(|p| p.to_string_lossy().to_string());
+    Ok(MemberDto {
+        contact_id: cid.to_u32(),
+        name: c.get_display_name().to_string(),
+        addr: c.get_addr().to_string(),
+        is_self: cid == ContactId::SELF,
+        avatar,
+        color: Some(c.get_color()),
+    })
+}
+
 #[tauri::command]
 pub async fn get_chat_info(
     state: State<'_, AppState>,
@@ -376,26 +393,12 @@ pub async fn get_chat_info(
 
     let mut members = Vec::new();
     for cid in chat::get_chat_contacts(&ctx, chat_id).await? {
-        let c = Contact::get_by_id(&ctx, cid).await?;
-        let avatar = c
-            .get_profile_image(&ctx)
-            .await?
-            .map(|p| p.to_string_lossy().to_string());
-        let color = Some(c.get_color());
-        members.push(MemberDto {
-            contact_id: cid.to_u32(),
-            name: c.get_display_name().to_string(),
-            addr: c.get_addr().to_string(),
-            is_self: cid == ContactId::SELF,
-            avatar,
-            color,
-        });
+        members.push(member_to_dto(&ctx, cid).await?);
     }
     // For 1:1 chats, get_chat_contacts does NOT include SELF; add the other
     // side's info is already there, but if list is empty (self-talk), we still
     // want to show self.
     if members.is_empty() && is_self_talk {
-        let self_id = ctx.get_id();
         let name = ctx.get_config(Config::Displayname).await?.unwrap_or_default();
         let addr = ctx.get_config(Config::ConfiguredAddr).await?.unwrap_or_default();
         let self_contact = Contact::get_by_id(&ctx, ContactId::SELF).await?;
@@ -403,17 +406,29 @@ pub async fn get_chat_info(
             .get_profile_image(&ctx)
             .await?
             .map(|p| p.to_string_lossy().to_string());
-        let color = Some(self_contact.get_color());
         members.push(MemberDto {
             contact_id: 1, // SELF is always 1
             name,
             addr,
             is_self: true,
             avatar,
-            color,
+            color: Some(self_contact.get_color()),
         });
-        let _ = self_id; // suppress unused warning
     }
+
+    // 历史成员(曾被加入后被移出/退群的人),供群信息弹窗展示。
+    let mut past_members = Vec::new();
+    for cid in chat::get_past_chat_contacts(&ctx, chat_id).await? {
+        past_members.push(member_to_dto(&ctx, cid).await?);
+    }
+    let description = chat::get_chat_description(&ctx, chat_id).await?;
+    let avatar = chat
+        .get_profile_image(&ctx)
+        .await?
+        .map(|p| p.to_string_lossy().to_string());
+    let color = Some(chat.get_color(&ctx).await?);
+    let can_send = chat.can_send(&ctx).await?;
+    let self_in_group = chat.is_self_in_chat(&ctx).await?;
 
     // chat_type 字符串:single/group/mailinglist/broadcast/self_talk/device
     let chat_type = chat_type_str(&chat, is_self_talk);
@@ -428,6 +443,12 @@ pub async fn get_chat_info(
         chat_type,
         is_encrypted,
         members,
+        description,
+        avatar,
+        color,
+        past_members,
+        can_send,
+        self_in_group,
     })
 }
 
@@ -510,6 +531,7 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
         height: if height > 0 { Some(height) } else { None },
         download_state,
         subject,
+        is_info: m.is_info(),
     })
 }
 
@@ -615,9 +637,23 @@ pub async fn create_group(
     state: State<'_, AppState>,
     name: String,
     member_emails: Vec<String>,
+    member_contact_ids: Vec<u32>,
+    description: Option<String>,
+    avatar_path: Option<String>,
 ) -> AppResult<u32> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     let chat_id = chat::create_group(&ctx, &name).await?;
+    // 建群后立即写群描述/头像:core 会生成对应系统消息并随群同步消息发给对端。
+    if let Some(desc) = description.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        chat::set_chat_description(&ctx, chat_id, desc).await?;
+    }
+    if let Some(p) = avatar_path.as_deref().filter(|s| !s.is_empty()) {
+        chat::set_chat_profile_image(&ctx, chat_id, p).await?;
+    }
+    // 先按 contact_id 加(成员选择器精确匹配,不重复建联系人),再按邮箱加(手输邮箱)。
+    for cid in member_contact_ids {
+        chat::add_contact_to_chat(&ctx, chat_id, ContactId::new(cid)).await?;
+    }
     for email in member_emails {
         let email = email.trim();
         if email.is_empty() {
@@ -634,10 +670,15 @@ pub async fn add_group_member(
     state: State<'_, AppState>,
     chat_id: u32,
     email: String,
+    contact_id: Option<u32>,
 ) -> AppResult<u32> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     let chat_id = deltachat::chat::ChatId::new(chat_id);
-    let cid = Contact::create(&ctx, "", &email).await?;
+    // 有 contact_id 直接精确加人(成员选择器);否则按邮箱建联系人再加。
+    let cid = match contact_id {
+        Some(id) => ContactId::new(id),
+        None => Contact::create(&ctx, "", &email).await?,
+    };
     chat::add_contact_to_chat(&ctx, chat_id, cid).await?;
     Ok(cid.to_u32())
 }
@@ -692,6 +733,57 @@ pub async fn leave_group(state: State<'_, AppState>, chat_id: u32) -> AppResult<
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     let chat_id = deltachat::chat::ChatId::new(chat_id);
     chat::remove_contact_from_chat(&ctx, chat_id, ContactId::SELF).await?;
+    Ok(())
+}
+
+/// 从群聊移除成员(contact_id = SELF 即退群,core 允许)。
+/// core 触发 MemberRemovedFromGroup 系统消息 + ChatModified 事件,对端经群同步消息更新。
+#[tauri::command]
+pub async fn remove_group_member(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    contact_id: u32,
+) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    chat::remove_contact_from_chat(&ctx, chat_id, ContactId::new(contact_id)).await?;
+    Ok(())
+}
+
+/// 修改群名称(core 触发 GroupNameChanged 系统消息 + ChatModified 事件)。
+#[tauri::command]
+pub async fn rename_group(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    name: String,
+) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    chat::set_chat_name(&ctx, deltachat::chat::ChatId::new(chat_id), &name).await?;
+    Ok(())
+}
+
+/// 设置群描述(空字符串 = 清除)。core 触发 GroupDescriptionChanged 系统消息。
+#[tauri::command]
+pub async fn set_group_description(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    description: String,
+) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    chat::set_chat_description(&ctx, deltachat::chat::ChatId::new(chat_id), &description).await?;
+    Ok(())
+}
+
+/// 设置群头像(空字符串 = 移除)。path 为 blobdir 绝对路径(经 save_avatar_from_bytes 产生)。
+/// core 触发 GroupImageChanged 系统消息。
+#[tauri::command]
+pub async fn set_group_avatar(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    path: String,
+) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    chat::set_chat_profile_image(&ctx, deltachat::chat::ChatId::new(chat_id), &path).await?;
     Ok(())
 }
 
@@ -2700,6 +2792,7 @@ pub async fn get_chat_media(
                 height: if height > 0 { Some(height) } else { None },
                 download_state,
                 subject,
+                is_info: m.is_info(),
             });
         }
     }

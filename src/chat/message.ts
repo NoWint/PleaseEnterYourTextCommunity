@@ -126,6 +126,12 @@ function getRoleName(contactId: number): string {
 export type GroupRole = 'solo' | 'first' | 'middle' | 'last';
 
 export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): Promise<string> {
+  // 系统消息(群成员变更/群资料变更/加密状态等,对齐 Delta MessageSystemInfo):
+  // 渲染为居中胶囊信息行,无头像/名字/气泡/meta。core 的 is_info() 文本已本地化拼接
+  // (如「X 加入了群组」「群组已加密」),直接展示 msg.text 即可。
+  if (m.is_info) {
+    return `<div class="msg-system" data-msg="${m.msg_id}"><span>${escapeHtml(m.text || '')}</span></div>`;
+  }
   const msg = m as RenderableMsg;
   // 自己发的消息:乐观消息用 is_out 字段,真实消息按 from_id 等于自我推断
   const isOut = msg.is_out ?? (state.self ? msg.from_id === state.self.id : false);
