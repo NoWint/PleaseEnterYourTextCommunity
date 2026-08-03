@@ -37,8 +37,7 @@ deltachat 2.58.0-dev core 已内置绝大多数 Delta 能力（Webxdc、Voice、
 - **账号切换/多账号管理**（用户明确排除）
 - **自动删除旧消息 / 消失消息**（用户明确排除，见 0.1）
 - 移动端（Android/iOS）
-- Markdown 富文本渲染（保持现有纯文本 + 代码块）
-- 通话功能（Call viewtype 已有 core 支持但不在本次范围）
+- Markdown 富文本渲染：**未决**（Delta 从未稳定提供；若做则属自研，见变更记录。待用户确认后可能纳入批次 2）
 
 ## 2. 批次划分
 
@@ -59,6 +58,7 @@ deltachat 2.58.0-dev core 已内置绝大多数 Delta 能力（Webxdc、Voice、
 | | 验证群 / 保护状态 | 批次3 | 中 |
 | | 多设备绑定 | 批次3 | 高 |
 | | 备份 / 恢复 | 批次3 | 中 |
+| | **通话**（VoIP 音频/视频） | 批次3 | 高 |
 
 ## 3. 子系统详细对齐规格
 
@@ -255,6 +255,33 @@ deltachat 2.58.0-dev core 已内置绝大多数 Delta 能力（Webxdc、Voice、
 - **工作量估算**：中。
 - **依赖**：批次3。
 
+#### 4.5 通话（VoIP 音频/视频）
+
+- **功能描述**：音频/视频通话。消息体内渲染通话消息（发起/接听/已结束/未接），点击通话气泡可回拨；接听时弹出独立通话窗口；呼叫支持振铃、来电通知、通话时长显示。
+- **对齐点**：Delta 采用 **WebRTC + 信令消息** 架构：
+  - core 通话 API 完整存在（`core/src/calls.rs`）：`place_outgoing_call` / `accept_incoming_call` / `end_call` / `call_state` / `ice_servers` / `load_call_by_id`，`CallInfo` / `CallState`（Alerting/Active/Completed/Missed/Declined/Canceled）
+  - 来电事件 `IncomingCall` / `IncomingCallAccepted`（`core/src/events/payload.rs`）
+  - Delta 前端 `packages/target-electron/src/windows/video-call.ts`：**独立通话 BrowserWindow**，内跑 `calls-webapp`（WebRTC 网页应用），通过 `MessageChannelMain` 与主进程交换信令（offer/answer/iceServers），再经 `placeOutgoingCall` 把 offer 作为消息发出
+  - 通话消息体渲染在 `Message.tsx`（`CallIconButton` 回拨按钮）+ `_message-calls.scss`
+- **后端命令清单**（全部桥接 core）：
+  - `place_outgoing_call(chatId, offer, startWithCameraEnabled)` → core
+  - `accept_incoming_call(msgId)` → core
+  - `end_call(msgId)` → core
+  - `call_state(msgId)` → core `call_state`
+  - `ice_servers()` → core（返回 TURN/STUN 服务器列表）
+  - `call_info(msgId)` → core `load_call_by_id`
+  - 转发 `IncomingCall` / `IncomingCallAccepted` / `MsgsChanged`（call 状态变更）事件给前端
+- **前端 UI 清单**：
+  - 独立通话窗口（Tauri 新 WebviewWindow，内嵌 WebRTC 呼叫应用）
+  - 通话信令桥（offer/answer/ice 交换，经 Tauri IPC）
+  - 来电通知 + 振铃 + 接听/拒接
+  - 通话消息体渲染（发起/接听/结束/未接，含时长）
+  - 通话气泡回拨按钮（对齐 `CallIconButton`）
+  - 麦克风/摄像头开关、画面切换
+- **数据模型**：通话消息即普通消息（Viewtype::Call），core 持久化 call_id 与状态；无 app 级新表。
+- **工作量估算**：高（独立窗口 + WebRTC + 信令状态机 + 来电通知）。
+- **依赖**：批次3（消息渲染 + 系统通知）。
+
 ## 4. 实施顺序与验收
 
 每个批次完成标准：
@@ -279,6 +306,7 @@ deltachat 2.58.0-dev core 已内置绝大多数 Delta 能力（Webxdc、Voice、
 - [ ] 会话/联系人加密状态与指纹可查看
 - [ ] 第二设备扫码绑定成功同步消息
 - [ ] 备份导出/导入往返成功
+- [ ] 音频/视频通话：发起 → 对端振铃接听 → 双向音画 → 挂断显示时长；未接显示 Missed；通话气泡可回拨
 
 ## 5. 后续步骤
 
@@ -287,3 +315,6 @@ deltachat 2.58.0-dev core 已内置绝大多数 Delta 能力（Webxdc、Voice、
 ## 6. 变更记录
 
 - 2026-08-03 初稿。移除「自动删除旧消息 / 消失消息」（用户决定本地永久留存，见 0.1）；移除「账号切换」（用户明确排除）。
+- 2026-08-03 补录：
+  - 新增子系统 **4.5 通话（VoIP 音频/视频）**（用户要求纳入）。core 2.58 已内置完整通话 API（place/accept/end/ice_servers + IncomingCall 事件），前端采用 Delta 同款架构：独立通话窗口 + WebRTC + 信令消息。复杂度高，列入批次 4。
+  - Markdown 富文本渲染：经查证 Delta Chat 从未稳定提供（仅 1.33/1.34 实验期后移除，官方标注"未来回归"，当前 core 2.58 与前端均无）。Delta 当前仅支持 Markdown 链接 `[label](url)`。PEYT 若做则属自研前端渲染层，不受 Delta 约束，需单独定范围（语法子集 / 渲染库 / 与现有代码块高亮关系）。**待用户确认是否纳入路线图**。
