@@ -159,9 +159,15 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   //  - textarea → input:拖到单行高度松手自动切回
   const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
   const setExpanded = (next: boolean, keepHeight: boolean): void => {
+    // 仅当模式真实变化才切换 + toast 提醒(避免同一模式重复弹)
+    const changed = expanded !== next;
     expanded = next;
     composerEl?.classList.toggle('expanded', expanded);
     input.placeholder = expanded ? PLACEHOLDER_EXPANDED : PLACEHOLDER_COLLAPSED;
+    if (changed) {
+      // 切换模式 toast 提醒(轻量,不打断输入)
+      showToast(expanded ? '已切换:Enter 换行 · Ctrl+Enter 发送' : '已切换:Enter 发送 · Ctrl+Enter 换行');
+    }
     if (expanded) {
       // 进入 textarea:保持当前高度(无缝);无 inline 高度则给默认大高度
       if (!keepHeight || !input.style.height || input.style.height === 'auto') {
