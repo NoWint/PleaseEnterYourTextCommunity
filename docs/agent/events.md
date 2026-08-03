@@ -2,7 +2,7 @@
 
 ```
 核心 EventEmitter（tokio broadcast）
-  → events.rs spawn_event_forwarder()（tokio::spawn 循环，match 23 个变体）
+  → events.rs spawn_event_forwarder()（tokio::spawn 循环，match 22 个变体）
   → app.emit("dc-event", EventPayload)
   → 前端 onEvent(typ, cb)（api.ts，按 payload.typ 过滤）
   → 各处理器（全部订阅集中在 shell/shell.ts）
@@ -28,7 +28,7 @@
 ## 关键处理器
 
 - `handleIncomingMsg(e)`（shell.ts）：**按顺序**先查 `[CARD]`、再查 `[PEYT_INVITE]`，都命中即 return（不渲染为普通消息）。否则正常流程：@提及检测 → 当前聊天则增量刷新 → 其他聊天则桌面通知。
-- `refreshSidebar()`：重拉 chatlist / channels / workspaces，重渲染 rail + navPanel。
+- `refreshSidebar()`：**150ms 防抖包装**（合并 realtime 事件风暴），触发后 `doRefreshSidebar()` 重拉 chatlist / channels / workspaces，重渲染 rail + navPanel。
 - `refreshCurrentChat()`：当前聊天实时增量（chatView.appendNewMessages）。
 - `updateBadge()`：chatlist 未读求和 → `window.__TAURI__.app.setBadgeCount`（Dock 徽标）。
 

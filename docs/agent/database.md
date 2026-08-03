@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS activities (
 |---|---|
 | `AdvancedLogin` | imap/smtp host/port/security/user/password（全部 Option） |
 | `ProfileDto` | id, name, addr, avatar(blobdir 路径), color |
-| `ChatDto` | chat_id, name, is_group, is_contact_request, is_self_talk, last_msg, last_ts, unread |
+| `ChatDto` | chat_id, name, is_group, is_contact_request, is_self_talk, **is_archived**, last_msg, last_ts, unread |
 | `MemberDto` | contact_id, name, addr, is_self, avatar, color |
 | `ChatInfoDto` | chat_id, name, is_group, is_contact_request, is_self_talk, members[] |
 | `MsgDto` | msg_id, from_id, from_name, text, ts, is_out, state, quote_from, quote_text, view_type, file, file_name, file_mime, file_bytes, width, height, download_state, subject |

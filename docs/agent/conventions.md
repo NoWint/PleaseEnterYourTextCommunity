@@ -9,6 +9,8 @@
 
 PEYT Studio 流程：founder 的 `ensure_peyt_studio` 建 master 群 + 闲聊/工作群，在 master 群发 `[PEYT_INVITE]`；新成员 `join_peyt_studio` 进 master 后收到该消息自动进子频道。
 
+**`[PEYT]` 信封协议**（发送端）：`src-tauri/src/envelope.rs` 的 `build_envelope(type, payload)` 把结构化数据封装成 `[PEYT]{version,type,id,timestamp,from,payload}` JSON 消息，用于卡片 create/update/delete、项目邀请等跨设备同步。**接收端目前不解析**（`handleIncomingMsg` 不拦截 `[PEYT]`，信封消息原样渲染为普通消息，方便调试）——见 `docs/superpowers/specs/2026-08-02-peyt-envelope-protocol-design.md`。
+
 ## 2. 插件系统端到端
 
 ```
@@ -60,7 +62,7 @@ GitHub Pages 市场 → Rust PluginManager（安装/卸载/启停，文件系统
 
 ## 6. styles.css 结构与「重复选择器陷阱」
 
-styles.css ~1944 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 1334 行往后是 Task 17 区）：
+styles.css ~2433 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 1334 行往后是 Task 17 区）：
 
 | 选择器 | 旧（死）行 | 新（活）行 |
 |---|---|---|
@@ -97,6 +99,9 @@ styles.css ~1944 行。**很多选择器定义了两次：前面的旧规则是�
 | `2026-07-31-full-ux-redesign-design.md` | 全面 UX 重构（零弹窗/lucide/TS 迁移） |
 | `2026-07-31-sidebar-redesign-design.md` | 侧栏重构 |
 | `2026-07-31-terminal-page-design.md` | 终端页 |
+| `2026-08-02-peyt-envelope-protocol-design.md` | 信封协议（不进 git） |
+| `2026-08-03-delta-alignment-roadmap.md` | Delta 功能对齐路线图（批次 1 已完成） |
+| `2026-08-03-delta-batch1-archive-saved-draft.md` | 批次 1 实施计划 |
 
 ## 8. 常见任务指南
 
@@ -120,7 +125,7 @@ styles.css ~1944 行。**很多选择器定义了两次：前面的旧规则是�
 `db.rs::migrate()` 里 `CREATE TABLE IF NOT EXISTS`；`Db` 加方法（spawn_blocking + rusqlite）。
 
 ### 修消息相关
-先读 `chat/chatView.ts`（虚拟化）、`chat/message.ts`（渲染/缓存）、`shell.ts`（事件订阅）。注意别破坏虚拟化（off-DOM 原子替换 + scrollTop 恢复）。
+先读 `chat/chatView.ts`（虚拟化）、`chat/message.ts`（渲染/缓存）、`shell.ts`（事件订阅）。注意别破坏虚拟化（增量 DOM 更新：窗口内节点不动、滚出 remove、滚进 insertBefore，两个常驻 spacer 撑高度；scrollHeight 不变所以 scrollTop 由浏览器维护，**不要**引入手动恢复 scrollTop 或 `innerHTML=''` 整体替换——会回到旧位置）。
 
 ### 动效
 CSS 入场（animation）+ `.closing` 出场（JS 加类 + 延时 remove）。reduced-motion 块兜底。别给整屏大区块加透明度动画（会闪）。

@@ -1,6 +1,6 @@
 # 前端地图（src/，Vanilla TS）
 
-46 个 TS 文件。无框架、无路由库、无状态管理库。全部样式在单文件 `src/styles.css`（~1944 行）。
+48 个 TS 文件。无框架、无路由库、无状态管理库。全部样式在单文件 `src/styles.css`（~2433 行）。
 
 ---
 
@@ -74,13 +74,14 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 | page | 渲染 |
 |---|---|
-| messages | `messagesPage.ts` 聊天列表 + 用户栏 |
+| messages | `messagesPage.ts` 聊天列表 + 用户栏（含归档视图切换「已归档」按钮） |
 | groups | `groupsPage.ts` 频道树（按 category 分组，只显示 chat 频道） |
 | work | `workPage.ts`（channels tab 显示 card 频道 / activity tab） |
 | inbox | 占位头（主区看通知） |
 | plugins | `plugins/view.ts`（market/installed tab 导航） |
 | terminal | `terminalPage.ts` 快捷命令面板 |
 | settings | `settingsPage.ts` 设置导航 |
+| debug | `debugPage.ts`（消息原文检查器 + 事件流 + 会话诊断） |
 
 **`renderMain()` → `#chat-main`**：
 
@@ -90,6 +91,7 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 | plugins | plugins/view renderPluginsMain |
 | settings | settingsPage renderSettingsMain |
 | inbox | inboxPage renderInboxMain（通知中心） |
+| debug | debugPage renderDebugMain |
 | work | 按 `viewPrefs[chatId] ?? currentView` 分发 kanban/list/calendar/timeline |
 | messages/groups | `chatView.renderChatView(chatId)` |
 
@@ -99,7 +101,7 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 ## 6. 页面（`src/pages/`）
 
-- **messagesPage**：非 workspace 私聊列表。新建按钮下拉（邮箱/QR/群/加入 PEYT Studio）。右键菜单（信息/拉黑/删除）。
+- **messagesPage**：非 workspace 私聊列表。新建按钮下拉（邮箱/QR/群/加入 PEYT Studio）。右键菜单（信息/归档/拉黑/删除）。归档视图切换按钮（`showArchived`，调 `get_chatlist(archivedOnly)`）。
 - **groupsPage**：workspace 频道树（只 chat 类型），category 折叠（localStorage 持久化），每分类 + 建频道，右键菜单。
 - **inboxPage**：通知中心（mention/reply/card_assign/system），点击跳转源频道并定位消息。
 - **settingsPage**：account（头像上传/显示名）、appearance（主题选择器，含插件主题）、team、notifications（桌面通知/徽标）、plugins、about。
@@ -112,18 +114,19 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 - 常量：`ITEM_HEIGHT=60`（估算消息高）、`BUFFER=20`（上下缓冲）、`VIEWPORT=30`。
 - `renderChatView(chatId)`：用 `main.dataset.renderedChatId` 判断是否同频道已渲染（跳过全量重渲染）。切频道才重置分页。加载 roles/topic/pins/members → 渲染骨架（header + `#messages` + `#composer-area`）→ `refreshMessages`。
-- `renderVisibleMessages(box, start, end)`：**off-DOM temp 构建完整 HTML（含 awaits），再同步原子替换**，保存/恢复 scrollTop——避免闪烁。
+- `renderVisibleMessages(box, start, end)`：**增量 DOM 更新**——滚出窗口的节点 `remove()`、滚进窗口的 `insertBefore` 到锚点前，窗口内节点不动。两个常驻 spacer（`ensureSpacers`）撑住总高度，`scrollHeight` 全程不变 → scrollTop 由浏览器文档流维护，**无需手动恢复**（根治滚动闪烁与位置回跳）。`renderToken` 守卫并发渲染，`msg-enter` 动画在 `animationend` 清理。
 - 消息分组（WhatsApp 式连续发送者折叠：solo/first/middle/last），日期分隔线，「新消息」未读分隔线。
 - `appendNewMessages(chatId)`：实时增量（拉最新 50 条去重 push 重渲染），到底自动滚。
 - `appendOptimisticMessage(tmpMsg)`：composer 乐观发送。
+- self-talk（保存的消息）会话打开时标题显示「保存的消息」（`currentChatIsSelfTalk`）。
 
 ### composer.ts
 
-输入框 + 发送；回复预览；`@`/`#` 提及自动补全浮层；`/` 斜杠命令路由到 `window.__peytchat_commands`。发送流程：乐观 tmp → `send_text`/`send_reply` → onSent 刷新；失败标 failed 可点击重发。
+输入框 + 发送；回复预览；`@`/`#` 提及自动补全浮层；`/` 斜杠命令路由到 `window.__peytchat_commands`。发送流程：乐观 tmp → `send_text`/`send_reply` → onSent 刷新；失败标 failed 可点击重发。**草稿**：`renderComposer` 为 async，输入防抖 500ms 调 `set_draft` 保存、打开时 `get_draft` 恢复、发送成功后清空草稿。
 
 ### message.ts
 
-`renderMessage(m, groupRole)` 返回 HTML（头像、名字、时间、role tag、引用、代码高亮 hljs、@提及高亮、附件 Image/Gif/Sticker/File/Audio/Video、反应胶囊、hover 操作栏、发送状态图标、反应选择器）。`stateLabel` 映射 pending/delivered/read/failed 到 lucide 图标。**模块级缓存** `reactionsCache`（Map）和 `pinnedMsgIds`（Set）避免虚拟化重渲染时反复 IPC。右键菜单：复制/回复/置顶/转为卡片/转发(WIP)/删除（`showInlineConfirm`）。
+`renderMessage(m, groupRole)` 返回 HTML（头像、名字、时间、role tag、引用、代码高亮 hljs、@提及高亮、附件 Image/Gif/Sticker/File/Audio/Video、反应胶囊、hover 操作栏、发送状态图标、反应选择器）。**原生 emoji 反应**（`reactionQuick` 快捷条 + `reactionPanel` 完整面板，Delta Chat 互通）。`stateLabel` 映射 pending/delivered/read/failed 到 lucide 图标。**模块级缓存** `reactionsCache`（Map）和 `pinnedMsgIds`（Set）避免虚拟化重渲染时反复 IPC。右键菜单：复制/**保存消息**/回复/置顶/转为卡片/转发(WIP)/删除（`showInlineConfirm`）。
 
 ## 8. 协作卡片（`src/work/`）
 
@@ -138,9 +141,9 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 ## 9. Shell（`src/shell/`）
 
-- **shell.ts**：骨架 HTML + **`handleIncomingMsg`**（[CARD]/[PEYT_INVITE] 前缀，见 conventions.md）+ 全部事件订阅（见 events.md）+ 全局快捷键（Cmd/Ctrl+K 搜索，Esc 关浮层/清回复/折叠抽屉）+ `updateBadge`（Dock 徽标）。
+- **shell.ts**：骨架 HTML + **`handleIncomingMsg`**（[CARD]/[PEYT_INVITE] 前缀，见 conventions.md）+ 全部事件订阅（见 events.md）+ 全局快捷键（Cmd/Ctrl+K 搜索，Esc 关浮层/清回复/折叠抽屉）+ `updateBadge`（Dock 徽标）。`refreshSidebar()` 是 **150ms 防抖包装**（内部 `doRefreshSidebar`）——避免 realtime 事件风暴下并发 renderNavPanel 导致「保存的消息」入口重复 prepend。
 - **rail.ts**：最左 56px 图标栏。页面图标 + 插件 + 终端 + 设置 + 底部头像（主题/账号设置/登出）。
-- **navPanel.ts**：路由分发 + `refreshChannels()` + `getSpaceType(chatId)`（带 Map 缓存）。
+- **navPanel.ts**：路由分发 + `refreshChannels()` + `getSpaceType(chatId)`（带 Map 缓存）+ `renderSavedMessagesEntry()`（「保存的消息」入口，置顶在消息列表顶部，点击打开 self-talk chat；`.saved-messages-entry` class 保证唯一）。
 - **rightDrawer.ts**：members（按角色分组 + 搜索）/ pins tab；折叠后显示悬浮展开按钮。
 - **columnResizer.ts**：pointer 拖拽调列宽（NAV 180–460 / DRAWER 220–520，橡皮筋阻尼，`--nav-w`/`--drawer-w` CSS 变量，localStorage 持久化）。
 

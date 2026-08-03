@@ -1,6 +1,6 @@
 # 后端地图（src-tauri/，Rust + Tauri v2）
 
-10 个 Rust 文件。全部业务在 `commands.rs`（~2114 行），应用数据在 `db.rs`（SQLite），与 deltachat 核心（submodule `core/`）对接。
+11 个 Rust 文件。全部业务在 `commands.rs`（~2343 行），应用数据在 `db.rs`（SQLite），与 deltachat 核心（submodule `core/`）对接。
 
 ---
 
@@ -8,7 +8,7 @@
 
 - `env_logger` 默认 `debug`。**无任何 tauri-plugin**，全手写 `#[tauri::command]`。
 - setup：取 `app_data_dir` → `AppState::new(dir)`（block_on）→ `spawn_event_forwarder` → `app.manage(state)`。
-- `invoke_handler` 注册 **79 个命令**（75 来自 commands.rs + 4 来自 terminal.rs）。**新增命令必须在这里登记**。
+- `invoke_handler` 注册 **86 个命令**（82 来自 commands.rs + 4 来自 terminal.rs）。**新增命令必须在这里登记**。
 
 ## 2. AppState（`src-tauri/src/state.rs`）
 
@@ -25,11 +25,13 @@ pub struct AppState {
 - `current()` async：取当前 Context；`set_current(id)` 同步设。
 - **锁注意**：`accounts` 是 tokio Mutex（`.lock().await`）；`current_id` 是 std Mutex（同步，纳秒级持锁）。
 
-## 3. 命令清单（79 个，按功能分组）
+## 3. 命令清单（86 个，按功能分组）
 
 **Auth/Account**：`is_configured` `login` `create_chatmail_account` `get_self_profile` `update_profile` `save_avatar_from_bytes` `get_my_qr` `logout`
 
-**Chatlist/Messages**：`get_chatlist` `get_chat_info` `get_chat_msgs`（before_msg_id 分页，窗口 50）`send_text` `delete_msg` `search_msgs`（本地遍历最后 50 条子串匹配，上限 30）`get_asset_url`（→ asset://）
+**Chatlist/Messages**：`get_chatlist`（`archived_only` 参数 → DC_GCL_ARCHIVED_ONLY；跳过 archived_link/allDone 虚拟会话）`get_chat_info` `get_chat_msgs`（before_msg_id 分页，窗口 50）`send_text` `delete_msg` `search_msgs`（本地遍历最后 50 条子串匹配，上限 30）`get_asset_url`（→ asset://）`get_all_messages`（debug 分页）
+
+**归档/保存消息/草稿（Delta 对齐批次 1）**：`archive_chat`（ChatId::set_visibility → Archived/Normal）`save_msg`（chat::save_msgs → self-talk）`unsave_msg`（message::delete_msgs 删 saved 副本）`get_draft`（ChatId::get_draft）`set_draft`（ChatId::set_draft，空文本=清除）
 
 **Contacts**：`get_contacts` `create_chat_by_email` `create_chat_by_contact`
 
@@ -116,6 +118,6 @@ JSON 形如 `{ "kind": "AuthFailed", "message": null }`。前端可 switch `kind
 ## 9. 配置
 
 - `tauri.conf.json`：**CSP 为 null**（插件要注入任意 JS）；`assetProtocol.enable=true` scope `$APPDATA/**`、`$HOME/**`（加载头像/附件，需 `protocol-asset` feature）；单窗口 1000x700（min 800x600）。
-- `Cargo.toml` 关键依赖：`deltachat = { path = "../core" }`（submodule）、tauri `protocol-asset`、`socket2`（`all` feature，netwatch 需要）、`chrono`（`clock`）。**零 tauri-plugin-***。
-- **无 capabilities/ 目录**——Tauri v2 默认全内置权限，自定义命令无需额外配置。
+- `Cargo.toml` 关键依赖：`deltachat = { path = "../core" }`（submodule）、tauri `protocol-asset`、`socket2`（`all` feature，netwatch 需要）、`chrono`（`clock`）、`uuid`（envelope 协议）。**零 tauri-plugin-***。
+- **capabilities/ 目录存在**（`src-tauri/capabilities/default.json`）：包含 `core:default` + `core:event:allow-listen`/`allow-unlisten` + `core:window:allow-set-badge-count`/`allow-set-title`。**这是 realtime 事件能到前端的关键**——Tauri v2 默认 deny `listen`，没有 `core:event:allow-listen` 前端收不到 `dc-event`。
 - `main.rs`：`windows_subsystem = "windows"`（release 隐藏控制台）；`build.rs` 标准 `tauri_build::build()`。

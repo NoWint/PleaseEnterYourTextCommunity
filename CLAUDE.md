@@ -30,23 +30,25 @@ npx tsc --noEmit                 # TypeScript 类型检查
 - 入口 [src/main.ts](src/main.ts)：`boot()` 判断是否已配置账号 → 渲染 shell 或登录页，然后 `ensure_peyt_studio()` 确保 PEYT Studio 工作区存在。
 - 全局可变状态 [src/state.ts](src/state.ts)：单一 `AppState` 对象，各模块直接读写，无状态管理库。
 - 持久化 [src/persist.ts](src/persist.ts)：把 `currentPage/currentWsId/currentChatId/currentView/viewPrefs` 等 UI 状态存到 `localStorage`。服务端侧数据（workspaces/channels/cards/inbox 事件）由后端 SQLite 持久化。
-- 事件流：Delta Chat 核心事件 → Rust 事件循环（[events.rs](src-tauri/src/events.rs)）→ Tauri `dc-event` → 前端 [api.ts](src/api.ts) 的 `onEvent()`。**所有订阅都集中在 [shell.ts](src/shell/shell.ts)**，`call()` 封装 Tauri invoke 并统一显示错误。
+- 事件流：Delta Chat 核心事件 → Rust 事件循环（[events.rs](src-tauri/src/events.rs)）→ Tauri `dc-event` → 前端 [api.ts](src/api.ts) 的 `onEvent()`（单一事件桥，需 `capabilities/default.json` 的 `core:event:allow-listen`）。**所有订阅都集中在 [shell.ts](src/shell/shell.ts)**，`call()` 封装 Tauri invoke 并统一显示错误。`refreshSidebar` 有 150ms 防抖合并 realtime 事件风暴。
 - 模块划分：
-  - `shell/` — 三栏布局骨架：`rail.ts`（左侧 workspace 竖栏）、`navPanel.ts`（频道树 + 主内容路由）、`rightDrawer.ts`（右侧详情抽屉）。
-  - `pages/` — 顶级页面：messages、groups、inbox、settings、terminal、work。
-  - `chat/` — `chatView.ts`（消息列表，虚拟化渲染）、`composer.ts`、`message.ts`（消息/反应渲染与缓存）。
+  - `shell/` — 三栏布局骨架：`rail.ts`（左侧 workspace 竖栏）、`navPanel.ts`（频道树 + 主内容路由，含「保存的消息」入口）、`rightDrawer.ts`（右侧详情抽屉）。
+  - `pages/` — 顶级页面：messages、groups、inbox、settings、terminal、work、debug。
+  - `chat/` — `chatView.ts`（消息列表，**增量 DOM 虚拟化**：窗口内节点不动、滚出 remove、滚进 insertBefore，两个常驻 spacer 撑高度，scrollTop 由浏览器维护）、`composer.ts`（含草稿防抖保存/恢复）、`message.ts`（消息/emoji 反应渲染与缓存）。
   - `work/` — 卡片任务系统：kanban、list、calendar、timeline、cardDetail、activity。
-  - `components/` — 通用组件：icon、avatar、dropdown、contextMenu、search、inlineInput/Confirm、viewToggle、navBanner、memberDetail。
+  - `components/` — 通用组件：icon、avatar、dropdown、contextMenu、search、inlineInput/Confirm、viewToggle、navBanner、memberDetail、ui（组件库）。
   - `plugins/` — 插件系统前端：`manager.ts` 在启动时加载已启用插件，`createPluginApi` 注入 `peytchat` 全局对象。
 
 ### 后端（src-tauri/，Rust + Tauri v2）
 
-- [lib.rs](src-tauri/src/lib.rs)：`AppState::new()` 初始化 → 注册全部 Tauri command（`invoke_handler`）。**新增后端命令必须在这里登记**。
-- [commands.rs](src-tauri/src/commands.rs)（~2100 行）：所有业务命令：登录/账号、聊天、群组、SecureJoin、workspace/channel、reaction/reply、卡片、Inbox/Activity、插件。
+- [lib.rs](src-tauri/src/lib.rs)：`AppState::new()` 初始化 → 注册全部 Tauri command（`invoke_handler`，86 个）。**新增后端命令必须在这里登记**。
+- [commands.rs](src-tauri/src/commands.rs)（~2343 行）：所有业务命令：登录/账号、聊天、群组、SecureJoin、workspace/channel、reaction/reply、卡片、Inbox/Activity、插件、归档/保存消息/草稿。
+- [envelope.rs](src-tauri/src/envelope.rs)：`[PEYT]` 信封协议发送端构建器（`build_envelope`），发送端已接卡片/项目邀请。
 - [db.rs](src-tauri/src/db.rs)：rusqlite + SQLite，存 workspaces/channels/cards/inbox_events/roles 等应用级数据（与 deltachat 核心自己的消息存储分离）。`migrate()` 用 `CREATE TABLE IF NOT EXISTS` 做建表迁移。
 - [plugins.rs](src-tauri/src/plugins.rs)：插件注册表拉取、安装（zip）、卸载、启停。
 - [terminal.rs](src-tauri/src/terminal.rs)：`portable-pty` 启动真实 PTY shell 会话，后台线程按 UTF-8 边界切分输出，经 `terminal-output` Tauri 事件推给前端。
 - [state.rs](src-tauri/src/state.rs)：`AppState`，持有账号 manager、Db、`TerminalSessions` 等。
+- [capabilities/default.json](src-tauri/capabilities/default.json)：Tauri v2 ACL，含 `core:event:allow-listen`（**realtime 事件到前端的关键**）。
 
 ### 特殊消息前缀
 
