@@ -1362,6 +1362,10 @@ pub async fn debug_chatlist(state: State<'_, AppState>) -> AppResult<Vec<serde_j
     let mut out = Vec::with_capacity(list.len());
     for i in 0..list.len() {
         let chat_id = list.get_chat_id(i)?;
+        // 同 get_chatlist:跳过虚拟特殊会话(归档链接/ALLDONE 提示),db 无行
+        if chat_id.is_archived_link() || chat_id.is_alldone_hint() {
+            continue;
+        }
         let chat = Chat::load_from_db(&ctx, chat_id).await?;
         out.push(serde_json::json!({
             "chat_id": chat_id.to_u32(),

@@ -36,6 +36,10 @@ let renderToken = 0;
 // 若拉取失败或为 0,则不渲染分隔线。
 let currentChatUnread = 0;
 
+// 当前 chat 是否为 self-talk(保存的消息/设备聊天):在 renderChatView 拉 chatlist 时填充,
+// channelName 据此显示「保存的消息」而非 #id。
+let currentChatIsSelfTalk = false;
+
 // Task 11: 消息虚拟化常量。
 // ITEM_HEIGHT 是估算值(约 60px),实际消息高度不一(含附件/代码块会更高),
 // spacer 用此估算值,滚动条位置约略正确但非像素级精准 — SP4 可接受,后续可改实测高度。
@@ -157,8 +161,10 @@ export async function renderChatView(chatId: number): Promise<void> {
       const chats = await call<ChatListItem[]>('get_chatlist');
       const chat = chats.find((c) => c.chat_id === chatId);
       currentChatUnread = chat?.unread || 0;
+      currentChatIsSelfTalk = chat?.is_self_talk === true;
     } catch {
       currentChatUnread = 0;
+      currentChatIsSelfTalk = false;
     }
     await refreshMessages(chatId);
     renderComposer(chatId, () => refreshMessages(chatId));
@@ -540,6 +546,8 @@ function bindScrollListener(chatId: number): void {
 }
 
 function channelName(chatId: number): string {
+  // self-talk(保存的消息/设备聊天)不在 workspace channels 里,单独给友好名称
+  if (currentChatIsSelfTalk) return '保存的消息';
   const ch = state.channels.find((c: ChannelDto) => c.chat_id === chatId);
   return ch ? ch.name : `#${chatId}`;
 }

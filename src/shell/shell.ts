@@ -339,7 +339,19 @@ async function refreshCurrentChat(): Promise<void> {
   }
 }
 
-async function refreshSidebar(): Promise<void> {
+// 侧栏刷新防抖:realtime 事件风暴(MsgsChanged/ChatlistItemChanged 等)会高频触发
+// refreshSidebar,多个并发 renderNavPanel 会在同一 #messages-list 上交错 prepend
+// 「保存的消息」入口 → 重复出现多个入口。防抖 150ms 合并 burst。
+let sidebarTimer: ReturnType<typeof setTimeout> | null = null;
+function refreshSidebar(): void {
+  if (sidebarTimer) clearTimeout(sidebarTimer);
+  sidebarTimer = setTimeout(() => {
+    sidebarTimer = null;
+    void doRefreshSidebar();
+  }, 150);
+}
+
+async function doRefreshSidebar(): Promise<void> {
   await refreshWorkspaces();
   await refreshChannels();
   await renderRail();

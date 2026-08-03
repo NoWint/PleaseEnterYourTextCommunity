@@ -202,6 +202,8 @@ export async function renderMain(): Promise<void> {
 async function renderSavedMessagesEntry(panel: HTMLElement): Promise<void> {
   const list = panel.querySelector('#messages-list');
   if (!list) return;
+  // 确保唯一:若已存在「保存的消息」入口则跳过(防御并发/重复渲染)
+  if (list.querySelector('.saved-messages-entry')) return;
   const item = ui.listItem({
     title: '保存的消息',
     icon: 'bookmark',
@@ -222,6 +224,7 @@ async function renderSavedMessagesEntry(panel: HTMLElement): Promise<void> {
       }
     },
   });
+  item.classList.add('saved-messages-entry');
   list.prepend(item);
 }
 
