@@ -1,6 +1,7 @@
 import { call, transformBlobURL } from '../api.js';
 import { state } from '../state.js';
 import { showToast } from '../toast.js';
+import { ui } from '../components/ui.js';
 import { showDropdown, type DropdownItem } from '../components/dropdown.js';
 import { showInlineConfirm } from '../components/inlineConfirm.js';
 import { renderVoicePlayer, bindVoicePlayer } from '../components/voicePlayer.js';
@@ -15,7 +16,7 @@ import go from 'highlight.js/lib/languages/go';
 import bash from 'highlight.js/lib/languages/bash';
 import sql from 'highlight.js/lib/languages/sql';
 import json from 'highlight.js/lib/languages/json';
-import type { MsgDto, MsgState } from '../types.js';
+import type { ChatListItem, MsgDto, MsgState } from '../types.js';
 
 hljs.registerLanguage('rust', rust);
 hljs.registerLanguage('javascript', javascript);
@@ -518,7 +519,7 @@ export function bindMessageActions(container: HTMLElement): void {
       const msgId = Number(msgIdStr);
       const msg = state.messages.find((mm) => String(mm.msg_id) === msgIdStr) as RenderableMsg | undefined;
       const isOut = el.dataset.isOut === '1';
-      showContextMenuAt(e.clientX, e.clientY, msgIdStr, msgId, msg, isOut);
+      void showContextMenuAt(e.clientX, e.clientY, msgIdStr, msgId, msg, isOut);
     });
   });
 
@@ -610,7 +611,7 @@ function showMoreMenu(btn: HTMLElement, msgIdStr: string, isOut: boolean): void 
     {
       label: '转发',
       icon: 'forward',
-      action: () => showToast('转发(开发中)'),
+      action: () => void openForwardDialog(msgId),
     },
   ];
   if (isOut) {
@@ -626,14 +627,21 @@ function showMoreMenu(btn: HTMLElement, msgIdStr: string, isOut: boolean): void 
 
 // Right-click context menu at (x, y). Uses showDropdown with a temporary anchor element
 // positioned at the click coordinates.
-function showContextMenuAt(
+async function showContextMenuAt(
   x: number,
   y: number,
   msgIdStr: string,
   msgId: number,
   msg: RenderableMsg | undefined,
   isOut: boolean,
-): void {
+): Promise<void> {
+  // 判断当前会话是否为「保存的消息」(self-talk):决定显示 取消保存/保存消息
+  let isSelfTalk = false;
+  try {
+    const chats = await call<ChatListItem[]>('get_chatlist');
+    isSelfTalk = chats.some((cc) => cc.is_self_talk && cc.chat_id === state.currentChatId);
+  } catch { /* 拉取失败时保持默认保存行为 */ }
+
   // Temporary 1x1 anchor at click position for showDropdown positioning
   const anchor = document.createElement('div');
   anchor.style.position = 'fixed';
@@ -659,13 +667,38 @@ function showContextMenuAt(
       },
     });
   }
+  items.push(isSelfTalk
+    ? {
+        label: '取消保存',
+        icon: 'bookmark',
+        action: async () => {
+          try {
+            await call('unsave_msg', { msgId });
+            showToast('已取消保存');
+          } catch (e) {
+            showToast(e instanceof Error ? e.message : String(e));
+          }
+        },
+      }
+    : {
+        label: '保存消息',
+        icon: 'bookmark',
+        action: async () => {
+          try {
+            await call('save_msg', { msgId });
+            showToast('已保存');
+          } catch (e) {
+            showToast(e instanceof Error ? e.message : String(e));
+          }
+        },
+      });
   items.push({
-    label: '保存消息',
-    icon: 'bookmark',
+    label: '已读回执',
+    icon: 'check-check',
     action: async () => {
       try {
-        await call('save_msg', { msgId });
-        showToast('已保存');
+        const n = await call<number>('get_message_read_receipt_count', { msgId });
+        showToast(n > 0 ? `已读 ${n} 人` : '暂无已读');
       } catch (e) {
         showToast(e instanceof Error ? e.message : String(e));
       }
@@ -689,7 +722,7 @@ function showContextMenuAt(
   items.push({
     label: '转发',
     icon: 'forward',
-    action: () => showToast('转发(开发中)'),
+    action: () => void openForwardDialog(msgId),
   });
   if (isOut) {
     items.push({
@@ -700,6 +733,44 @@ function showContextMenuAt(
     });
   }
   showDropdown(anchor, items, { position: 'bottom-left', onClose: () => anchor.remove() });
+}
+
+// 转发:弹出会话选择弹窗(排除当前会话),点击目标会话后调用 forward_msg。
+async function openForwardDialog(msgId: number): Promise<void> {
+  let chats: ChatListItem[] = [];
+  try {
+    chats = await call<ChatListItem[]>('get_chatlist');
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  const targets = chats.filter((cc) => cc.chat_id !== state.currentChatId);
+  const dlg = ui.dialog({ title: '转发到', body: '<div></div>', size: 'md' });
+  const bodyEl = dlg.overlay.querySelector<HTMLElement>('.ui-dialog-body');
+  if (!bodyEl) return;
+  if (targets.length === 0) {
+    bodyEl.innerHTML = '<div style="padding:16px;color:var(--text-weak)">暂无可转发的会话</div>';
+    return;
+  }
+  const listWrap = document.createElement('div');
+  listWrap.style.maxHeight = '320px';
+  listWrap.style.overflowY = 'auto';
+  for (const chat of targets) {
+    listWrap.appendChild(ui.listItem({
+      title: chat.name,
+      subtitle: chat.last_msg?.slice(0, 40) || '',
+      onClick: async () => {
+        dlg.close();
+        try {
+          await call('forward_msg', { msgId, chatId: chat.chat_id });
+          showToast('已转发');
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : String(e));
+        }
+      },
+    }));
+  }
+  bodyEl.appendChild(listWrap);
 }
 
 // Convert message to card via backend. Title passed as null (uses message text per backend).
@@ -738,9 +809,6 @@ function inlineDeleteMsg(msgIdStr: string): void {
       } catch (e) {
         showToast(e instanceof Error ? e.message : String(e));
       }
-    },
-    onUndo: async () => {
-      showToast('撤销删除(开发中)');
     },
   });
 }
