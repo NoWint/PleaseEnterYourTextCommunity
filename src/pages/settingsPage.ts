@@ -194,7 +194,7 @@ function renderAppearance(main: HTMLElement): void {
   const themesHtml = [
     ...BUILTIN_THEMES.map((t) => `
       <div class="settings-theme ${current === t.id ? 'active' : ''}" data-theme="${t.id}">
-        <div class="theme-swatch" style="background:${t.swatch}"></div>
+        <div class="theme-swatch" style="background:${t.swatch}${t.preview ? `;${t.preview}` : ''}"></div>
         <span>${escapeHtml(t.label)}</span>
       </div>`),
     ...pluginThemes.map((t) => `

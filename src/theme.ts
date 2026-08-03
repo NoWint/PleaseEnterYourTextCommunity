@@ -9,7 +9,10 @@ export type ThemeName =
   | 'paper'
   | 'frost'
   | 'sage'
-  | 'blush';
+  | 'blush'
+  | 'brutal'
+  | 'crt'
+  | 'toon';
 
 export type AnyTheme = ThemeName | string;
 
@@ -18,6 +21,7 @@ export interface BuiltinTheme {
   id: string;
   label: string;
   swatch: string;
+  preview?: string;
 }
 
 export const BUILTIN_THEMES: BuiltinTheme[] = [
@@ -32,6 +36,9 @@ export const BUILTIN_THEMES: BuiltinTheme[] = [
   { id: 'frost', label: 'Frost', swatch: 'linear-gradient(135deg,#eef3f8,#f7fafc)' },
   { id: 'sage', label: 'Sage', swatch: 'linear-gradient(135deg,#eef3ec,#f8faf4)' },
   { id: 'blush', label: 'Blush', swatch: 'linear-gradient(135deg,#f7eef1,#fcf8f9)' },
+  { id: 'brutal', label: 'Brutalism', swatch: 'linear-gradient(135deg,#0d0d0d,#f5f5f5)', preview: 'border-radius:0;border:2px solid #111' },
+  { id: 'crt', label: 'CRT', swatch: 'linear-gradient(135deg,#0a0e0a,#33ff66)', preview: 'border-radius:2px;box-shadow:0 0 10px rgba(51,255,102,.5)' },
+  { id: 'toon', label: 'Toon', swatch: 'linear-gradient(135deg,#FFE156,#ff4fd8)', preview: 'border-radius:16px;box-shadow:0 4px 0 rgba(0,0,0,.35)' },
 ];
 
 export function getCurrentTheme(): AnyTheme {
