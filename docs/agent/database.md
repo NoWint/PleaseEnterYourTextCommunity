@@ -4,7 +4,7 @@
 
 ---
 
-## 1. 表 schema（10 张表，`db.rs::migrate`）
+## 1. 表 schema（9 张表，`db.rs::migrate`）
 
 **workspaces**
 ```sql
@@ -118,6 +118,20 @@ CREATE TABLE IF NOT EXISTS activities (
 );
 ```
 
+**bots**（Bot 账号,归属 owner_account_id;config_json 存 LLM 配置）
+```sql
+CREATE TABLE IF NOT EXISTS bots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_account_id INTEGER NOT NULL,
+    bot_account_id INTEGER NOT NULL,
+    display_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    config_json TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE(owner_account_id, bot_account_id)
+);
+```
+
 ## 2. DTO（`src-tauri/src/dto.rs`）
 
 | DTO | 字段要点 |
@@ -141,6 +155,9 @@ CREATE TABLE IF NOT EXISTS activities (
 | `CardDto` | id, workspace_id, channel_chat_id, msg_id, `#[serde(rename="type")] type_: String`, title, description, status: String, assignee_contact_id, assignee_name, due_date, created_by, created_by_name, created_at, updated_at, position, source_msg_id |
 | `InboxEventDto` | id, workspace_id, `#[serde(rename="type")] type_`, source_chat_id, msg_id, actor_id, actor_name, summary, created_at, read_at |
 | `ActivityDto` | id, workspace_id, channel_chat_id, actor_id, actor_name, action, target_type, target_id, payload, created_at |
+| `BotDto` | id, owner_account_id, bot_account_id, display_name, status, config_json(LLM 配置), created_at |
+| `LlmConfigInput` | provider, model, api_key, base_url 等 LLM 连接配置 |
+| `AccountInfoDto` | 账号切换用:账号 id / addr / 是否当前 |
 
 约定：时间戳 i64（Unix epoch 秒）；id 在 API 边界 u32 / SQLite i64；`assignee_name`/`created_by_name` 是从核心联系人解析的、**不落库**。
 

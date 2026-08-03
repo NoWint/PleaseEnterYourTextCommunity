@@ -1,6 +1,6 @@
 # 前端地图（src/，Vanilla TS）
 
-57 个 TS 文件。无框架、无路由库、无状态管理库。全部样式在单文件 `src/styles.css`（~2438 行）。
+63 个 TS 文件。无框架、无路由库、无状态管理库。全部样式在单文件 `src/styles.css`（~2959 行）。
 
 ---
 
@@ -24,7 +24,7 @@
 
 | 字段 | 类型 | 用途 |
 |---|---|---|
-| `currentPage` | `Page` | 当前 rail 页面：messages/groups/work/inbox/plugins/terminal/settings |
+| `currentPage` | `Page` | 当前页面：messages/groups/work/inbox/bots/plugins/terminal/settings/debug |
 | `currentWsId` / `currentChatId` | `number \| null` | 当前 workspace / 频道 |
 | `workspaces` / `channels` / `messages` / `cards` | 各 DTO 数组 | 各域数据 |
 | `messagesOldestId` / `noMoreMsgs` | | 消息分页游标 |
@@ -38,7 +38,7 @@
 ### `src/types.ts` 全部类型
 
 ```ts
-export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'plugins' | 'terminal' | 'settings';
+export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'terminal' | 'settings' | 'debug';
 export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about';
 export type PluginsTab = 'market' | 'installed';
 export type PluginPermission = 'messages:read' | 'messages:send' | 'ui:css' | 'ui:theme' | 'commands' | 'llm' | 'network';
@@ -78,6 +78,7 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 | groups | `groupsPage.ts` 频道树（按 category 分组，只显示 chat 频道） |
 | work | `workPage.ts`（channels tab 显示 card 频道 / activity tab） |
 | inbox | 占位头（主区看通知） |
+| bots | 占位头（主区 `botsPage.ts` bot 管理） |
 | plugins | `plugins/view.ts`（market/installed tab 导航） |
 | terminal | `terminalPage.ts` 快捷命令面板 |
 | settings | `settingsPage.ts` 设置导航 |
@@ -91,6 +92,7 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 | plugins | plugins/view renderPluginsMain |
 | settings | settingsPage renderSettingsMain |
 | inbox | inboxPage renderInboxMain（通知中心） |
+| bots | botsPage renderBots（bot 管理） |
 | debug | debugPage renderDebugMain |
 | work | 按 `viewPrefs[chatId] ?? currentView` 分发 kanban/list/calendar/timeline |
 | messages/groups | `chatView.renderChatView(chatId)` |
@@ -126,7 +128,7 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 ### message.ts
 
-`renderMessage(m, groupRole)` 返回 HTML（头像、名字、时间、role tag、引用、代码高亮 hljs、@提及高亮、附件 Image/Gif/Sticker/File/Audio/Video、反应胶囊、hover 操作栏、发送状态图标、反应选择器）。**原生 emoji 反应**（`reactionQuick` 快捷条 + `reactionPanel` 完整面板，Delta Chat 互通）。`stateLabel` 映射 pending/delivered/read/failed 到 lucide 图标。**模块级缓存** `reactionsCache`（Map）和 `pinnedMsgIds`（Set）避免虚拟化重渲染时反复 IPC。右键菜单：复制/**保存消息**/回复/置顶/转为卡片/转发(WIP)/删除（`showInlineConfirm`）。
+`renderMessage(m, groupRole)` 返回 HTML（头像、名字、时间、role tag、引用、代码高亮 hljs、@提及高亮、附件 Image/Gif/Sticker/File/Audio/Video、反应胶囊、hover 操作栏、发送状态图标、反应选择器）。**原生 emoji 反应**（`reactionQuick` 快捷条 + `reactionPanel` 完整面板，Delta Chat 互通）。`stateLabel` 映射 pending/delivered/read/failed 到 TDesign 图标。**模块级缓存** `reactionsCache`（Map）和 `pinnedMsgIds`（Set）避免虚拟化重渲染时反复 IPC。右键菜单：复制/**保存消息**/回复/置顶/转为卡片/转发(WIP)/删除（`showInlineConfirm`）。
 
 ## 8. 协作卡片（`src/work/`）
 
@@ -149,17 +151,20 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 ## 10. 组件（`src/components/`）
 
-- **icon.ts**：三处同步图标系统，见 conventions.md。
+- **icon.ts**：**TDesign** 图标系统（`iconMap = TDESIGN_PATHS as Record<IconName, ...>`），两处同步见 conventions.md。
+- **tdesignIcons.ts**：TDesign 图标路径数据（vendored，stroke 模式 24 viewBox；缺的 play/pause/mic 等在此补充标准路径）。
+- **escape.ts**：共享 `escapeHtml` / `escapeAttr`（全库唯一实现，各文件本地重复定义已收敛于此）。
 - **avatar.ts**：`renderAvatarHtml(member)`（有 avatar 路径则 `<img>`，否则首字母色块）。
-- **dropdown.ts**：单例下拉。同 anchor 再点 = toggle 关闭；关闭触发：外部点击（setTimeout 防同点击误关）/Esc/菜单 mouseleave。**关闭动画**：加 `.closing` 类 120ms 后移除 DOM。`transformOrigin` 按 position 映射。
-- **contextMenu.ts**：右键菜单（消息上用）。
+- **dropdown.ts**：hover 变体下拉（`showDropdown`，message.ts 还在用）；ui.menu 已扩展 closeOn/toggle/onClose 对齐其行为，rail/groups 已迁移。
+- **contactsPicker.ts**：从通讯录选择联系人加好友弹窗（ui.dialog + ui.listItem + ui.avatar）。
 - **search.ts**：Cmd+K 搜索浮层。空查询显示命令列表（跳转页面/切视图/切主题/标记已读）；非空搜消息（`search_msgs`）+ 本地频道/成员匹配。分组 + 方向键导航。
 - **viewToggle.ts**：work 四视图切换（kanban/list/calendar/timeline），更新 viewPrefs。
 - **inlineInput.ts**：零弹窗内联输入（确认/取消，Enter/Esc，错误标红）。
 - **inlineConfirm.ts**：零弹窗内联确认（替代 `confirm()`），支持 undo toast，3s 自动取消。
 - **navBanner.ts**：PEYT Studio 欢迎 banner。
 - **memberDetail.ts**：右抽屉成员详情（发消息/返回）。
-- **ui.ts**：统一组件库（listItem/button/dialog/inputDialog/badge/empty/menu/toast 等）。
+- **inviteDialog.ts**：分享我的邀请链接弹窗（peyt:// 链接 + 复制按钮）。
+- **ui.ts**：统一组件库（listItem/button/iconButton/input/textarea/select/field/label/switch_/checkbox/segmented/file/chip/badge/avatar/card/divider/overlay/dialog/inputDialog/confirm/tabs/menu/search/spinner/empty/toast；再导出 inlineInput/inlineConfirm）。
 - **commandPalette.ts**：Cmd/Ctrl+P 命令面板（模糊匹配 + 键盘导航）。
 - **gallery.ts**：会话内媒体相册（图库/文件/视频/音频 tab + 全屏查看器）。
 - **voicePlayer.ts**：语音消息播放器（播放/暂停 + 计时）。
@@ -176,9 +181,10 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 ## 12. 主题（`src/theme.ts`）
 
-- `ThemeName = 'nowint' | 'violet' | 'goldenhour'`，默认 nowint（无 `data-theme` 属性）。
+- **11 套内置主题**（`BUILTIN_THEMES`：nowint/violet/goldenhour/forest/midnight/ember/graphite/paper/frost/sage/blush），nowint 默认（无 `data-theme` 属性）。
 - `applyTheme(theme)`：设 `data-theme` 属性；`initTheme()` boot 时调用。
-- CSS 变量在 `styles.css`：`:root`（nowint）、`[data-theme="violet"]`、`[data-theme="goldenhour"]`。
+- **全局字体缩放**：`FontScale = 'sm'|'md'|'lg'|'xl'`。`applyFontScale` 设 `<html data-font-scale>`（md 不设属性）；`FONT_SCALES` 供设置页「外观」分段选择器；`initFontScale()` boot 时调用。CSS 覆盖在 styles.css 的 `html[data-font-scale="..."]` 块。
+- CSS 变量在 `styles.css`：`:root`（nowint）+ 各 `[data-theme="..."]` 块 + `html[data-font-scale="..."]` 字体覆盖块。
 - 插件主题 ID 形如 `plugin-<name>-<id>`。
 
 ## 13. 动效（当前状态）
@@ -188,7 +194,7 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 - **`.closing` 模式**（JS 驱动出场）：关闭时 JS 加 `.closing` 类 → CSS 播放 `pop-out`/`fade-out`（forwards）→ 120ms 后 `remove()`。用于 dropdown、confirm、search overlay、图片全屏。
 - keyframes：`msg-fade-in`、`pop-in`、`fade-in`、`pop-out`、`fade-out`、`mention-pop` 等。
 - `@media (prefers-reduced-motion: reduce)` 块：全部 `animation: none !important`。
-- 没有 `--motion-*` token，时长是硬编码值。
+- **动效 token**（styles.css `:root`）：`--ease-out`（cubic-bezier 0.33,1,0.68,1）、`--ease-in-out`、`--ease-drawer`。入场动画统一 `var(--ease-out)`，时长 200-300ms（弹窗 250 / 菜单 200 / 遮罩 220 / 抽屉 280）；出场 `.closing` 保持 120-210ms 快速收束（慢入快出）。
 
 ## 14. 模块依赖要点
 

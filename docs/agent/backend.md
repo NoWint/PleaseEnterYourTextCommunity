@@ -1,6 +1,6 @@
 # 后端地图（src-tauri/，Rust + Tauri v2）
 
-11 个 Rust 文件。全部业务在 `commands.rs`（~2728 行），应用数据在 `db.rs`（SQLite），与 deltachat 核心（submodule `core/`）对接。
+14 个 Rust 文件（新增 `bots.rs` / `bot_llm.rs` / `llm.rs`）。全部业务在 `commands.rs`（~2900 行），应用数据在 `db.rs`（SQLite），与 deltachat 核心（submodule `core/`）对接。
 
 ---
 
@@ -8,7 +8,7 @@
 
 - `env_logger` 默认 `debug`。**无任何 tauri-plugin**，全手写 `#[tauri::command]`。
 - setup：取 `app_data_dir` → `AppState::new(dir)`（block_on）→ `spawn_event_forwarder` → `app.manage(state)`。
-- `invoke_handler` 注册 **100 个命令**（96 来自 commands.rs + 4 来自 terminal.rs）。**新增命令必须在这里登记**。
+- `invoke_handler` 注册 **119 个命令**（主要来自 commands.rs + bots.rs + 4 个 terminal.rs）。**新增命令必须在这里登记**。
 
 ## 2. AppState（`src-tauri/src/state.rs`）
 
@@ -17,6 +17,7 @@ pub struct AppState {
     pub accounts: Arc<tokio::sync::Mutex<Accounts>>,  // deltachat 多账号管理器
     pub current_id: std::sync::Mutex<Option<u32>>,    // 当前账号 id（std mutex，同步访问）
     pub db: Arc<Db>,                                   // 应用 SQLite
+    pub bots: BotService,                              // bot 账号 + LLM 运行时（bots.rs）
     pub plugins: PluginManager,
     pub terminals: TerminalSessions,                   // PTY 会话 map
 }
@@ -25,17 +26,17 @@ pub struct AppState {
 - `current()` async：取当前 Context；`set_current(id)` 同步设。
 - **锁注意**：`accounts` 是 tokio Mutex（`.lock().await`）；`current_id` 是 std Mutex（同步，纳秒级持锁）。
 
-## 3. 命令清单（100 个，按功能分组）
+## 3. 命令清单（119 个，按功能分组）
 
-**Auth/Account**：`is_configured` `login` `create_chatmail_account` `get_self_profile` `update_profile` `save_avatar_from_bytes` `get_my_qr` `logout`
+**Auth/Account**：`is_configured` `login` `create_chatmail_account` `get_self_profile` `update_profile` `save_avatar_from_bytes` `get_my_qr` `logout` `list_accounts` `switch_account`（账号切换）
 
-**Chatlist/Messages**：`get_chatlist`（`archived_only` 参数 → DC_GCL_ARCHIVED_ONLY；跳过 archived_link/allDone 虚拟会话）`get_chat_info` `get_chat_msgs`（before_msg_id 分页，窗口 50）`send_text` `delete_msg` `search_msgs`（本地遍历最后 50 条子串匹配，上限 30）`get_asset_url`（→ asset://）`get_all_messages`（debug 分页）
+**Chatlist/Messages**：`get_chatlist`（`archived_only` 参数 → DC_GCL_ARCHIVED_ONLY；跳过 archived_link/allDone 虚拟会话）`get_chat_info` `get_chat_msgs`（before_msg_id 分页，窗口 50）`send_text` `delete_msg` `forward_msg` `search_msgs`（本地遍历最后 50 条子串匹配，上限 30）`get_asset_url`（→ asset://）`get_all_messages`（debug 分页）
 
 **归档/保存消息/草稿（Delta 对齐批次 1）**：`archive_chat`（ChatId::set_visibility → Archived/Normal）`save_msg`（chat::save_msgs → self-talk）`unsave_msg`（message::delete_msgs 删 saved 副本）`get_draft`（ChatId::get_draft）`set_draft`（ChatId::set_draft，空文本=清除）
 
 **搜索/Gallery/邮件广播（Delta 对齐批次 2）**：`search_msgs`（可选 chat_id 会话内搜索）`get_chat_media`（按 viewtype 过滤媒体）`get_message_read_receipt_count`（广播已读数）
 
-**语音/Webxdc（Delta 对齐批次 3）**：`send_voice`（base64 → Voice 消息）`get_webxdc_info` `get_webxdc_status_updates` `send_webxdc_status_update`
+**语音/Webxdc（Delta 对齐批次 3）**：`send_voice`（base64 → Voice 消息）`get_webxdc_info` `get_webxdc_status_updates` `send_webxdc_status_update` `get_webxdc_blob`（真实 xdc blob 加载）
 
 **通知/保护/多设备/备份（Delta 对齐批次 4）**：`get_appdata_dir` `export_self_keys` `import_self_keys`（core imex）`export_backup` `import_backup`（core imex 带密码）`get_contact_encryption_info`（core get_encrinfo 指纹）
 
@@ -43,17 +44,19 @@ pub struct AppState {
 
 **Contacts**：`get_contacts` `create_chat_by_email` `create_chat_by_contact`
 
-**Chat Mgmt**：`accept_chat` `block_chat` `delete_chat` `leave_group` `mark_chat_noticed`
+**Chat Mgmt**：`accept_chat` `block_chat` `delete_chat` `leave_group` `mark_chat_noticed` `set_chat_muted` `set_chat_pinned`（静音/置顶 stub）
 
 **Group**：`create_group` `add_group_member` `create_group_chat`
 
 **SecureJoin**：`get_securejoin_qr`（None=个人二维码，Some=群邀请）`secure_join`
 
+**Bot 系统（bots.rs / bot_llm.rs / llm.rs）**：`create_bot` `list_bots` `delete_bot` `set_bot_io`（开/关自动回帖）`update_bot_llm` `get_bot_llm` `test_llm_config`（连通性测试）`add_bot_to_chat`；bot 会话命令 `bot_get_chatlist` `bot_get_chat_msgs` `bot_send_text` `bot_mark_chat_noticed`。LLM 运行时由 `BotService` 监听核心事件自动回帖（anti-loop 防自回）。
+
 **Workspaces**：`list_workspaces` `create_workspace`（建 master 群 + 默认频道 + core 角色）`join_workspace` `update_workspace` `delete_workspace`（级联删）`leave_workspace`（只删本地元数据，不退出群）
 
 **Channels**：`list_channels` `create_channel` `update_channel` `delete_channel` `leave_channel` `validate_channels` `get/set_channel_topic` `get_channel_pins` `toggle_pin`（pinned_by 恒为 1）`update/get_channel_space_type`
 
-**Roles**：`list_roles` `set_contact_role` `list_all_contact_roles`
+**Roles**：`list_roles` `set_contact_role` `list_all_contact_roles` `create_role`
 
 **Reactions/Replies**：`send_reaction`（chat_id 仅为 API 对称，未使用）`get_reactions` `send_reply`
 
@@ -89,13 +92,13 @@ pub struct AppState {
 - 建表用 `CREATE TABLE IF NOT EXISTS`；加列用 `PRAGMA table_info` 检测后 `ALTER TABLE`。
 - 位置参数 `?1`/`?2`，`query_row().optional()`、`query_map().filter_map(ok)`、`last_insert_rowid()`。
 
-**10 张表** 见 [database.md](database.md)。
+**9 张表** 见 [database.md](database.md)。
 
 **关键坑**：`list_cards`/`get_card_row` 的 16 元组里第 15 列是字面量 `0`（占位符，对应一个已废弃/从未用的字段），第 16 列是 `source_msg_id`。
 
 ## 5. DTO（`src-tauri/src/dto.rs`）
 
-全部 DTO：`AdvancedLogin`（输入）、`ProfileDto`、`ChatDto`、`MemberDto`、`ChatInfoDto`、`MsgDto`、`EventPayload`、`ContactDto`、`SearchResultDto`、`WorkspaceDto`、`PeytStudioDto`、`ChannelDto`、`RoleDto`、`PinDto`、`ReactionDto`、`ContactRoleDto`、`CardDto`、`InboxEventDto`、`ActivityDto`。完整字段见 [database.md](database.md#2-dto)。
+全部 DTO：`AdvancedLogin`（输入）、`ProfileDto`、`ChatDto`、`MemberDto`、`ChatInfoDto`、`MsgDto`、`EventPayload`、`ContactDto`、`SearchResultDto`、`RawMsgDto`、`WorkspaceDto`、`PeytStudioDto`、`ChannelDto`、`RoleDto`、`PinDto`、`ReactionDto`、`ContactRoleDto`、`CardDto`、`InboxEventDto`、`ActivityDto`、`BotDto`、`LlmConfigInput`、`AccountInfoDto`。完整字段见 [database.md](database.md#2-dto)。
 
 - **serde 重命名**：`CardDto.type_`、`InboxEventDto.type_`、`RegistryPlugin.plugin_type` 都 `#[serde(rename = "type")]`。
 - 时间戳 i64（Unix epoch 秒）；chat/contact id 在 API 边界是 u32，SQLite 里是 i64。
