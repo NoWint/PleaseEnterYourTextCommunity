@@ -12,6 +12,14 @@
     <div id="app"></div>
     <!-- macOS Overlay 标题栏:红黄绿三色按钮的拖拽区(仅 macOS 显示,见 styles.css) -->
     <div id="window-drag-region" data-tauri-drag-region></div>
+    <!-- macOS 顶栏工具栏:上下文面包屑 + 全局搜索(仅 macOS 显示,titlebar.ts 填充) -->
+    <div id="titlebar-tools">
+      <span id="titlebar-context"></span>
+      <button id="titlebar-search" title="全局搜索 (⌘K)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span>搜索…</span>
+      </button>
+    </div>
     <script type="module" src="/main.ts"></script>
   </body>
 </html>
