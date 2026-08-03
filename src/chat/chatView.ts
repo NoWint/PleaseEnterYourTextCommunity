@@ -352,9 +352,18 @@ async function loadEarlier(chatId: number): Promise<void> {
 
 // Task 11: 虚拟化 — 只渲染 scrollTop ± (BUFFER + VIEWPORT/2) 范围的消息,
 // 上下用 spacer div 撑住总高度(估算 ITEM_HEIGHT),保持滚动条约略正确。
+//
+// 底部稳定修复:当视口接近底部(滚到末端附近)时,强制 end = state.messages.length。
+// 否则 end 会在 len 与 len-1 间抖动(spacerBottom 高度 0↔60 跳变 → scrollHeight 变
+// → scrollTop 被钳位 → 触发 scroll → 又渲染) → 最后一条消息消失又出现,闪烁循环。
 function getVisibleRange(scrollTop: number, clientHeight: number, itemHeight: number): { start: number; end: number } {
   const start = Math.max(0, Math.floor(scrollTop / itemHeight) - BUFFER);
-  const end = Math.min(state.messages.length, start + VIEWPORT + 2 * BUFFER);
+  const maxEnd = state.messages.length;
+  // 视口底部接近总高(用户在底部附近)→ 固定渲染到最后一条,spacerBottom=0,消除抖动
+  const scrollBottom = scrollTop + clientHeight;
+  const totalHeight = maxEnd * itemHeight;
+  const nearBottom = totalHeight > 0 && scrollBottom >= totalHeight - itemHeight * 2;
+  const end = nearBottom ? maxEnd : Math.min(maxEnd, start + VIEWPORT + 2 * BUFFER);
   return { start, end };
 }
 
@@ -375,6 +384,10 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
   // 则本次(过时)直接放弃写入,避免 stale 数据覆盖 DOM。
   const token = ++renderToken;
   const visible = state.messages.slice(start, end);
+  // 渲染前记录 scrollHeight/scrollTop:spacer 用估算高度,渲染后总高会变化,
+  // 若不补偿,scrollTop 被钳位 → 触发 scroll → 递归渲染 → 闪烁循环。
+  const prevScrollTop = box.scrollTop;
+  const prevScrollHeight = box.scrollHeight;
 
   const dividerIndex = (currentChatUnread > 0 && state.messages.length >= currentChatUnread)
     ? state.messages.length - currentChatUnread
@@ -453,7 +466,13 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
   if (spacerTop) spacerTop.style.height = (start * ITEM_HEIGHT) + 'px';
   if (spacerBottom) spacerBottom.style.height = ((state.messages.length - end) * ITEM_HEIGHT) + 'px';
 
-  // 注意:不手动恢复 scrollTop —— scrollHeight 全程没变(增量更新),浏览器位置自然正确。
+  // scrollHeight 补偿:spacer 用估算高度,渲染后总高变化,导致 scrollTop 被浏览器钳位
+  // → 触发 scroll → 递归渲染 → 最后一条消失又出现,闪烁循环。
+  // 补偿 = 渲染前后 scrollHeight 差,让视口内容保持稳定(底部场景自动保持贴底)。
+  const heightDelta = box.scrollHeight - prevScrollHeight;
+  if (heightDelta !== 0) {
+    box.scrollTop = prevScrollTop + heightDelta;
+  }
 }
 
 // 确保某个日期/未读分隔线节点在 DOM 中,返回其 nextElementSibling 作为下一个插入锚点。
