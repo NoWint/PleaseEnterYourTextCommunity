@@ -3,9 +3,9 @@ import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
-import { showDropdown, type DropdownItem } from '../components/dropdown.js';
-import { createInlineInput } from '../components/inlineInput.js';
 import { renderAvatarHtml } from '../components/avatar.js';
+import { escapeHtml, escapeAttr } from '../components/escape.js';
+import { ui, type MenuItem } from '../components/ui.js';
 import { getSpaceType, refreshChannels } from '../shell/navPanel.js';
 import type { ChannelDto } from '../types.js';
 
@@ -127,7 +127,7 @@ function showInlineCreateChannel(category: string): void {
   if (!list) return;
   const catEl = findCategoryElement(list, category);
   if (!catEl) return;
-  const input = createInlineInput({
+  const input = ui.inlineInput({
     placeholder: '输入频道名',
     confirmLabel: '创建',
     extra: `分类:${category}`,
@@ -170,7 +170,7 @@ function bindChannelContextMenus(): void {
 }
 
 function showChannelContextMenu(anchor: HTMLElement, chatId: number): void {
-  const items: DropdownItem[] = [
+  const items: MenuItem[] = [
     {
       label: '频道信息',
       icon: 'info',
@@ -231,7 +231,7 @@ function showChannelContextMenu(anchor: HTMLElement, chatId: number): void {
       },
     },
   ];
-  showDropdown(anchor, items, { position: 'bottom-right' });
+  ui.menu(anchor, items, 'bottom-right', { closeOn: 'hover', toggle: true });
 }
 
 function bindWsSwitcher(): void {
@@ -239,7 +239,7 @@ function bindWsSwitcher(): void {
   if (!header) return;
   header.addEventListener('click', (e) => {
     e.stopPropagation();
-    const items: DropdownItem[] = state.workspaces.map((ws) => ({
+    const items: MenuItem[] = state.workspaces.map((ws) => ({
       label: ws.name,
       icon: 'users',
       action: async () => {
@@ -256,11 +256,7 @@ function bindWsSwitcher(): void {
       icon: 'plus',
       action: () => showToast('创建团队(开发中)'),
     });
-    showDropdown(header, items, { position: 'bottom-left' });
+    ui.menu(header, items, 'bottom-left', { closeOn: 'hover', toggle: true });
   });
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: string): string { return escapeHtml(s); }

@@ -5,7 +5,7 @@ import { iconSvg, type IconName } from '../components/icon.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { getCurrentTheme, applyTheme, BUILTIN_THEMES } from '../theme.js';
 import { ui } from '../components/ui.js';
-import { createInlineInput } from '../components/inlineInput.js';
+import { escapeHtml } from '../components/escape.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
 
 const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = [
@@ -18,23 +18,25 @@ const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = 
 ];
 
 export async function renderSettingsNav(panel: HTMLElement): Promise<void> {
-  const itemsHtml = sections.map((s) => {
-    const active = state.currentSettingsSection === s.id ? 'active' : '';
-    return `<div class="settings-nav-item ${active}" data-section="${s.id}">
-      ${iconSvg(s.icon, { width: 16, height: 16 })}
-      <span>${escapeHtml(s.label)}</span>
-    </div>`;
-  }).join('');
-  panel.innerHTML = `<div class="nav-header"><div class="nav-title">设置</div></div><div class="nav-list">${itemsHtml}</div>`;
-  panel.querySelectorAll<HTMLElement>('.settings-nav-item').forEach((el) => {
-    el.addEventListener('click', async () => {
-      state.currentSettingsSection = el.dataset.section as SettingsSection;
-      saveState();
-      await renderSettingsNav(panel);
-      const { renderMain } = await import('../shell/navPanel.js');
-      await renderMain();
+  panel.innerHTML = `<div class="nav-header"><div class="nav-title">设置</div></div>`;
+  const navList = document.createElement('div');
+  navList.className = 'nav-list';
+  for (const s of sections) {
+    const item = ui.listItem({
+      title: s.label,
+      icon: s.icon,
+      onClick: async () => {
+        state.currentSettingsSection = s.id;
+        saveState();
+        await renderSettingsNav(panel);
+        const { renderMain } = await import('../shell/navPanel.js');
+        await renderMain();
+      },
     });
-  });
+    if (state.currentSettingsSection === s.id) item.classList.add('active');
+    navList.appendChild(item);
+  }
+  panel.appendChild(navList);
 }
 
 export async function renderSettingsMain(main: HTMLElement): Promise<void> {
@@ -190,7 +192,7 @@ async function renderTeam(main: HTMLElement): Promise<void> {
   if (!ws) {
     section.appendChild(ui.empty('未加入任何团队'));
     const joinArea = document.createElement('div');
-    const input = createInlineInput({
+    const input = ui.inlineInput({
       placeholder: '粘贴邀请链接 (dcgroup:... 或 OPENPGP4FPR:...)',
       confirmLabel: '加入',
       onConfirm: async (qr) => {
@@ -334,8 +336,4 @@ function renderAbout(main: HTMLElement): void {
   section.appendChild(zone);
 
   main.appendChild(section);
-}
-
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }

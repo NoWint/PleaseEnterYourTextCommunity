@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { showToast } from '../toast.js';
 import { iconSvg, type IconName } from '../components/icon.js';
+import { escapeHtml } from '../components/escape.js';
 import type { InboxEventDto, InboxEventType, Page } from '../types.js';
 
 // SP6: Inbox 统一通知中心。
@@ -193,11 +194,4 @@ function formatTime(ts: number): string {
   if (diff < 604800) return `${Math.floor(diff / 86400)} 天前`;
   const d = new Date(ts * 1000);
   return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
-}
-
-function escapeHtml(s: string | null | undefined): string {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
 }
