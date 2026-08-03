@@ -146,15 +146,13 @@ html.window-frame #app { padding-top: 40px; }
   flex: none;
   width: 20px; height: 20px;
   margin-left: 12px;
-  border-radius: 5px; /* 圆角 */
+  border-radius: 5px;
   object-fit: cover;
   pointer-events: none;
   user-select: none;
 }
 
-/* 标题文字:左侧,可拖拽(继承父级 data-tauri-drag-region)。
-   font-size 走全局字号体系(设置里的字体大小缩放);颜色用 --text
-   (暗色主题近白、亮色主题近黑,随主题自适应)。 */
+/* 标题文字:左侧,可拖拽(继承父级 data-tauri-drag-region) */
 .wb-title {
   flex: 0 1 auto;
   padding-left: 8px;
@@ -190,9 +188,31 @@ html.window-frame #app { padding-top: 40px; }
 /* 关闭按钮:悬停变红(Windows 惯例) */
 .wb-btn.wb-close:hover { background: var(--danger); color: #fff; }
 
-/* macOS Overlay:隐藏标题文字与控制按钮(原生红绿灯在左上) */
+/* macOS Overlay:隐藏 logo/标题/控制按钮(原生红绿灯在左上),保留纯拖拽区 + 居中搜索 */
+html.window-overlay .wb-logo,
 html.window-overlay .wb-title,
 html.window-overlay .wb-controls { display: none; }
+
+/* 顶栏工具栏:VSCode 式居中搜索条。容器不拦截拖拽(pointer-events:none),仅搜索按钮可点。
+   占满宽度、justify-content:center 保证严格居中;显示与否由 titlebar.ts 控制(有 shell 才显示)。 */
+#titlebar-tools {
+  position: fixed; top: 0; left: 0; right: 0; height: 40px;
+  display: none; align-items: center; justify-content: center;
+  z-index: 10000;
+  pointer-events: none;
+}
+#titlebar-search {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 8px;
+  width: 440px; height: 28px; padding: 0 14px;
+  border-radius: 8px;
+  background: var(--capsule);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  color: var(--text-mute); font-size: var(--font-scale-secondary); cursor: pointer; font-family: inherit;
+  transition: background 120ms var(--ease-out), border-color 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+#titlebar-search:hover { background: var(--border-strong); color: var(--text); }
+#titlebar-search:active { transform: scale(0.98); }
 
 /* 登录页上下布局：品牌区在上，表单在下 */
 .login-wrap {
