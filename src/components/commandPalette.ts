@@ -8,7 +8,6 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from './icon.js';
 import { ui } from './ui.js';
-import { applyTheme } from '../theme.js';
 import type { Page, CurrentView } from '../types.js';
 
 interface CommandItem {
@@ -30,9 +29,7 @@ function buildCommands(): CommandItem[] {
     { label: '切换列表视图', icon: 'list', action: () => switchView('list') },
     { label: '切换日历视图', icon: 'calendar', action: () => switchView('calendar') },
     { label: '切换时间线视图', icon: 'clock', action: () => switchView('timeline') },
-    { label: '切换主题: Nowint', icon: 'palette', action: () => applyTheme('nowint') },
-    { label: '切换主题: Violet', icon: 'palette', action: () => applyTheme('violet') },
-    { label: '切换主题: GoldenHour', icon: 'palette', action: () => applyTheme('goldenhour') },
+    { label: '外观设置', icon: 'palette', action: () => openAppearance() },
     { label: '跳转消息', icon: 'message-circle', action: () => navigateToPage('messages') },
     { label: '跳转群组', icon: 'users', action: () => navigateToPage('groups') },
     { label: '跳转协作', icon: 'layout-grid', action: () => navigateToPage('work') },
@@ -100,6 +97,11 @@ async function markAllInboxRead(): Promise<void> {
   } catch (e) {
     console.error('mark_all_inbox_read failed:', e);
   }
+}
+
+function openAppearance(): void {
+  state.currentSettingsSection = 'appearance';
+  navigateToPage('settings').catch((e) => console.error(e));
 }
 
 async function navigateToPage(page: Page): Promise<void> {

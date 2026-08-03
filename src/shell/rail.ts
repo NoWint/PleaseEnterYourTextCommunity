@@ -5,7 +5,6 @@ import { saveState } from '../persist.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { iconSvg, type IconName } from '../components/icon.js';
 import { showDropdown } from '../components/dropdown.js';
-import { applyTheme } from '../theme.js';
 import type { Page, WorkspaceDto } from '../types.js';
 
 export async function refreshWorkspaces(): Promise<void> {
@@ -129,19 +128,12 @@ function bindAvatar(): void {
 function showUserMenu(anchor: HTMLElement): void {
   showDropdown(anchor, [
     {
-      label: 'Nowint',
+      label: '外观设置',
       icon: 'palette',
-      action: () => applyTheme('nowint'),
-    },
-    {
-      label: 'Violet',
-      icon: 'palette',
-      action: () => applyTheme('violet'),
-    },
-    {
-      label: 'GoldenHour',
-      icon: 'palette',
-      action: () => applyTheme('goldenhour'),
+      action: () => {
+        state.currentSettingsSection = 'appearance';
+        navigateToPage('settings').catch(reportError);
+      },
     },
     {
       label: '账号设置',
