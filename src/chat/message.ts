@@ -3,6 +3,8 @@ import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { showDropdown, type DropdownItem } from '../components/dropdown.js';
 import { showInlineConfirm } from '../components/inlineConfirm.js';
+import { renderVoicePlayer, bindVoicePlayer } from '../components/voicePlayer.js';
+import { renderWebxdcCard, bindWebxdcCard } from '../components/webxdc.js';
 import { iconSvg } from '../components/icon.js';
 import hljs from 'highlight.js/lib/core';
 import rust from 'highlight.js/lib/languages/rust';
@@ -189,11 +191,19 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
           </div>
         </div>`;
           break;
+        case 'Voice': {
+          // Delta 式语音播放器(voicePlayer.ts):播放按钮 + 计时,替代原生 audio controls
+          const audioElId = `voice-${msg.msg_id}`;
+          attachmentHtml = `<div class="msg-attachment voice" data-voice="${audioElId}">${renderVoicePlayer(assetUrl, audioElId)}</div>`;
+          break;
+        }
         case 'Audio':
-        case 'Voice':
           attachmentHtml = `<div class="msg-attachment audio">
           <audio controls src="${escapeAttr(assetUrl)}"></audio>
         </div>`;
+          break;
+        case 'Webxdc':
+          attachmentHtml = `<div class="msg-attachment webxdc">${renderWebxdcCard(msg)}</div>`;
           break;
         case 'Video':
           attachmentHtml = `<div class="msg-attachment video">
@@ -399,6 +409,11 @@ export function bindMessageActions(container: HTMLElement): void {
       }
     });
   });
+
+  // Delta 批次 3:绑定语音播放器(播放/暂停/计时)
+  bindVoicePlayer(container);
+  // Delta 批次 3:绑定 webxdc 卡片(启动按钮 + 信息水合)
+  bindWebxdcCard(container);
 
   // Task 14: hover action buttons — react/reply/pin/more
   container.querySelectorAll<HTMLElement>('.msg-action-btn').forEach((btn) => {

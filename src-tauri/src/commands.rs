@@ -2548,3 +2548,83 @@ pub async fn unblock_contact(state: State<'_, AppState>, contact_id: u32) -> App
     Contact::unblock(&ctx, ContactId::new(contact_id)).await?;
     Ok(())
 }
+
+// ==== Delta 对齐批次 3 ====
+
+/// 发送语音消息:前端 MediaRecorder 录制的 WebM/Opus base64。
+#[tauri::command]
+pub async fn send_voice(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    base64: String,
+) -> AppResult<u32> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64.trim())
+        .map_err(|e| AppError::Core(format!("base64 decode: {e}")))?;
+    let mut msg = Message::new(Viewtype::Voice);
+    msg.set_file_from_bytes(&ctx, "voice.webm", &bytes, Some("audio/webm"))?;
+    let msg_id = chat::send_msg(&ctx, chat_id, &mut msg).await?;
+    Ok(msg_id.to_u32())
+}
+
+/// 获取 webxdc 应用信息(名称/文档/摘要)。
+#[tauri::command]
+pub async fn get_webxdc_info(
+    state: State<'_, AppState>,
+    msg_id: u32,
+) -> AppResult<serde_json::Value> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let m = Message::load_from_db(&ctx, MsgId::new(msg_id)).await?;
+    let info = m.get_webxdc_info(&ctx).await?;
+    Ok(serde_json::json!({
+        "name": info.name,
+        "document": info.document,
+        "summary": info.summary,
+    }))
+}
+
+/// 获取 webxdc 状态更新(serial > last_known_serial)。
+/// core 返回 JSON 字符串,这里解析为数组返回,前端直接消费。
+#[tauri::command]
+pub async fn get_webxdc_status_updates(
+    state: State<'_, AppState>,
+    msg_id: u32,
+    last_known_serial: Option<i64>,
+) -> AppResult<Vec<serde_json::Value>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let serial = last_known_serial.unwrap_or(0) as u32;
+    let json = ctx
+        .get_webxdc_status_updates(MsgId::new(msg_id), deltachat::webxdc::StatusUpdateSerial::new(serial))
+        .await?;
+    let updates: Vec<serde_json::Value> = serde_json::from_str(&json)
+        .unwrap_or_default();
+    Ok(updates)
+}
+
+/// 发送 webxdc 状态更新。
+#[tauri::command]
+pub async fn send_webxdc_status_update(
+    state: State<'_, AppState>,
+    msg_id: u32,
+    payload: String,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    ctx.send_webxdc_status_update(MsgId::new(msg_id), &payload)
+        .await?;
+    Ok(())
+}

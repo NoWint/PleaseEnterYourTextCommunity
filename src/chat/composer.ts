@@ -49,6 +49,8 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   // F5:切换 chat 时清理可能残留的 @提及/#频道建议面板 (模块级 mentionList),
   // 避免上一个聊天的建议列表残留在新聊天界面。
   closeMentionList();
+  // 重渲染 composer 时停止并丢弃进行中的录音(释放麦克风),避免残留活跃录音
+  cleanupVoiceRecorder();
   // reply 预览条(若 composer-area.dataset.replyTo 设置)
   let replyPreview = '';
   if (area.dataset.replyTo) {
@@ -71,6 +73,8 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       ${replyPreview}
       <div class="composer-row">
         <textarea id="composer-input" placeholder="发消息到频道... (@提及 / #频道)" rows="1"></textarea>
+        <span class="composer-mic-timer" id="composer-mic-timer" style="display:none; align-self:center; font-size:12px; font-variant-numeric:tabular-nums; color:var(--danger); white-space:nowrap;"></span>
+        <button type="button" class="composer-mic" id="composer-mic" title="录音" style="flex-shrink:0; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border:1px solid var(--border-strong); border-radius:50%; cursor:pointer; background:var(--capsule); color:var(--text-mute); transition:color 120ms, background 120ms;">${iconSvg('volume-2', { width: 18, height: 18 })}</button>
         <button type="button" class="composer-send" id="composer-send" title="发送" disabled>${iconSvg('arrow-up', { width: 18, height: 18, strokeWidth: 2.2 })}</button>
       </div>
     </div>
@@ -88,6 +92,8 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     await send(chatId, input, area, onSent);
     updateSendState();
   });
+  // 录音按钮:点击开始 MediaRecorder 录音,再点停止发送 (Voice viewtype)
+  initVoiceRecorder(chatId, onSent);
   // reply cancel
   const rpCancel = document.getElementById('rp-cancel');
   if (rpCancel) {
@@ -323,6 +329,152 @@ function closeMentionList(): void {
   mentionKind = null;
   mentionSelectedIndex = 0;
   mentionQueryStart = -1;
+}
+
+// ── 录音 (Voice viewtype) ──────────────────────────────────────────────
+// 点击 mic 开始 MediaRecorder 录音,再点停止 → blob → base64 → send_voice。
+// 录音中 mic 变红 + 显示计时(🔴 m:ss);停止后自动发送,无取消按钮(YAGNI)。
+// 模块级 activeVoiceRecorder 供 composer 重渲染时清理,避免遗留活跃录音/麦克风占用。
+interface ActiveVoiceRecorder {
+  mediaRecorder: MediaRecorder;
+  stream: MediaStream;
+  chunks: Blob[];
+  timer: number | null; // window.setInterval 返回 number (node types 下全局 setInterval 返回 Timeout)
+  elapsedEl: HTMLElement | null;
+  micBtn: HTMLButtonElement | null;
+  startTime: number;
+  sendOnStop: boolean;
+}
+let activeVoiceRecorder: ActiveVoiceRecorder | null = null;
+
+function initVoiceRecorder(chatId: number, onSent: () => void): void {
+  const micBtn = document.getElementById('composer-mic') as HTMLButtonElement | null;
+  if (!micBtn) return;
+  const elapsedEl = document.getElementById('composer-mic-timer') as HTMLElement | null;
+  micBtn.addEventListener('click', () => {
+    if (activeVoiceRecorder) {
+      // 正在录音 → 再点停止,onstop 后发送
+      activeVoiceRecorder.sendOnStop = true;
+      activeVoiceRecorder.mediaRecorder.stop();
+    } else {
+      void startVoiceRecording(chatId, onSent, micBtn, elapsedEl);
+    }
+  });
+}
+
+async function startVoiceRecording(
+  chatId: number,
+  onSent: () => void,
+  micBtn: HTMLButtonElement,
+  elapsedEl: HTMLElement | null,
+): Promise<void> {
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    showToast('无法访问麦克风: ' + (e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  let mediaRecorder: MediaRecorder;
+  try {
+    mediaRecorder = new MediaRecorder(stream);
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop());
+    showToast('此环境不支持录音: ' + (e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  const chunks: Blob[] = [];
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) chunks.push(e.data);
+  };
+  const rec: ActiveVoiceRecorder = {
+    mediaRecorder,
+    stream,
+    chunks,
+    timer: null,
+    elapsedEl,
+    micBtn,
+    startTime: Date.now(),
+    sendOnStop: false,
+  };
+  mediaRecorder.onstop = () => {
+    // 释放麦克风 + 恢复按钮 UI(先于发送,尽快释放资源)
+    clearInterval(rec.timer ?? undefined);
+    stream.getTracks().forEach((t) => t.stop());
+    activeVoiceRecorder = null;
+    restoreMicUI(rec);
+    if (rec.sendOnStop) {
+      const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      void sendVoice(chatId, blob, onSent);
+    }
+  };
+  mediaRecorder.start();
+  // 录音态 UI:mic 变红 + 显示计时
+  micBtn.style.color = 'var(--danger)';
+  micBtn.title = '停止录音';
+  if (elapsedEl) {
+    elapsedEl.style.display = 'inline';
+    elapsedEl.textContent = '🔴 0:00';
+  }
+  rec.timer = window.setInterval(() => {
+    if (elapsedEl) elapsedEl.textContent = `🔴 ${formatRecordTime(Date.now() - rec.startTime)}`;
+  }, 1000);
+  activeVoiceRecorder = rec;
+}
+
+// 停止并丢弃当前录音(composer 重渲染时调用,释放麦克风)
+function cleanupVoiceRecorder(): void {
+  const rec = activeVoiceRecorder;
+  if (!rec) return;
+  activeVoiceRecorder = null;
+  rec.sendOnStop = false; // 丢弃,不发送
+  try { rec.mediaRecorder.stop(); } catch {}
+  clearInterval(rec.timer ?? undefined);
+  rec.stream.getTracks().forEach((t) => t.stop());
+  restoreMicUI(rec);
+}
+
+// 恢复 mic 按钮与计时 span 到非录音态
+function restoreMicUI(rec: ActiveVoiceRecorder): void {
+  if (rec.micBtn) {
+    rec.micBtn.style.color = '';
+    rec.micBtn.title = '录音';
+  }
+  if (rec.elapsedEl) {
+    rec.elapsedEl.style.display = 'none';
+    rec.elapsedEl.textContent = '';
+  }
+}
+
+// 录音时长 m:ss(如 0:05)
+function formatRecordTime(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// 发送语音:blob → base64 → send_voice
+async function sendVoice(chatId: number, blob: Blob, onSent: () => void): Promise<void> {
+  try {
+    const base64 = await blobToBase64(blob);
+    await call('send_voice', { chatId, base64 });
+    if (onSent) await onSent();
+  } catch (e) {
+    showToast('发送语音失败: ' + (e instanceof Error ? e.message : String(e)));
+  }
+}
+
+// Blob → base64 (分块避免大文件 spread 爆栈;几秒录音量级安全)
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunkSize = 0x8000; // 32KB/块
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
 }
 
 async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElement, onSent: () => void): Promise<void> {

@@ -120,6 +120,11 @@ pub fn run() {
             // 屏蔽列表 / 取消屏蔽
             commands::get_blocked_contacts,
             commands::unblock_contact,
+            // Delta 对齐批次 3
+            commands::send_voice,
+            commands::get_webxdc_info,
+            commands::get_webxdc_status_updates,
+            commands::send_webxdc_status_update,
             // Terminal
             terminal::open_terminal,
             terminal::write_terminal,
