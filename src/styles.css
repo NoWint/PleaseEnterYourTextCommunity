@@ -2772,7 +2772,13 @@ body {
   border: 1px solid var(--border-strong);
   border-radius: 3px;
 }
-.theme-preview .theme-swatch-check { background: var(--text); color: var(--on-accent); }
+/* 覆盖 .theme-preview > * { position: relative }(同特异性但更靠后会把它改成 relative,
+   使 check 参与 flex 布局 → active 时占 18px 把 tp-chat 挤窄、右侧空出空白)。
+   用更高特异性强制 absolute 脱离文档流,check 仅在右上角悬浮。 */
+.theme-preview .theme-swatch-check {
+  position: absolute; top: 6px; right: 6px;
+  background: var(--text); color: var(--on-accent);
+}
 .theme-name {
   font-size: var(--font-scale-secondary);
   font-weight: 600;
