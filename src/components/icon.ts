@@ -7,6 +7,7 @@ import {
   Calendar, List, Clock, Inbox,
   Columns3, GitCommitHorizontal,
   RefreshCw, Ban, PinOff, Bug, SmilePlus,
+  Play, Pause, Mic,
 } from 'lucide';
 import type { IconNode, SVGProps } from 'lucide';
 
@@ -30,7 +31,9 @@ export type IconName =
   // 调试: 消息原文列表页
   | 'bug'
   // 反应: 更多表情面板入口
-  | 'smile-plus';
+  | 'smile-plus'
+  // 语音: 播放/暂停/录音
+  | 'play' | 'pause' | 'mic';
 
 export interface IconOpts {
   width?: number;
@@ -94,6 +97,9 @@ const iconMap: Record<IconName, IconNode> = {
   'pin-off': PinOff,
   'bug': Bug,
   'smile-plus': SmilePlus,
+  'play': Play,
+  'pause': Pause,
+  'mic': Mic,
 };
 
 const defaultAttributes: SVGProps = {
