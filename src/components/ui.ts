@@ -255,7 +255,7 @@ export function dialog(opts: DialogOpts): { overlay: HTMLDivElement; close: () =
     <div class="ui-dialog${sizeCls}">
       <div class="ui-dialog-head">
         <h2>${escapeHtml(opts.title)}</h2>
-        ${opts.closeable !== false ? `<button class="ui-dialog-close" title="关闭">${iconSvg('x', { width: 14, height: 14 })}</button>` : ''}
+        ${opts.closeable === true ? `<button class="ui-dialog-close" title="关闭">${iconSvg('x', { width: 14, height: 14 })}</button>` : ''}
       </div>
       ${opts.body ? `<div class="ui-dialog-body">${opts.body}</div>` : ''}
       <div class="ui-dialog-actions"></div>
