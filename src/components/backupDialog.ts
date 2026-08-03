@@ -19,33 +19,49 @@ export async function openBackupDialog(): Promise<void> {
   const dlg = ui.dialog({
     title: '备份与恢复',
     body: `
-      <div style="margin-bottom:16px">
-        <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px">导出备份</div>
-        <div class="ui-field">
-          <span class="ui-field-label">导出路径</span>
-          <input id="bd-export-path" class="ui-input" type="text" value="${escapeHtml(defaultPath)}" placeholder="备份文件保存路径" />
-        </div>
-        <div class="ui-field">
-          <span class="ui-field-label">加密密码</span>
-          <input id="bd-export-pass" class="ui-input" type="password" placeholder="设置备份加密密码" />
-        </div>
-        <button id="bd-export-btn" class="ui-button ui-button-primary">导出备份</button>
+      <div class="ui-tabs" id="bd-tabs" style="margin-bottom:14px">
+        <button class="ui-tab active" data-pane="export">导出备份</button>
+        <button class="ui-tab" data-pane="import">导入备份</button>
       </div>
-      <div class="ui-divider"></div>
-      <div style="margin-top:16px">
-        <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px">导入备份</div>
-        <div class="ui-field">
-          <span class="ui-field-label">备份文件路径</span>
-          <input id="bd-import-path" class="ui-input" type="text" placeholder="选择要导入的备份文件" />
+      <div id="bd-pane-export" style="display:block">
+        <div class="ui-dialog-section">
+          <div class="ui-field">
+            <span class="ui-field-label">导出路径</span>
+            <input id="bd-export-path" class="ui-input" type="text" value="${escapeHtml(defaultPath)}" placeholder="备份文件保存路径" />
+          </div>
+          <div class="ui-field">
+            <span class="ui-field-label">加密密码</span>
+            <input id="bd-export-pass" class="ui-input" type="password" placeholder="设置备份加密密码" />
+          </div>
+          <button id="bd-export-btn" class="ui-button ui-button-primary">导出备份</button>
         </div>
-        <div class="ui-field">
-          <span class="ui-field-label">加密密码</span>
-          <input id="bd-import-pass" class="ui-input" type="password" placeholder="输入备份加密密码" />
+      </div>
+      <div id="bd-pane-import" style="display:none">
+        <div class="ui-dialog-section">
+          <div class="ui-field">
+            <span class="ui-field-label">备份文件路径</span>
+            <input id="bd-import-path" class="ui-input" type="text" placeholder="选择要导入的备份文件" />
+          </div>
+          <div class="ui-field">
+            <span class="ui-field-label">加密密码</span>
+            <input id="bd-import-pass" class="ui-input" type="password" placeholder="输入备份加密密码" />
+          </div>
+          <button id="bd-import-btn" class="ui-button ui-button-primary">导入备份</button>
         </div>
-        <button id="bd-import-btn" class="ui-button ui-button-primary">导入备份</button>
       </div>
     `,
     actions: [ui.button({ label: '关闭', variant: 'ghost', onClick: () => dlg.close() })],
+  });
+
+  // tab 切换:导出 / 导入互斥显示,取代原先平铺 + 分隔线
+  dlg.overlay.querySelectorAll<HTMLElement>('#bd-tabs .ui-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      dlg.overlay.querySelectorAll('#bd-tabs .ui-tab').forEach((x) => x.classList.remove('active'));
+      tab.classList.add('active');
+      const pane = tab.dataset.pane;
+      dlg.overlay.querySelector<HTMLElement>('#bd-pane-export')!.style.display = pane === 'export' ? 'block' : 'none';
+      dlg.overlay.querySelector<HTMLElement>('#bd-pane-import')!.style.display = pane === 'import' ? 'block' : 'none';
+    });
   });
 
   // 绑定导出按钮

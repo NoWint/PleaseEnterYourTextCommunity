@@ -18,19 +18,20 @@ interface ChatInfo {
 export async function openProtectionDialog(chatId: number): Promise<void> {
   const dlg = ui.dialog({
     title: '保护状态',
+    size: 'lg',
     body: `
       <div id="pd-header" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
         <span class="ui-spinner"></span>
       </div>
-      <div id="pd-status" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:8px">
-        <span class="ui-spinner"></span>
+      <div class="ui-dialog-section" style="padding:12px 14px;display:flex;flex-direction:row;align-items:center;gap:10px">
+        <span id="pd-status" style="display:flex;align-items:center;gap:10px;min-width:0;width:100%"><span class="ui-spinner"></span></span>
       </div>
-      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px">成员指纹</div>
-      <div id="pd-members" style="display:flex;flex-direction:column;gap:10px;max-height:280px;overflow-y:auto">
+      <div class="ui-dialog-sep"></div>
+      <div class="ui-dialog-section-title" style="margin-bottom:8px">成员指纹</div>
+      <div id="pd-members" style="display:flex;flex-direction:column;gap:10px;max-height:280px;overflow-y:auto;padding-right:2px">
         <div class="ui-spinner"></div>
       </div>
     `,
-    actions: [ui.button({ label: '关闭', variant: 'ghost', onClick: () => dlg.close() })],
   });
 
   // 拉会话信息(标题 + 类型 + 成员)
@@ -47,7 +48,7 @@ export async function openProtectionDialog(chatId: number): Promise<void> {
   if (headerEl) {
     headerEl.innerHTML = `
       <span style="font-size:15px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(info.name)}</span>
-      <span style="flex:none;font-size:12px;color:var(--text-mute);background:var(--capsule);border:1px solid var(--border-strong);padding:2px 8px;border-radius:10px">${escapeHtml(typeLabel(info.chat_type))}</span>
+      <span style="flex:none;font-size:12px;color:var(--text-mute);background:var(--capsule);padding:2px 8px;border-radius:10px">${escapeHtml(typeLabel(info.chat_type))}</span>
     `;
   }
 
@@ -89,7 +90,7 @@ function memberRow(m: MemberDto, encrinfo: string): string {
   const bg = colorHex(m.color);
   const letter = (m.name || '?').charAt(0).toUpperCase() || '?';
   return `
-    <div style="display:flex;gap:10px;padding:10px;border:1px solid var(--border-strong);border-radius:8px">
+    <div class="ui-dialog-section" style="flex-direction:row;align-items:flex-start;padding:10px 12px">
       <div style="flex:none;width:32px;height:32px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--text);overflow:hidden">${escapeHtml(letter)}</div>
       <div style="min-width:0;flex:1">
         <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
@@ -97,7 +98,7 @@ function memberRow(m: MemberDto, encrinfo: string): string {
           ${m.is_self ? '<span style="font-size:11px;color:var(--text-weak)">我</span>' : ''}
           ${m.addr ? `<span style="font-size:11px;color:var(--text-mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${escapeHtml(m.addr)}</span>` : ''}
         </div>
-        <pre style="margin:6px 0 0;font-family:var(--font-mono);font-size:11px;line-height:1.5;color:var(--text-body);white-space:pre-wrap;word-break:break-all;max-height:96px;overflow-y:auto;padding:8px;border:1px solid var(--border-strong);border-radius:6px;background:var(--capsule)">${escapeHtml(encrinfo || '(无指纹信息)')}</pre>
+        <pre style="margin:6px 0 0;font-family:var(--font-mono);font-size:11px;line-height:1.5;color:var(--text-body);white-space:pre-wrap;word-break:break-all;max-height:96px;overflow-y:auto;padding:8px;border-radius:6px;background:var(--surface)">${escapeHtml(encrinfo || '(无指纹信息)')}</pre>
       </div>
     </div>`;
 }

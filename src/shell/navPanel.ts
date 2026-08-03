@@ -1,7 +1,7 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
-import type { ChannelDto, SpaceType } from '../types.js';
+import type { ChannelDto, Page, SpaceType } from '../types.js';
 
 export async function refreshChannels(): Promise<void> {
   if (state.currentWsId == null) {
@@ -39,10 +39,18 @@ export function clearSpaceTypeCache(): void {
   spaceTypeCache.clear();
 }
 
+// 这些页面主区已承载全部内容,中间栏 (nav-panel) 纯占位 → 隐藏,让主区占满。
+const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'terminal']);
+
 export async function renderNavPanel(): Promise<void> {
   const panel = document.getElementById('channel-tree');
   if (!panel) return;
   panel.className = 'nav-panel';
+
+  const hidden = HIDDEN_NAV_PAGES.has(state.currentPage);
+  panel.style.display = hidden ? 'none' : '';
+  const navResizer = document.getElementById('nav-resizer');
+  if (navResizer) navResizer.style.display = hidden ? 'none' : '';
 
   try {
     switch (state.currentPage) {
@@ -62,11 +70,8 @@ export async function renderNavPanel(): Promise<void> {
         break;
       }
       case 'inbox': {
-        // 通知已完全主区化 (renderInboxMain),此处仅渲染简洁占位
-        panel.innerHTML = `
-          <div class="nav-header"><div class="nav-title">通知</div></div>
-          <div class="empty">在主区查看通知</div>
-        `;
+        // 中间栏已隐藏,通知完全主区化 (renderInboxMain)
+        panel.innerHTML = '';
         break;
       }
       case 'plugins': {
@@ -77,7 +82,7 @@ export async function renderNavPanel(): Promise<void> {
       case 'terminal': {
         const { renderTerminalPage } = await import('../pages/terminalPage.js');
         const main = document.getElementById('chat-main');
-        if (main) await renderTerminalPage(panel, main);
+        if (main) await renderTerminalPage(main);
         break;
       }
       case 'settings': {

@@ -59,9 +59,10 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
 
   const dlg = ui.dialog({
     title: chat.name,
+    size: 'lg',
     body: `
-      <div class="mailing-list-type" style="display:inline-block;background:var(--capsule);border:1px solid var(--border-strong);color:var(--text-mute);font-size:13px;padding:2px 8px;border-radius:10px;margin-bottom:8px">${escapeHtml(typeLabel)}</div>
-      <div id="mlp-members" style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"><div class="ui-spinner"></div></div>
+      <div style="display:inline-block;background:var(--capsule);color:var(--text-mute);font-size:13px;padding:2px 10px;border-radius:999px;margin-bottom:12px">${escapeHtml(typeLabel)}</div>
+      <div id="mlp-members" style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:8px"><div class="ui-spinner"></div></div>
     `,
     actions: [archiveBtn, leaveBtn],
   });
@@ -79,7 +80,7 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
       members.map(async (m) => {
         const avatarHtml = await renderAvatarHtml(m);
         return `
-          <div class="mailing-list-member" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px">
+          <div class="ui-dialog-section" style="flex-direction:row;align-items:center;padding:8px 12px">
             ${avatarHtml}
             <div style="min-width:0">
               <div style="font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.name)}${m.is_self ? '<span style="font-size:12px;color:var(--text-weak);margin-left:4px">我</span>' : ''}</div>

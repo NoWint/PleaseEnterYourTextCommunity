@@ -19,28 +19,44 @@ export async function openMultiDeviceSetup(): Promise<void> {
   const dlg = ui.dialog({
     title: '多设备绑定',
     body: `
-      <div style="font-size:13px;color:var(--text);margin-bottom:16px">
+      <div style="font-size:13px;color:var(--text-mute);line-height:1.5;margin-bottom:14px">
         导出本机密钥文件,在第二台设备上导入即可登录同一账号并同步数据。
       </div>
-      <div style="margin-bottom:16px">
-        <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px">导出密钥</div>
-        <div class="ui-field">
-          <span class="ui-field-label">导出路径</span>
-          <input id="md-export-path" class="ui-input" type="text" value="${escapeHtml(defaultPath)}" placeholder="密钥文件保存路径" />
-        </div>
-        <button id="md-export-btn" class="ui-button ui-button-primary">导出密钥</button>
+      <div class="ui-tabs" id="md-tabs" style="margin-bottom:14px">
+        <button class="ui-tab active" data-pane="export">导出密钥</button>
+        <button class="ui-tab" data-pane="import">导入密钥</button>
       </div>
-      <div class="ui-divider"></div>
-      <div style="margin-top:16px">
-        <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px">导入密钥</div>
-        <div class="ui-field">
-          <span class="ui-field-label">密钥文件路径</span>
-          <input id="md-import-path" class="ui-input" type="text" placeholder="选择导出的密钥文件" />
+      <div id="md-pane-export" style="display:block">
+        <div class="ui-dialog-section">
+          <div class="ui-field">
+            <span class="ui-field-label">导出路径</span>
+            <input id="md-export-path" class="ui-input" type="text" value="${escapeHtml(defaultPath)}" placeholder="密钥文件保存路径" />
+          </div>
+          <button id="md-export-btn" class="ui-button ui-button-primary">导出密钥</button>
         </div>
-        <button id="md-import-btn" class="ui-button ui-button-primary">导入密钥</button>
+      </div>
+      <div id="md-pane-import" style="display:none">
+        <div class="ui-dialog-section">
+          <div class="ui-field">
+            <span class="ui-field-label">密钥文件路径</span>
+            <input id="md-import-path" class="ui-input" type="text" placeholder="选择导出的密钥文件" />
+          </div>
+          <button id="md-import-btn" class="ui-button ui-button-primary">导入密钥</button>
+        </div>
       </div>
     `,
     actions: [ui.button({ label: '关闭', variant: 'ghost', onClick: () => dlg.close() })],
+  });
+
+  // tab 切换:导出 / 导入互斥显示
+  dlg.overlay.querySelectorAll<HTMLElement>('#md-tabs .ui-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      dlg.overlay.querySelectorAll('#md-tabs .ui-tab').forEach((x) => x.classList.remove('active'));
+      tab.classList.add('active');
+      const pane = tab.dataset.pane;
+      dlg.overlay.querySelector<HTMLElement>('#md-pane-export')!.style.display = pane === 'export' ? 'block' : 'none';
+      dlg.overlay.querySelector<HTMLElement>('#md-pane-import')!.style.display = pane === 'import' ? 'block' : 'none';
+    });
   });
 
   // 绑定导出按钮

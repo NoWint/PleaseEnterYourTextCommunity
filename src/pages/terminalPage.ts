@@ -104,25 +104,18 @@ function sendLine(raw: string, force = false): void {
   term.write(raw + '\r');
 }
 
-function renderPanel(panel: HTMLElement): void {
+function renderQuickRow(main: HTMLElement): void {
   const btnHtml = QUICK_COMMANDS.map(
-    (q, i) =>
-      `<button class="term-quick" data-i="${i}">${q.label}</button>`
+    (q, i) => `<button class="term-quick-btn" data-i="${i}">${q.label}</button>`
   ).join('');
-  const list = [...WHITELIST].slice(0, 24).join('、');
-  panel.innerHTML = `
-    <div class="term-panel-head">终端</div>
-    <div class="term-panel-section">
-      <div class="term-panel-label">快捷命令</div>
-      ${btnHtml}
-    </div>
-    <div class="term-panel-section">
-      <div class="term-panel-label">白名单示例</div>
-      <div class="term-whitelist">${list}…</div>
-    </div>
-    <div class="term-panel-tip">回车执行;↑/↓ 历史;专家模式可执行任意命令</div>
-  `;
-  panel.querySelectorAll<HTMLElement>('.term-quick').forEach((el) => {
+  const row = document.createElement('div');
+  row.className = 'term-quick-row';
+  row.title = '快捷命令(回车执行,不受白名单限制)';
+  row.innerHTML = btnHtml;
+  const body = main.querySelector<HTMLElement>('.term-body');
+  if (body) main.insertBefore(row, body);
+  else main.appendChild(row);
+  row.querySelectorAll<HTMLElement>('.term-quick-btn').forEach((el) => {
     el.addEventListener('click', () => {
       const q = QUICK_COMMANDS[Number(el.dataset.i)];
       if (q && term) sendLine(q.cmd, true);
@@ -140,6 +133,7 @@ function renderMain(main: HTMLElement): void {
     </div>
     <div class="term-body"><div class="term-holder"></div></div>
   `;
+  renderQuickRow(main);
 
   const holder = main.querySelector<HTMLElement>('.term-holder')!;
   const cwdInput = main.querySelector<HTMLInputElement>('#term-cwd')!;
@@ -259,10 +253,9 @@ async function openSession(dir?: string): Promise<void> {
   }
 }
 
-export function renderTerminalPage(panel: HTMLElement, main: HTMLElement): void {
+export function renderTerminalPage(main: HTMLElement): void {
   cleanupTerminalPage();
   loadHistory();
-  renderPanel(panel);
   renderMain(main);
 }
 

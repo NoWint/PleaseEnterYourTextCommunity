@@ -181,21 +181,42 @@ export interface DialogOpts {
   body?: string;
   actions?: HTMLElement[];
   onClose?: () => void;
+  /** 尺寸档位:sm 窄表单单选 / md 默认 / lg 内容密集(指纹/成员列表) */
+  size?: 'sm' | 'md' | 'lg';
+  /** 是否显示右上角 ✕ (默认 true) */
+  closeable?: boolean;
 }
 export function dialog(opts: DialogOpts): { overlay: HTMLDivElement; close: () => void } {
   const ov = overlay();
+  const sizeCls = opts.size === 'lg' ? ' ui-dialog-lg' : opts.size === 'sm' ? ' ui-dialog-sm' : '';
   ov.innerHTML = `
-    <div class="ui-dialog">
-      <h2>${escapeHtml(opts.title)}</h2>
+    <div class="ui-dialog${sizeCls}">
+      <div class="ui-dialog-head">
+        <h2>${escapeHtml(opts.title)}</h2>
+        ${opts.closeable !== false ? `<button class="ui-dialog-close" title="关闭">${iconSvg('x', { width: 14, height: 14 })}</button>` : ''}
+      </div>
       ${opts.body ? `<div class="ui-dialog-body">${opts.body}</div>` : ''}
       <div class="ui-dialog-actions"></div>
     </div>
   `;
   const actions = ov.querySelector('.ui-dialog-actions')!;
-  for (const a of opts.actions || []) actions.appendChild(a);
-  const close = (): void => ov.remove();
+  // 出场与入场对称:overlay 淡出 + dialog 缩回,120ms 后移除 (Apple §7 对称路径)
+  let closing = false;
+  const close = (): void => {
+    if (closing) return;
+    closing = true;
+    ov.classList.add('closing');
+    setTimeout(() => { ov.remove(); opts.onClose?.(); }, 120);
+  };
+  // 无操作按钮 → 自动补「关闭」,保证弹窗始终有明确退出途径 (Apple §16 Wayfinding)
+  if (!opts.actions || opts.actions.length === 0) {
+    actions.appendChild(ui.button({ label: '关闭', variant: 'ghost', onClick: close }));
+  } else {
+    for (const a of opts.actions) actions.appendChild(a);
+  }
+  ov.querySelector<HTMLElement>('.ui-dialog-close')?.addEventListener('click', close);
   ov.addEventListener('click', (e) => {
-    if (e.target === ov) { close(); opts.onClose?.(); }
+    if (e.target === ov) close();
   });
   return { overlay: ov, close };
 }
@@ -288,16 +309,34 @@ export function menu(anchor: HTMLElement, items: MenuItem[], position: 'top-left
   if (position.endsWith('right')) el.style.right = `${window.innerWidth - rect.right}px`;
   else el.style.left = `${rect.left}px`;
   el.style.zIndex = '200';
+  // 入场 transform-origin 锚定触发方向 (与 dropdown.ts 一致:材料从触发点浮现)
+  const originMap: Record<string, string> = {
+    'bottom-left': 'top left',
+    'bottom-right': 'top right',
+    'top-left': 'bottom left',
+    'top-right': 'bottom right',
+  };
+  el.style.transformOrigin = originMap[position] ?? 'top left';
 
+  let closing = false;
+  const hide = (): void => {
+    if (closing) return;
+    closing = true;
+    el.classList.add('closing');
+    setTimeout(() => {
+      el.remove();
+      document.removeEventListener('click', outside);
+    }, 120);
+  };
   el.querySelectorAll<HTMLButtonElement>('.ui-menu-item').forEach((b) => {
     b.addEventListener('click', () => {
       const it = items[Number(b.dataset.i)];
-      el.remove();
+      hide();
       void it.action?.();
     });
   });
   const outside = (e: MouseEvent): void => {
-    if (!el.contains(e.target as Node)) { el.remove(); document.removeEventListener('click', outside); }
+    if (!el.contains(e.target as Node)) hide();
   };
   setTimeout(() => document.addEventListener('click', outside), 0);
 }
