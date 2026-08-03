@@ -105,6 +105,18 @@ html, body { height: 100%; color: var(--text); font-family: var(--font); font-si
 html { background: var(--bg); }
 #app { height: 100vh; display: flex; }
 
+/* ── macOS 无标题栏集成(titleBarStyle: Overlay)──────────────────
+   红黄绿三色按钮浮在左上角,rail 顶部预留空间并作为窗口拖拽区。
+   仅 html.window-overlay(macOS)生效,其余平台保留原生标题栏。 */
+#window-drag-region {
+  position: fixed; top: 0; left: 0;
+  width: 56px; height: 40px;
+  z-index: 9999;
+  display: none;
+}
+html.window-overlay #window-drag-region { display: block; }
+html.window-overlay .rail { padding-top: 46px; }
+
 /* 登录页上下布局：品牌区在上，表单在下 */
 .login-wrap {
   display: flex; flex-direction: column; width: 100%; height: 100%;
