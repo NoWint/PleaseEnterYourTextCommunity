@@ -496,17 +496,16 @@ html.window-overlay #app { padding-top: 40px; }
 .ui-dialog {
   background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%);
   border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
-  border-top-color: color-mix(in srgb, var(--text) 14%, transparent);
   border-radius: var(--radius-md); padding: 18px 20px; min-width: 320px; max-width: 420px;
   display: flex; flex-direction: column; gap: 12px;
-  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.25), 0 18px 44px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.04);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18), 0 18px 44px rgba(0,0,0,0.38);
   animation: ui-pop-in 250ms var(--ease-out);
   max-height: min(720px, calc(100vh - 48px));
 }
 .ui-dialog-sm { max-width: 320px; }
 .ui-dialog-lg { max-width: 520px; }
 .ui-dialog-head { display: flex; align-items: center; gap: 8px; }
-.ui-dialog-head h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.2px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-dialog-head h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.2px; color: var(--text); flex: 1; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-dialog-close {
   flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
   background: var(--capsule); border: none; border-radius: var(--radius-sm); cursor: pointer;
