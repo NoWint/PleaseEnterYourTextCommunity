@@ -203,6 +203,12 @@ async function renderMembers(body: HTMLElement): Promise<void> {
       if (!order.includes(r.role_name) && grouped.has(r.role_name)) order.push(r.role_name);
     }
     const searchHtml = `<div class="rd-search"><input id="rd-member-search" placeholder="搜索成员..." /></div>`;
+    // 已添加的联系人 addr 集合,用于成员行「已添加」标记 (群成员加好友复用 create_chat_by_email)
+    let existingAddrs = new Set<string>();
+    try {
+      const contacts = await call<Array<{ addr: string }>>('get_contacts');
+      existingAddrs = new Set(contacts.map((c) => c.addr));
+    } catch {}
     const sectionResults = await Promise.all(
       order
         .filter((name) => grouped.has(name) && grouped.get(name)!.length > 0)
@@ -211,10 +217,15 @@ async function renderMembers(body: HTMLElement): Promise<void> {
           const items = await Promise.all(
             list.map(async (m) => {
               const avatarHtml = await renderAvatarHtml(m);
+              const isAdded = !m.is_self && m.addr && existingAddrs.has(m.addr);
+              const addBtn = !m.is_self && m.addr
+                ? `<button class="rd-add-friend ${isAdded ? 'added' : ''}" data-addr="${escapeAttr(m.addr)}" title="${isAdded ? '已是好友' : '添加为好友'}">${isAdded ? '已添加' : '添加'}</button>`
+                : '';
               return `<div class="rd-member ${m.is_self ? 'self' : 'clickable'}" data-name="${escapeAttr(m.name)}" ${m.is_self ? '' : `data-cid="${m.contact_id}"`}>
                 ${avatarHtml}
                 <span class="rd-name">${escapeHtml(m.name)}</span>
                 ${m.is_self ? `<span class="rd-self-tag">我</span>` : ''}
+                ${addBtn}
               </div>`;
             })
           );
@@ -238,6 +249,22 @@ async function renderMembers(body: HTMLElement): Promise<void> {
         const cid = Number(el.dataset.cid);
         const { renderMemberDetail } = await import('../components/memberDetail.js');
         await renderMemberDetail(body, cid);
+      });
+    });
+    // 群成员添加为好友:点击按钮建会话 + 标记已添加 (按钮 click 需阻止冒泡,避免触发成员详情)
+    body.querySelectorAll<HTMLElement>('.rd-add-friend:not(.added)').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const addr = btn.dataset.addr || '';
+        if (!addr) return;
+        try {
+          await call('create_chat_by_email', { email: addr });
+          btn.classList.add('added');
+          btn.textContent = '已添加';
+          showToast('已添加为好友');
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : String(err));
+        }
       });
     });
   } catch (e) {

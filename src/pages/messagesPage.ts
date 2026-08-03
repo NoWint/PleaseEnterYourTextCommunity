@@ -5,6 +5,7 @@ import { iconSvg } from '../components/icon.js';
 import { ui } from '../components/ui.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
+import { isEmail, parseInviteLink } from '../utils/inviteLink.js';
 import type { ChatListItem } from '../types.js';
 
 let panel: HTMLElement | null = null;
@@ -92,6 +93,48 @@ function bindBlockedToggle(): void {
   });
 }
 
+// 陌生人来信分区:接受 → accept_chat;拒绝 → block_chat;操作后重拉列表。
+async function renderRequestSection(list: HTMLElement, requests: ChatListItem[]): Promise<void> {
+  if (requests.length === 0) return;
+  const section = document.createElement('div');
+  section.className = 'nav-request-section';
+  section.innerHTML = `<div class="nav-group-title">新请求</div>`;
+  for (const c of requests) {
+    const row = document.createElement('div');
+    row.className = 'nav-request-item';
+    const letter = (c.name || '?').charAt(0).toUpperCase() || '?';
+    row.innerHTML = `
+      <div class="avatar nav-request-avatar">${escapeHtml(letter)}</div>
+      <div class="nav-request-meta">
+        <div class="nav-request-name">${escapeHtml(c.name || '新联系人')}</div>
+        <div class="nav-request-preview">${escapeHtml(c.last_msg || '请求加你为好友')}</div>
+      </div>
+      <button class="nav-request-accept" data-chat="${c.chat_id}">接受</button>
+      <button class="nav-request-reject" data-chat="${c.chat_id}">拒绝</button>
+    `;
+    section.appendChild(row);
+  }
+  section.querySelectorAll<HTMLElement>('.nav-request-accept').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const chatId = Number(btn.dataset.chat);
+      try {
+        await call('accept_chat', { chatId });
+        await renderMessagesPage(panel!);
+      } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+    });
+  });
+  section.querySelectorAll<HTMLElement>('.nav-request-reject').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const chatId = Number(btn.dataset.chat);
+      try {
+        await call('block_chat', { chatId });
+        await renderMessagesPage(panel!);
+      } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+    });
+  });
+  list.appendChild(section);
+}
+
 async function renderMessageList(): Promise<void> {
   const list = document.getElementById('messages-list');
   if (!list) return;
@@ -105,11 +148,15 @@ async function renderMessageList(): Promise<void> {
   // 按会话类型过滤,而非 chat_id 集合:workspace 主群/频道都是群(排除),
   // 保留单聊(1:1 会话)。用类型判断避免 chat_id 与 securejoin 会话冲突时误伤。
   // showArchived 分流:已归档视图只看 is_archived 会话,常规视图隐藏它们。
+  const requests = chats.filter((c) => !showArchived && c.is_contact_request);
   const messages = chats.filter((c) =>
     showArchived
       ? c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
       : !c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
   );
+
+  // 陌生人来信:「新请求」分区置顶,接受/拒绝 (修复 contact request 被过滤不可见的 bug)
+  if (!showArchived) await renderRequestSection(list, requests);
 
   // 「保存的消息」入口置顶渲染(仅常规视图;归档视图里保存的消息不是归档会话)
   if (!showArchived) await renderSavedMessagesEntry(list);
@@ -169,10 +216,14 @@ function bindAddButton(): void {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     ui.menu(btn as HTMLElement, [
-      { label: '添加好友(邮箱)', icon: 'user', action: () => showInlineEmailInput() },
-      { label: '通过 QR 加入', icon: 'hash', action: () => showInlineQrInput() },
-      { label: '创建群', icon: 'users', action: () => showInlineGroupInput() },
-      { label: '加入 PEYT Studio', icon: 'layout-grid', action: () => { void joinPeytStudio(); } },
+      { label: '选择联系人', icon: 'user', action: () => { void import('../components/contactsPicker.js').then((m) => m.openContactsPicker()); } },
+      { label: '通过邮箱添加', icon: 'user', action: () => showInlineEmailInput() },
+      { label: '通过链接添加', icon: 'hash', action: () => showInlineQrInput() },
+      { separator: true },
+      { label: '新建群聊', icon: 'users', action: () => showInlineGroupInput() },
+      { separator: true },
+      { label: '分享我的邀请链接', icon: 'copy', action: () => { void import('../components/inviteDialog.js').then((m) => m.openInviteDialog()); } },
+      { label: '加入 PEYT 团队', icon: 'layout-grid', action: () => { void joinPeytStudio(); } },
     ], 'bottom-left');
   });
 }
@@ -196,13 +247,34 @@ function showInlineEmailInput(): void {
 
 function showInlineQrInput(): void {
   ui.inputDialog({
-    title: '通过 QR 加入',
-    placeholder: '粘贴 QR 邀请链接 (dccontact: / dcgroup:)',
+    title: '添加好友',
+    placeholder: '粘贴邮箱 / peyt:// 邀请链接 / 老 QR',
     confirmLabel: '加入',
-    onConfirm: async (qr) => {
+    onConfirm: async (input) => {
+      const raw = input.trim();
       try {
-        const chatId = await call<number>('secure_join', { qr });
-        // securejoin 完成后的 1:1 会话是 contact request,需 accept 才能进常规 chatlist 并显示消息
+        // 依次识别:邮箱 → peyt:// 邀请链接 → 老 securejoin 链接
+        if (isEmail(raw)) {
+          const chatId = await call<number>('create_chat_by_email', { email: raw });
+          state.currentChatId = chatId;
+          saveState();
+          await renderMessagesPage(panel!);
+          const { renderMain } = await import('../shell/navPanel.js');
+          await renderMain();
+          return;
+        }
+        const peytEmail = parseInviteLink(raw);
+        if (peytEmail) {
+          const chatId = await call<number>('create_chat_by_email', { email: peytEmail });
+          state.currentChatId = chatId;
+          saveState();
+          await renderMessagesPage(panel!);
+          const { renderMain } = await import('../shell/navPanel.js');
+          await renderMain();
+          return;
+        }
+        // 兼容老 securejoin 链接 (dccontact: / dcgroup: / https://i.delta.chat/#)
+        const chatId = await call<number>('secure_join', { qr: raw });
         try {
           await call('accept_chat', { chatId });
         } catch {}

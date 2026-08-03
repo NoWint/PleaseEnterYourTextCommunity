@@ -290,19 +290,22 @@ export function tabs(opts: { items: Array<{ id: string; label: string; icon?: Ic
 
 // ── 下拉菜单 ──────────────────────────────────────────
 export interface MenuItem {
-  label: string;
+  label?: string;
   icon?: IconName;
   danger?: boolean;
   action?: () => void | Promise<void>;
+  /** 渲染为分组分隔线,忽略 label/action */
+  separator?: boolean;
 }
 export function menu(anchor: HTMLElement, items: MenuItem[], position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' = 'bottom-left'): void {
   document.querySelectorAll('.ui-menu').forEach((m) => m.remove());
   const el = document.createElement('div');
   el.className = 'ui-menu';
-  el.innerHTML = items.map((it, i) => `
-    <button class="ui-menu-item${it.danger ? ' ui-menu-item-danger' : ''}" data-i="${i}">
+  el.innerHTML = items.map((it, i) => it.separator
+    ? `<div class="ui-menu-sep"></div>`
+    : `<button class="ui-menu-item${it.danger ? ' ui-menu-item-danger' : ''}" data-i="${i}">
       ${it.icon ? iconSvg(it.icon, { width: 15, height: 15 }) : ''}
-      <span>${escapeHtml(it.label)}</span>
+      <span>${escapeHtml(it.label ?? '')}</span>
     </button>`).join('');
   document.body.appendChild(el);
   const rect = anchor.getBoundingClientRect();

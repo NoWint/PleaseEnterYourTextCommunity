@@ -664,6 +664,7 @@ html { background: var(--bg); }
 .ui-menu-item:hover { background: var(--surface-hover); }
 .ui-menu-item:active { background: var(--active); }
 .ui-menu-item-danger { color: var(--danger); }
+.ui-menu-sep { height: 1px; margin: 4px 8px; background: color-mix(in srgb, var(--border) 60%, transparent); }
 .ui-menu-item-danger:hover { background: var(--danger-bg); }
 
 /* 搜索框 */
@@ -765,6 +766,41 @@ html { background: var(--bg); }
 .composer-send:disabled {
   background: var(--border-strong); color: var(--text-weak);
   cursor: default; box-shadow: none;
+}
+
+/* 录音麦克风按钮:与发送按钮同形态,录音态变红 + pulse */
+.composer-mic {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-strong); border-radius: 50%;
+  cursor: pointer;
+  background: var(--capsule); color: var(--text-mute);
+  transition: transform 120ms ease, color 120ms ease, background 120ms ease;
+}
+.composer-mic svg { display: block; }
+.composer-mic:hover { color: var(--text); background: var(--active); }
+.composer-mic:active { transform: scale(0.9); }
+.composer-mic.recording {
+  color: var(--danger); background: var(--danger-bg);
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+.composer-mic-timer {
+  display: none; align-self: center;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+  color: var(--text-weak); white-space: nowrap; min-width: 30px;
+}
+.composer-mic-timer.recording {
+  display: inline; color: var(--danger);
+}
+.composer-mic-timer.recording::before {
+  content: ""; display: inline-block; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--danger);
+  margin-right: 6px; animation: mic-pulse 1.4s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* chat-header actions (Task 13: members/pin 按钮触发 detail panel) */
@@ -1033,6 +1069,48 @@ html { background: var(--bg); }
   object-fit: cover; object-position: center;
 }
 .msg-attachment.audio audio { max-width: min(280px, 100%); display: block; }
+/* 语音消息播放器:播放按钮 + 进度条 + 时间(iMessage 式) */
+.msg-attachment.voice {
+  display: inline-flex; align-items: center; gap: 10px;
+  min-width: 200px; max-width: 260px;
+  padding: 8px 10px; border-radius: var(--radius-md);
+  background: var(--capsule); box-shadow: var(--shadow-sm);
+}
+.voice-play {
+  flex: none; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 999px; cursor: pointer;
+  background: var(--text); color: var(--panel);
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+.voice-play:hover { opacity: 0.85; }
+.voice-play:active { transform: scale(0.9); }
+.voice-play svg { display: block; }
+.voice-progress {
+  flex: 1; min-width: 0; height: 4px; border-radius: 2px;
+  background: var(--border-strong); cursor: pointer; position: relative;
+  touch-action: none;
+}
+.voice-progress-fill {
+  display: block; height: 100%; border-radius: 2px;
+  background: var(--text-mute); pointer-events: none;
+}
+.voice-time, .voice-dur {
+  flex: none; font-size: var(--font-scale-micro); color: var(--text-mute);
+  font-variant-numeric: tabular-nums; min-width: 26px; font-weight: 500;
+}
+.voice-time { text-align: right; }
+.voice-dur { text-align: left; }
+/* 自己的消息:语音条用 bubble-self 文字色,保证在深绿/紫/橙底上可读 */
+.msg[data-is-out="1"] .msg-attachment.voice .voice-time,
+.msg[data-is-out="1"] .msg-attachment.voice .voice-dur {
+  color: color-mix(in srgb, var(--bubble-self-text) 82%, transparent);
+}
+.msg[data-is-out="1"] .msg-attachment.voice .voice-progress {
+  background: color-mix(in srgb, var(--bubble-self-text) 28%, transparent);
+}
+.msg[data-is-out="1"] .msg-attachment.voice .voice-progress-fill {
+  background: var(--bubble-self-text);
+}
 /* 视频附件:仿 delta scale-down,黑底,固定高度 */
 .msg-attachment.video video {
   max-width: min(280px, 100%); height: 200px;
@@ -1182,7 +1260,8 @@ html { background: var(--bg); }
   .img-fullscreen-overlay, .nav-banner, .inline-confirm-active,
   .mention-list, .reply-preview, .msg-hover-actions, .msg-reaction-picker,
   #chat-main > *:not(.empty), .overlay, .unread, .ws-badge, .ct-unread,
-  .ui-overlay, .ui-dialog, .ui-menu, .ui-badge {
+  .ui-overlay, .ui-dialog, .ui-menu, .ui-badge,
+  .composer-mic.recording, .composer-mic-timer.recording::before {
     animation: none !important;
   }
   .avatar, .icon-btn svg, .msg-action-btn svg, .plugin-icon-btn svg,
@@ -1834,6 +1913,53 @@ body {
 .nav-user .avatar { width: 28px; height: 28px; border-radius: 50%; }
 .nav-user-name { font-size: 15px; color: var(--text); font-weight: 500; }
 .nav-user-role { font-size: var(--font-scale-micro); color: var(--text-weak); }
+
+/* 陌生人来信「新请求」分区 */
+.nav-request-section { padding-bottom: 6px; }
+.nav-request-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; cursor: pointer;
+}
+.nav-request-item:hover { background: var(--capsule); }
+.nav-request-avatar {
+  flex: none; width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--border-strong); color: var(--text); font-size: 13px; font-weight: 600;
+}
+.nav-request-meta { flex: 1; min-width: 0; }
+.nav-request-name { font-size: 14px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-request-preview { font-size: 12px; color: var(--text-weak); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-request-accept, .nav-request-reject {
+  flex: none; border: none; border-radius: 999px; cursor: pointer;
+  font-size: 12px; font-family: inherit; padding: 3px 12px;
+}
+.nav-request-accept { background: var(--text); color: var(--panel); font-weight: 600; }
+.nav-request-accept:hover { opacity: 0.85; }
+.nav-request-reject { background: transparent; color: var(--text-weak); }
+.nav-request-reject:hover { color: var(--danger); }
+
+/* 通讯录选择器:点选联系人建会话 */
+.cp-contact { border-radius: var(--radius-sm); }
+.cp-contact .avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 13px; font-weight: 600;
+}
+.cp-add {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 999px;
+  background: var(--capsule); color: var(--text-weak);
+}
+.cp-contact:hover .cp-add { background: var(--text); color: var(--panel); }
+
+/* 群成员添加为好友按钮 */
+.rd-add-friend {
+  flex: none; border: none; border-radius: 999px; cursor: pointer;
+  font-size: 11px; font-family: inherit; padding: 2px 10px;
+  background: var(--capsule); color: var(--text-weak);
+}
+.rd-add-friend:hover { background: var(--active); color: var(--text); }
+.rd-add-friend.added { opacity: 0.6; cursor: default; }
 
 /* === Dropdown === */
 .dropdown-menu { position: fixed; background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%); border-radius: var(--radius-md); padding: 4px; min-width: 180px; z-index: 1000; box-shadow: var(--shadow-dropdown); }
