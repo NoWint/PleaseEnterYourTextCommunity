@@ -34,8 +34,8 @@ export async function renderMemberDetail(body: HTMLElement, contactId: number): 
         <div style="display:flex;align-items:center;gap:10px;margin:8px 0">
           ${avatarHtml}
           <div>
-            <div style="font-size:12px;font-weight:600;color:var(--text)">${escapeHtml(member.name)}</div>
-            <div style="font-size:9px;color:var(--text-weak)">${escapeHtml(member.addr || '')}</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text)">${escapeHtml(member.name)}</div>
+            <div style="font-size:11px;color:var(--text-weak)">${escapeHtml(member.addr || '')}</div>
           </div>
         </div>
         <button id="md-msg" style="background:var(--capsule);border:1px solid var(--border-strong);color:var(--text);padding:8px;border-radius:4px;font-size:11px;cursor:pointer;margin-top:8px">发消息</button>

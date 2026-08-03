@@ -60,7 +60,7 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
   const dlg = ui.dialog({
     title: chat.name,
     body: `
-      <div class="mailing-list-type" style="display:inline-block;background:var(--capsule);border:1px solid var(--border-strong);color:var(--text-mute);font-size:11px;padding:2px 8px;border-radius:10px;margin-bottom:8px">${escapeHtml(typeLabel)}</div>
+      <div class="mailing-list-type" style="display:inline-block;background:var(--capsule);border:1px solid var(--border-strong);color:var(--text-mute);font-size:13px;padding:2px 8px;border-radius:10px;margin-bottom:8px">${escapeHtml(typeLabel)}</div>
       <div id="mlp-members" style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"><div class="ui-spinner"></div></div>
     `,
     actions: [archiveBtn, leaveBtn],
@@ -72,7 +72,7 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
     if (!membersEl) return;
     const members = info.members || [];
     if (members.length === 0) {
-      membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:12px;padding:8px">暂无成员</div>`;
+      membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:14px;padding:8px">暂无成员</div>`;
       return;
     }
     const rows = await Promise.all(
@@ -82,8 +82,8 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
           <div class="mailing-list-member" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px">
             ${avatarHtml}
             <div style="min-width:0">
-              <div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.name)}${m.is_self ? '<span style="font-size:10px;color:var(--text-weak);margin-left:4px">我</span>' : ''}</div>
-              <div style="font-size:10px;color:var(--text-weak);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.addr || '')}</div>
+              <div style="font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.name)}${m.is_self ? '<span style="font-size:12px;color:var(--text-weak);margin-left:4px">我</span>' : ''}</div>
+              <div style="font-size:12px;color:var(--text-weak);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.addr || '')}</div>
             </div>
           </div>`;
       }),
@@ -91,7 +91,7 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
     membersEl.innerHTML = rows.join('');
   } catch (e) {
     const membersEl = dlg.overlay.querySelector<HTMLElement>('#mlp-members');
-    if (membersEl) membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:12px;padding:8px">加载成员失败</div>`;
+    if (membersEl) membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:14px;padding:8px">加载成员失败</div>`;
   }
 }
 
