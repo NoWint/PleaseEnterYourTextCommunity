@@ -988,14 +988,16 @@ html { background: var(--bg); }
 .msg-attachment { margin-top: 6px; }
 /* 图片附件 (仿 delta):圆角 16px,cover 填满,max-width 450px,min-width 200px */
 .msg-attachment.img img {
-  max-width: 450px; min-width: 200px;
+  /* min(450px, 100%): 上限 450px 对齐 Delta,但窄容器(气泡 max-width:70%)时收缩到气泡内,防右侧溢出 */
+  max-width: min(450px, 100%);
+  min-width: 200px;
   border-radius: 16px; cursor: pointer; display: block;
   object-fit: cover; object-position: center;
 }
-.msg-attachment.audio audio { max-width: 280px; display: block; }
+.msg-attachment.audio audio { max-width: min(280px, 100%); display: block; }
 /* 视频附件:仿 delta scale-down,黑底,固定高度 */
 .msg-attachment.video video {
-  max-width: 280px; height: 200px;
+  max-width: min(280px, 100%); height: 200px;
   border-radius: 16px; display: block; object-fit: scale-down;
   background-color: #000;
 }
@@ -1213,6 +1215,8 @@ html { background: var(--bg); }
 
 .msg-bubble {
   max-width: 70%;
+  /* min-width:0 让 flex 收缩生效,否则图片等宽内容的固有宽度会撑破 max-width:70% */
+  min-width: 0;
   padding: 6px 12px 8px;
   border-radius: 16px;
   position: relative;
