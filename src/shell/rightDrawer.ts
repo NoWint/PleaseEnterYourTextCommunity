@@ -315,7 +315,7 @@ async function renderMembers(body: HTMLElement): Promise<void> {
                 await call('add_group_member', {
                   chatId: state.currentChatId,
                   email: p.email,
-                  contact_id: p.contact_id || null,
+                  contactId: p.contact_id || null,
                 });
               }
               showToast(`已添加 ${picks.length} 位成员`);

@@ -117,7 +117,7 @@ async function render(body: HTMLElement, info: ChatInfoDto, close: () => void, r
         confirmLabel: '移除',
         onConfirm: async () => {
           try {
-            await call('remove_group_member', { chat_id: info.chat_id, contact_id: cid });
+            await call('remove_group_member', { chatId: info.chat_id, contactId: cid });
             ui.toast('已移除');
           } catch (e) {
             ui.toast(e instanceof Error ? e.message : String(e));
@@ -156,9 +156,9 @@ function openAddMemberDialog(info: ChatInfoDto, refresh: () => void): void {
       try {
         for (const p of picks) {
           await call('add_group_member', {
-            chat_id: info.chat_id,
+            chatId: info.chat_id,
             email: p.email,
-            contact_id: p.contact_id || null,
+            contactId: p.contact_id || null,
           });
         }
         ui.toast(`已添加 ${picks.length} 位成员`);
@@ -233,10 +233,10 @@ function openEditDialog(info: ChatInfoDto, refresh: () => void): void {
       saveBtn.disabled = true;
       try {
         const p: Array<Promise<unknown>> = [];
-        if (name !== info.name) p.push(call('rename_group', { chat_id: info.chat_id, name }));
+        if (name !== info.name) p.push(call('rename_group', { chatId: info.chat_id, name }));
         const desc = descInput.value.trim();
-        if (desc !== info.description) p.push(call('set_group_description', { chat_id: info.chat_id, description: desc }));
-        if (avatarPath !== info.avatar) p.push(call('set_group_avatar', { chat_id: info.chat_id, path: avatarPath || '' }));
+        if (desc !== info.description) p.push(call('set_group_description', { chatId: info.chat_id, description: desc }));
+        if (avatarPath !== info.avatar) p.push(call('set_group_avatar', { chatId: info.chat_id, path: avatarPath || '' }));
         await Promise.all(p);
         editDlg.close();
         ui.toast('已保存');
@@ -313,7 +313,7 @@ function openLeaveDialog(info: ChatInfoDto, close: () => void): void {
     confirmLabel: '退出',
     onConfirm: async () => {
       try {
-        await call('leave_group', { chat_id: info.chat_id });
+        await call('leave_group', { chatId: info.chat_id });
         close();
         if (state.currentChatId === info.chat_id) {
           state.currentChatId = null;

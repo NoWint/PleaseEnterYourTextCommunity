@@ -118,12 +118,14 @@ export function openCreateGroupDialog(): void {
       }
       createBtn.disabled = true;
       try {
+        // 参数用 camelCase:tauri #[tauri::command] 默认把 Rust 参数名 camelCase 化,
+        // 后端 member_emails/member_contact_ids/avatar_path → 前端传 memberEmails/memberContactIds/avatarPath。
         const chatId = await call<number>('create_group', {
           name,
-          member_emails: members.filter((m) => m.contact_id === 0).map((m) => m.email),
-          member_contact_ids: members.filter((m) => m.contact_id !== 0).map((m) => m.contact_id),
+          memberEmails: members.filter((m) => m.contact_id === 0).map((m) => m.email),
+          memberContactIds: members.filter((m) => m.contact_id !== 0).map((m) => m.contact_id),
           description: descInput.value.trim() || null,
-          avatar_path: avatarPath,
+          avatarPath,
         });
         dlg.close();
         state.currentChatId = chatId;
