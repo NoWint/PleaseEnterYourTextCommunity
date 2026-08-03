@@ -1,14 +1,4 @@
-import {
-  MessageCircle, Users, LayoutGrid, Settings, User, Palette, Bell, Info,
-  Plus, X, Hash, Reply, Pin, Copy, Trash, Smile, ChevronDown, ChevronLeft, ChevronRight,
-  Check, CheckCheck, Send, Search, LogOut, Upload, Shield, Volume2, VolumeX, BookMarked,
-  MoreHorizontal, Forward, FileText, Image as ImageIcon, Paperclip, Edit3,
-  ArrowUp, Star, AlertCircle, ThumbsUp, Package, Terminal, Download,
-  Calendar, List, Clock, Inbox,
-  Columns3, GitCommitHorizontal,
-  RefreshCw, Ban, PinOff, Bug, SmilePlus,
-} from 'lucide';
-import type { IconNode, SVGProps } from 'lucide';
+import { TDESIGN_PATHS, type TDesignPath } from './tdesignIcons.js';
 
 export type IconName =
   | 'message-circle' | 'users' | 'layout-grid' | 'settings'
@@ -40,72 +30,24 @@ export interface IconOpts {
   class?: string;
 }
 
-const iconMap: Record<IconName, IconNode> = {
-  'message-circle': MessageCircle,
-  'users': Users,
-  'layout-grid': LayoutGrid,
-  'settings': Settings,
-  'user': User,
-  'palette': Palette,
-  'bell': Bell,
-  'info': Info,
-  'plus': Plus,
-  'x': X,
-  'hash': Hash,
-  'reply': Reply,
-  'pin': Pin,
-  'copy': Copy,
-  'trash': Trash,
-  'smile': Smile,
-  'chevron-down': ChevronDown,
-  'chevron-left': ChevronLeft,
-  'chevron-right': ChevronRight,
-  'check': Check,
-  'check-check': CheckCheck,
-  'send': Send,
-  'search': Search,
-  'log-out': LogOut,
-  'upload': Upload,
-  'shield': Shield,
-  'volume-2': Volume2,
-  'volume-x': VolumeX,
-  'bookmark': BookMarked,
-  'more-horizontal': MoreHorizontal,
-  'forward': Forward,
-  'file-text': FileText,
-  'image': ImageIcon,
-  'paperclip': Paperclip,
-  'edit': Edit3,
-  'arrow-up': ArrowUp,
-  'star': Star,
-  'alert-circle': AlertCircle,
-  'thumbs-up': ThumbsUp,
-  'package': Package,
-  'terminal': Terminal,
-  'download': Download,
-  'calendar': Calendar,
-  'list': List,
-  'clock': Clock,
-  'inbox': Inbox,
-  'columns': Columns3,
-  'timeline': GitCommitHorizontal,
-  'refresh-cw': RefreshCw,
-  'ban': Ban,
-  'pin-off': PinOff,
-  'bug': Bug,
-  'smile-plus': SmilePlus,
-};
+/** SVG 呈现属性 (key 为属性名, 与 lucide 的 SvgProps 形状兼容)。 */
+interface SvgProps {
+  [key: string]: string | number | undefined;
+}
 
-const defaultAttributes: SVGProps = {
+// TDesign Icons (tdesign-icons-svg) 提供 24 viewBox / stroke 模式的图标路径。
+const iconMap = TDESIGN_PATHS as Record<IconName, TDesignPath[]>;
+
+const defaultAttributes: SvgProps = {
   xmlns: 'http://www.w3.org/2000/svg',
   width: 24,
   height: 24,
   viewBox: '0 0 24 24',
   fill: 'none',
   stroke: 'currentColor',
-  'stroke-width': 1.5,
-  'stroke-linecap': 'round',
-  'stroke-linejoin': 'round',
+  'stroke-width': 2,
+  'stroke-linecap': 'square',
+  'stroke-linejoin': 'square',
 };
 
 function escapeAttr(value: string | number): string {
@@ -116,7 +58,7 @@ function escapeAttr(value: string | number): string {
     .replace(/>/g, '&gt;');
 }
 
-function renderAttrs(attrs: SVGProps): string {
+function renderAttrs(attrs: SvgProps): string {
   let result = '';
   for (const key of Object.keys(attrs)) {
     const value = attrs[key];
@@ -127,10 +69,12 @@ function renderAttrs(attrs: SVGProps): string {
   return result;
 }
 
-function renderChildren(node: IconNode): string {
+function renderChildren(paths: TDesignPath[]): string {
   let result = '';
-  for (const [tag, attrs] of node) {
-    result += `<${tag}${renderAttrs(attrs)} />`;
+  for (const p of paths) {
+    let attrs = `d="${escapeAttr(p.d)}"`;
+    if (p.fillRule) attrs += ` fill-rule="${escapeAttr(p.fillRule)}"`;
+    result += `<path ${attrs} />`;
   }
   return result;
 }
@@ -140,8 +84,8 @@ export function iconSvg(name: IconName, opts: IconOpts = {}): string {
   if (!icon) return '';
   const w = opts.width ?? 24;
   const h = opts.height ?? 24;
-  const sw = opts.strokeWidth ?? 1.5;
-  const attrs: SVGProps = {
+  const sw = opts.strokeWidth ?? 2;
+  const attrs: SvgProps = {
     ...defaultAttributes,
     width: w,
     height: h,

@@ -5,7 +5,7 @@ import type { CurrentView } from '../types.js';
 import type { IconName } from './icon.js';
 
 // SP7: 共享视图切换组件。替代 kanban.ts / list.ts 各自渲染的 .view-toggle,
-// 提供 4 个视图 (看板 / 列表 / 日历 / 时间线) 切换按钮, 用 lucide SVG 图标。
+// 提供 4 个视图 (看板 / 列表 / 日历 / 时间线) 切换按钮, 用 TDesign SVG 图标。
 // 由 calendar.ts / timeline.ts (及后续迁移后的 kanban/list) 调用。
 //
 // 点击按钮:更新 state.currentView + 按频道记忆 viewPrefs[chatId] + saveState,
