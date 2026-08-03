@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { ui } from '../components/ui.js';
+import { escapeHtml } from '../components/escape.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
 import type { ChatListItem } from '../types.js';
@@ -340,6 +341,3 @@ function formatTime(ts: number): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

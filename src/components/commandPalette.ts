@@ -5,6 +5,7 @@
 // 仅注入极少量 .command-palette-overlay 定位与关闭动画（首次打开时挂到 <head>,不改 styles.css）。
 import { call } from '../api.js';
 import { state } from '../state.js';
+import { escapeHtml } from './escape.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from './icon.js';
 import { ui } from './ui.js';
@@ -269,6 +270,3 @@ function bindResults(resultsEl: HTMLElement): void {
   });
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

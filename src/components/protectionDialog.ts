@@ -1,6 +1,7 @@
 import { call } from '../api.js';
 import { iconSvg } from './icon.js';
 import { ui } from './ui.js';
+import { escapeHtml } from './escape.js';
 import { colorHex } from './avatar.js';
 import type { MemberDto } from '../types.js';
 
@@ -135,6 +136,3 @@ function fail(dlg: { overlay: HTMLDivElement }, message: string): void {
   if (membersEl) membersEl.innerHTML = '';
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

@@ -1,5 +1,6 @@
 import { call } from '../api.js';
 import { ui } from './ui.js';
+import { escapeHtml } from './escape.js';
 
 // 多设备绑定:导出本机密钥供第二台设备导入(对齐 Delta SetupMultiDevice)。
 // 导出:把本机账号密钥写入 peyt-selfkeys.tar,拷贝到第二台设备;
@@ -104,6 +105,3 @@ function joinDefaultKeysPath(dir: string): string {
   return `${base}${sep}peyt-selfkeys.tar`;
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

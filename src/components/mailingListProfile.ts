@@ -2,6 +2,7 @@ import { call } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { ui } from './ui.js';
+import { escapeHtml } from './escape.js';
 import { renderAvatarHtml } from './avatar.js';
 import type { ChatListItem, MemberDto } from '../types.js';
 
@@ -106,6 +107,3 @@ async function refreshMain(): Promise<void> {
   await renderMain();
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

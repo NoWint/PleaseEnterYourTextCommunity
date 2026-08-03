@@ -1,6 +1,7 @@
 import { call } from '../api.js';
 import { showToast } from '../toast.js';
 import { iconSvg } from '../components/icon.js';
+import { escapeHtml as esc } from '../components/escape.js';
 import { showPluginConfirm } from './confirm.js';
 import { loadPlugin, unloadPlugin } from './manager.js';
 import { PERMISSION_LABELS, getPluginPermissions, setPluginPermissions } from './permissions.js';
@@ -143,14 +144,4 @@ export async function renderPluginSettings(main: HTMLElement): Promise<void> {
       });
     });
   });
-}
-
-function esc(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[c]!);
 }

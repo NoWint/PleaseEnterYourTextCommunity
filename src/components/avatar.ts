@@ -1,4 +1,5 @@
 import { transformBlobURL } from '../api.js';
+import { escapeHtml, escapeAttr } from './escape.js';
 import type { MemberDto, SelfProfile } from '../types.js';
 
 export function colorHex(c: number | null | undefined): string {
@@ -15,7 +16,3 @@ export async function renderAvatarHtml(member: MemberDto | SelfProfile | { name:
     : `<div class="avatar" style="background:${bg}">${escapeHtml(letter)}</div>`;
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: string): string { return escapeHtml(s); }

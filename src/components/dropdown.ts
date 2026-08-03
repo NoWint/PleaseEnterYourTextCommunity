@@ -1,4 +1,5 @@
 import { iconSvg, type IconName } from './icon.js';
+import { escapeHtml, escapeAttr } from './escape.js';
 
 export interface DropdownItem {
   label: string;
@@ -110,7 +111,3 @@ export function hideDropdown(): void {
   }
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: string): string { return escapeHtml(s); }
