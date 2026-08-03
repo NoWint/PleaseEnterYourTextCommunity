@@ -50,7 +50,8 @@ async function renderMessageList(): Promise<void> {
   if (!list) return;
   let chats: ChatListItem[] = [];
   try {
-    chats = await call<ChatListItem[]>('get_chatlist');
+    // 归档视图:仅拉归档会话(后端 DC_GCL_ARCHIVED_ONLY);常规视图:仅未归档。
+    chats = await call<ChatListItem[]>('get_chatlist', showArchived ? { archivedOnly: true } : {});
   } catch {
     chats = [];
   }

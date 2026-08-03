@@ -250,15 +250,32 @@ fn download_state_str(s: DownloadState) -> &'static str {
 }
 
 #[tauri::command]
-pub async fn get_chatlist(state: State<'_, AppState>) -> AppResult<Vec<ChatDto>> {
+pub async fn get_chatlist(
+    state: State<'_, AppState>,
+    archived_only: Option<bool>,
+) -> AppResult<Vec<ChatDto>> {
     let ctx = state
         .current()
         .await
         .ok_or_else(|| AppError::Core("no account".into()))?;
-    let list = Chatlist::try_load(&ctx, 0, None, None).await?;
+    // 归档视图请求 DC_GCL_ARCHIVED_ONLY(仅归档会话);常规视图用 0(仅未归档)。
+    // core 文档:flags=0 且存在归档会话时,chatlist 会自动注入 DC_CHAT_ID_ARCHIVED_LINK
+    // 虚拟会话(见下循环跳过)。DC_GCL_ARCHIVED_ONLY 时同样可能注入 ALLDONE_HINT。
+    let listflags = if archived_only.unwrap_or(false) {
+        deltachat::constants::DC_GCL_ARCHIVED_ONLY
+    } else {
+        0
+    };
+    let list = Chatlist::try_load(&ctx, listflags, None, None).await?;
     let mut out = Vec::with_capacity(list.len());
     for i in 0..list.len() {
         let chat_id = list.get_chat_id(i)?;
+        // 跳过虚拟特殊会话(归档链接 id=6 / alldone 提示 id=7):它们在 chatlist 里但
+        // db 无行,load_from_db 会 QueryReturnedNoRows 使整个 get_chatlist 失败,
+        // 导致前端聊天列表空。PEYT 无 UI 消费它们,直接跳过。
+        if chat_id.is_archived_link() || chat_id.is_alldone_hint() {
+            continue;
+        }
         let chat = Chat::load_from_db(&ctx, chat_id).await?;
         let is_group = chat.get_type() == Chattype::Group;
         let is_contact_request = chat.is_contact_request();
