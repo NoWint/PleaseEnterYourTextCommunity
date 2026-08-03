@@ -425,7 +425,17 @@ html.window-overlay .wb-controls { display: none; }
 .chat-header .ch-topic { font-size: var(--font-scale-secondary); color: var(--text-weak); margin-left: 8px; }
 .chat-header .ch-actions { color: var(--text-action); font-size: var(--font-scale-body); display: flex; gap: 14px; }
 .chat-header .ch-actions span { cursor: pointer; }
-.messages { flex: 1; overflow-y: auto; padding: var(--space-4) var(--space-5); padding-top: 88px; padding-bottom: 120px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: none; }
+/* 消息区:顶部留出悬浮 header 高度,底部留白跟随悬浮 composer 高度。
+   --composer-h 由 composer.ts 的 ResizeObserver 实时写入(展开/拖拽调高自动让位),
+   并额外加 14px 间距让消息与输入框保持呼吸感。 */
+.messages {
+  flex: 1; overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+  padding-top: 88px;
+  padding-bottom: calc(var(--composer-h, 120px) + 14px);
+  display: flex; flex-direction: column; gap: 10px;
+  scrollbar-width: none;
+}
 .messages::-webkit-scrollbar { display: none; }
 
 /* 全站隐藏滚动条(保留滚动功能) */
@@ -462,11 +472,17 @@ html.window-overlay .wb-controls { display: none; }
 }
 .msg[data-is-out="1"] .msg-bubble .msg-quote-name { color: var(--bubble-self-text); }
 .msg .msg-code { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 10px 12px; font-family: var(--font-mono); font-size: var(--font-scale-secondary); line-height: 1.6; margin-top: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-/* 消息入场动画:新消息 pop-in(spring 手感,damping 1.0 无过冲)。滚动复用的节点不带此类,不重复动画。 */
-.msg-enter { animation: msg-pop-in 300ms var(--ease-out); }
+/* 消息入场动画:极致丝滑 —— 弹簧手感。
+   时间轴:快入 + 轻微过冲再回正(阻尼 ~0.85 的衰减),translateY 与 scale 同步,
+   opacity 稍滞后(材料"坐定"而非淡入)。transform/opacity 均为合成器友好属性。 */
+.msg-enter {
+  animation: msg-pop-in 340ms cubic-bezier(0.2, 0.9, 0.3, 1.12);
+  will-change: transform, opacity;
+}
 @keyframes msg-pop-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  0%   { opacity: 0;    transform: translateY(10px) scale(0.96); }
+  60%  { opacity: 1;    transform: translateY(-1px) scale(1.004); }
+  100% { opacity: 1;    transform: translateY(0) scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
   .msg-enter { animation: none; }
@@ -536,26 +552,28 @@ html.window-overlay .wb-controls { display: none; }
 .composer-expand:hover .composer-tooltip { opacity: 1; visibility: visible; transform: translateY(0); }
 
 /* 展开模式:大 textarea + 顶部 resize 指示器。
-   收起(默认):单行自动增高;展开:固定大高度 + 顶部指示器拖拽调高。 */
+   收起(默认):单行自动增高;展开:固定大高度 + 顶部指示器拖拽调高。
+   指示器挂在 .composer 容器边缘(卡片顶边),而非输入框内部 —— 悬停即抓,操作容易。 */
+.composer { position: relative; }
 .composer-main { position: relative; }
-/* resize 指示器:悬停在输入区顶部时浮现,拖拽纵向调高 textarea */
+/* resize 指示器:位于容器上边缘,悬停浮现抓取条 */
 .composer-resize {
-  position: absolute; top: 0; left: 0; right: 0;
-  height: 8px; cursor: row-resize;
-  z-index: 5;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  position: absolute; top: -3px; left: 0; right: 0;
+  height: 9px; cursor: row-resize;
+  z-index: 20;
   display: none; align-items: center; justify-content: center;
+  /* 放大热区但不遮输入:只有中间细条可点 */
 }
 .composer-resize::before {
-  content: ""; width: 40px; height: 3px; border-radius: 2px;
+  content: ""; width: 40px; height: 4px; border-radius: 2px;
   background: var(--text-mute);
   opacity: 0; transition: opacity 120ms var(--ease-out);
 }
-.composer-resize:hover::before, .composer-resize:active::before { opacity: 0.8; }
-/* 展开时:显示指示器,textarea 撑高 */
+.composer:hover .composer-resize::before, .composer-resize:hover::before, .composer-resize:active::before { opacity: 0.9; }
+/* 展开时:显示指示器,textarea 撑高(最小高度调低,避免展开突兀) */
 .composer.expanded .composer-resize { display: flex; }
 .composer.expanded textarea {
-  min-height: 140px;
+  min-height: 88px;
   max-height: 320px;
 }
 /* 下部工具条:图标组左对齐,操作按钮右对齐 (微信 space-between) */
@@ -1004,9 +1022,8 @@ html.window-overlay .wb-controls { display: none; }
 .composer textarea { scrollbar-width: none; }
 .composer textarea::-webkit-scrollbar { display: none; }
 
-/* 发送按钮:跟随主题强调色(--success 底 + --on-accent 字)。
-   已验证 15 主题 success vs on-accent 对比度 ≥3.0(600 粗体大文本),
-   暗色主题尤其高(7 个 ≥4.5);白色在暗色主题会失败,故不用白字。 */
+/* 发送按钮:底色迎合主题(--text 底 + --on-accent 字,与主按钮/图标态一致,
+   不用微信绿也不强调色)。空输入禁用灰,有内容点亮为主题强调色。 */
 .composer-send {
   flex-shrink: 0;
   min-width: 64px; height: 34px;
@@ -1016,7 +1033,7 @@ html.window-overlay .wb-controls { display: none; }
   cursor: pointer;
   font-size: var(--font-scale-body); font-weight: 600;
   color: var(--on-accent);
-  background: var(--success);
+  background: var(--text);
   transition: transform 100ms ease-out, opacity 120ms, filter 150ms;
 }
 .composer-send:hover { filter: brightness(1.08); }

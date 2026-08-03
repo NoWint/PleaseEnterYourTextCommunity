@@ -102,9 +102,9 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   // (左侧图标组,右侧录音圆形 + 翠绿胶囊「发送」)。
   area.innerHTML = `
     <div class="composer">
+      <div class="composer-resize" id="composer-resize" title="拖拽调整高度" aria-hidden="true"></div>
       ${replyPreview}
       <div class="composer-main">
-        <div class="composer-resize" id="composer-resize" title="拖拽调整高度" aria-hidden="true"></div>
         <textarea id="composer-input" placeholder="${PLACEHOLDER_COLLAPSED}" rows="1"></textarea>
         <button type="button" class="composer-expand" id="composer-expand" aria-label="展开输入框">
           ${iconSvg('chevrons-up-down', { width: 14, height: 14 })}
@@ -127,12 +127,25 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   `;
   const input = document.getElementById('composer-input') as HTMLTextAreaElement | null;
   if (!input) return;
+  const composerEl = area.querySelector('.composer') as HTMLElement | null;
   const sendBtn = document.getElementById('composer-send') as HTMLButtonElement | null;
   // 发送按钮:空输入禁用,有内容点亮 (微信式,与 Enter 发送等价)
   const updateSendState = () => {
     if (sendBtn) sendBtn.disabled = !input.value.trim();
   };
   updateSendState();
+  // 消息区底部留白随输入框高度变化:composer 尺寸变化 → 更新 messages 的
+  // padding-bottom。用 CSS 变量 + 监听 composer 高度(ResizeObserver)驱动,
+  // 展开/拖拽调高时消息区底部自动让出对应空间。
+  const syncComposerHeight = (): void => {
+    const messagesEl = document.getElementById('messages');
+    if (!messagesEl || !composerEl) return;
+    const h = composerEl.getBoundingClientRect().height;
+    messagesEl.style.setProperty('--composer-h', `${Math.ceil(h)}px`);
+  };
+  const composerRO = new ResizeObserver(() => syncComposerHeight());
+  if (composerEl) composerRO.observe(composerEl);
+  syncComposerHeight();
   sendBtn?.addEventListener('click', async () => {
     if (!input.value.trim()) return;
     await send(chatId, input, area, onSent);
@@ -140,7 +153,6 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   });
   // 展开按钮:切换两种模式(收起=单行 Enter 发送;展开=大 textarea Enter 换行)。
   // CSS 类 .expanded 驱动高度/指示器显隐/placeholder/键盘语义。
-  const composerEl = area.querySelector('.composer') as HTMLElement | null;
   const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
   const applyExpanded = (): void => {
     composerEl?.classList.toggle('expanded', expanded);
