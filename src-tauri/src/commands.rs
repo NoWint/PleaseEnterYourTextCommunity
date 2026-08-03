@@ -823,6 +823,17 @@ pub async fn set_contact_role(
     Ok(())
 }
 
+/// 在工作区中创建一个角色, 返回角色 id。
+#[tauri::command]
+pub async fn create_role(
+    state: State<'_, AppState>,
+    workspace_id: i64,
+    name: String,
+    color: Option<String>,
+) -> AppResult<i64> {
+    state.db.insert_role(workspace_id, &name, color.as_deref()).await
+}
+
 /// Returns every (contact_id, role_id, role_name, role_color) tuple for a
 /// workspace, serialized as a named DTO so the JS side gets field names
 /// instead of a positional array.
@@ -1178,6 +1189,19 @@ pub async fn delete_msg(
         .ok_or(AppError::Core("no account".into()))?;
     let ids = vec![MsgId::new(msg_id)];
     message::delete_msgs(&ctx, &ids).await?;
+    Ok(())
+}
+
+/// 转发一条消息到目标会话 (保留原文、附件与引用信息)。
+#[tauri::command]
+pub async fn forward_msg(state: State<'_, AppState>, msg_id: u32, chat_id: u32) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    deltachat::chat::forward_msgs(
+        &ctx,
+        &[deltachat::message::MsgId::new(msg_id)],
+        deltachat::chat::ChatId::new(chat_id),
+    )
+    .await?;
     Ok(())
 }
 
@@ -2380,6 +2404,48 @@ pub async fn archive_chat(
     Ok(())
 }
 
+/// 静音/取消静音会话。muted=true → MuteDuration::Forever;false → NotMuted。
+#[tauri::command]
+pub async fn set_chat_muted(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    muted: bool,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let duration = if muted {
+        deltachat::chat::MuteDuration::Forever
+    } else {
+        deltachat::chat::MuteDuration::NotMuted
+    };
+    chat::set_muted(&ctx, deltachat::chat::ChatId::new(chat_id), duration).await?;
+    Ok(())
+}
+
+/// 置顶/取消置顶会话。pinned=true → ChatVisibility::Pinned;false → Normal。
+#[tauri::command]
+pub async fn set_chat_pinned(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    pinned: bool,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let visibility = if pinned {
+        ChatVisibility::Pinned
+    } else {
+        ChatVisibility::Normal
+    };
+    deltachat::chat::ChatId::new(chat_id)
+        .set_visibility(&ctx, visibility)
+        .await?;
+    Ok(())
+}
+
 /// 保存消息到 "Saved Messages"（self-talk 会话）。
 #[tauri::command]
 pub async fn save_msg(state: State<'_, AppState>, msg_id: u32) -> AppResult<()> {
@@ -2657,6 +2723,42 @@ pub async fn send_webxdc_status_update(
     Ok(())
 }
 
+/// 从 webxdc 消息的 zip 中读取指定文件, 写入临时文件并返回路径,
+/// 供前端 `convertFileSrc` 加载 (与 save_avatar_from_bytes 同理)。
+#[tauri::command]
+pub async fn get_webxdc_blob(
+    state: State<'_, AppState>,
+    msg_id: u32,
+    name: String,
+) -> AppResult<String> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    let m = deltachat::message::Message::load_from_db(&ctx, MsgId::new(msg_id)).await?;
+    let bytes = m
+        .get_webxdc_blob(&ctx, &name)
+        .await
+        .map_err(|e| AppError::Core(format!("webxdc blob: {e}")))?;
+    let dir = std::env::temp_dir().join("peytchat-webxdc");
+    tokio::fs::create_dir_all(&dir).await?;
+    let sanitized: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '_' })
+        .collect();
+    let sanitized = if sanitized.is_empty() {
+        "blob".to_string()
+    } else {
+        sanitized
+    };
+    let filename = format!(
+        "w-{}-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_millis(),
+        sanitized
+    );
+    let path = dir.join(filename);
+    tokio::fs::write(&path, &bytes).await?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 // ==== Delta 对齐批次 4 ====
 
 /// 应用数据目录(供导出路径/备份默认目录)。
@@ -2863,4 +2965,40 @@ pub async fn bot_mark_chat_noticed(
     let owner_id = current_owner_id(&state)?;
     let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
     mark_chat_noticed_impl(&ctx, chat_id).await
+}
+
+/// 测试 LLM 配置：用固定示例消息调用一次，返回回复文本（用于配置对话框的「测试连接」）。
+#[tauri::command]
+pub async fn test_llm_config(config: crate::dto::LlmConfigInput) -> AppResult<String> {
+    let msg = crate::llm::ChatMessage {
+        role: "user".into(),
+        content: "你好，请用一句话回复。".into(),
+    };
+    crate::llm::complete(&config, vec![msg]).await
+}
+
+/// 把 bot 拉入主账号的某个群聊/频道:主账号生成该会话的邀请 QR,bot 通过 securejoin 加入。
+#[tauri::command]
+pub async fn add_bot_to_chat(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    chat_id: u32,
+) -> AppResult<()> {
+    let owner_id = current_owner_id(&state)?;
+    let main_ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let bot_ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    // 仅群组/广播可生成邀请 QR;1:1 会话 get_securejoin_qr 会报错
+    let qr = securejoin::get_securejoin_qr(&main_ctx, Some(deltachat::chat::ChatId::new(chat_id)))
+        .await
+        .map_err(|e| {
+            let msg = e.to_string();
+            AppError::Core(format!("无法生成该会话的邀请: {msg}"))
+        })?;
+    securejoin::join_securejoin(&bot_ctx, &qr)
+        .await
+        .map_err(|e| AppError::Core(format!("bot 加入失败: {e}")))?;
+    Ok(())
 }
