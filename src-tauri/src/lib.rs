@@ -154,6 +154,10 @@ pub fn run() {
             commands::set_bot_io,
             commands::update_bot_llm,
             commands::get_bot_llm,
+            commands::bot_get_chatlist,
+            commands::bot_get_chat_msgs,
+            commands::bot_send_text,
+            commands::bot_mark_chat_noticed,
             // Terminal
             terminal::open_terminal,
             terminal::write_terminal,

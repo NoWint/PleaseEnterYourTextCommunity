@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 
 use deltachat::accounts::Accounts;
 use deltachat::config::Config;
+use deltachat::context::Context;
 
 use crate::bot_llm;
 use crate::db::Db;
@@ -145,6 +146,22 @@ impl BotService {
         self.db.delete_bot(owner_id, bot_id).await?;
         self.bot_ids.lock().await.remove(&row.bot_account_id);
         Ok(())
+    }
+
+    /// 校验 bot 归属当前 owner, 返回其 deltachat Context
+    pub async fn ctx_for_bot(&self, owner_id: u32, bot_id: i64) -> AppResult<Context> {
+        let row = self
+            .db
+            .get_bot(owner_id, bot_id)
+            .await?
+            .ok_or_else(|| AppError::Core("bot not found".into()))?;
+        let ctx = self
+            .accounts
+            .lock()
+            .await
+            .get_account(row.bot_account_id)
+            .ok_or_else(|| AppError::Core("bot not found".into()))?;
+        Ok(ctx)
     }
 
     /// 启/停单个 bot 的 IO，并把状态写回 db，返回最新 DTO。
@@ -320,6 +337,31 @@ mod tests {
         let (_, _, svc) = test_env(&tmp).await;
 
         let err = svc.delete(1, 999).await.unwrap_err();
+        assert!(matches!(err, AppError::Core(_)));
+    }
+
+    /// ctx_for_bot 校验归属：owner 本人能拿到 context，非 owner 访问应报 not found。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_ctx_for_bot_non_owned_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (accounts, db, svc) = test_env(&tmp).await;
+
+        let owner_id = 1u32;
+        let bot_account_id = {
+            let mut accounts = accounts.lock().await;
+            accounts.add_account().await.unwrap()
+        };
+        let bot_id = db
+            .insert_bot(owner_id, bot_account_id, "CtxBot", chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+
+        // owner 本人可以拿到 bot 的 context
+        let ctx = svc.ctx_for_bot(owner_id, bot_id).await.unwrap();
+        assert_eq!(ctx.get_id(), bot_account_id);
+
+        // 非 owner（2）访问该 bot 应返回 not found 错误
+        let err = svc.ctx_for_bot(2, bot_id).await.unwrap_err();
         assert!(matches!(err, AppError::Core(_)));
     }
 

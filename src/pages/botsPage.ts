@@ -1,8 +1,12 @@
 import { call } from '../api.js';
 import { ui } from '../components/ui.js';
+import { iconSvg } from '../components/icon.js';
+import { renderMessage } from '../chat/message.js';
+import type { MsgDto } from '../types.js';
 
-// Bot 管理页:列出所有 Bot 账号,支持新建、LLM 配置、启停、删除。
-// 后端命令:list_bots / create_bot / delete_bot / set_bot_io / update_bot_llm / get_bot_llm。
+// Bot 管理页:列出所有 Bot 账号,支持新建、LLM 配置、启停、删除、会话查看。
+// 后端命令:list_bots / create_bot / delete_bot / set_bot_io / update_bot_llm / get_bot_llm /
+// bot_get_chatlist / bot_get_chat_msgs / bot_send_text / bot_mark_chat_noticed。
 
 export interface BotDto {
   id: number;
@@ -11,6 +15,19 @@ export interface BotDto {
   addr: string | null;
   io_running: boolean;
   created_at: number;
+}
+
+// 后端 bot_get_chatlist 返回的会话结构
+interface ChatDto {
+  chat_id: number;
+  name: string;
+  is_group: boolean;
+  is_contact_request: boolean;
+  is_self_talk: boolean;
+  is_archived: boolean;
+  last_msg: string | null;
+  last_ts: number | null;
+  unread: number;
 }
 
 export interface LlmConfigInput {
@@ -79,16 +96,19 @@ export async function renderBots(main: HTMLElement): Promise<void> {
 
   const list = document.createElement('div');
   for (const row of rows) {
-    list.appendChild(renderBotRow(row.bot, row.cfg, () => void renderBots(main)));
+    list.appendChild(renderBotRow(row.bot, row.cfg, () => void renderBots(main), main));
   }
   main.appendChild(list);
 }
 
-// 单行:头像 + 名称/地址 + 状态徽章 + 右侧操作(配置 / 启停 / 删除)
-function renderBotRow(bot: BotDto, cfg: LlmConfigInput | null, onChanged: () => void): HTMLElement {
+// 单行:头像 + 名称/地址 + 状态徽章 + 右侧操作(配置 / 启停 / 删除)。
+// 点击整行进入该 Bot 的会话双栏视图。
+function renderBotRow(bot: BotDto, cfg: LlmConfigInput | null, onChanged: () => void, main: HTMLElement): HTMLElement {
   const row = document.createElement('div');
   row.className = 'ui-list-item';
-  row.style.cursor = 'default';
+  row.style.cursor = 'pointer';
+  row.title = '查看会话';
+  row.addEventListener('click', () => void openBotChats(bot, main));
 
   row.appendChild(ui.avatar({ name: bot.display_name, size: 36 }));
 
@@ -117,6 +137,8 @@ function renderBotRow(bot: BotDto, cfg: LlmConfigInput | null, onChanged: () => 
   // 右侧操作
   const ops = document.createElement('div');
   ops.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0';
+  // 阻止操作按钮点击冒泡到行级「查看会话」
+  ops.addEventListener('click', (e) => e.stopPropagation());
   ops.appendChild(ui.iconButton({
     icon: 'settings',
     title: '配置',
@@ -266,4 +288,202 @@ function openLlmConfig(bot: BotDto, onSaved: () => void): void {
     keyInput.value = cfg.api_key || '';
     modelInput.value = cfg.model || '';
   })();
+}
+
+// 截断长文本(超长加省略号)
+function truncateText(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+// Bot 会话双栏视图:左栏 = 返回 + Bot 信息 + 会话列表(固定 260px),
+// 右栏 = 会话头部 + 消息线程 + 单行发送框。替换 main 内的列表内容。
+export async function openBotChats(bot: BotDto, main: HTMLElement): Promise<void> {
+  main.innerHTML = '';
+  const pane = document.createElement('div');
+  pane.style.cssText = 'flex:1;min-height:0;display:flex;overflow:hidden';
+  main.appendChild(pane);
+
+  // ── 左栏:返回按钮 + Bot 信息 + 会话列表 ──
+  const left = document.createElement('div');
+  left.style.cssText = 'width:260px;flex-shrink:0;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--border);background:var(--panel)';
+  pane.appendChild(left);
+
+  const leftHead = document.createElement('div');
+  leftHead.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:12px;border-bottom:1px solid var(--border);flex-shrink:0';
+  leftHead.appendChild(ui.button({
+    label: '返回列表',
+    icon: 'chevron-left',
+    variant: 'ghost',
+    size: 'sm',
+    onClick: () => void renderBots(main),
+  }));
+  const info = document.createElement('div');
+  info.style.cssText = 'min-width:0';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'main-title';
+  nameEl.style.cssText = 'font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  nameEl.textContent = bot.display_name;
+  const addrEl = document.createElement('div');
+  addrEl.className = 'main-subtitle';
+  addrEl.style.cssText = 'font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  addrEl.textContent = bot.addr ?? '';
+  info.appendChild(nameEl);
+  info.appendChild(addrEl);
+  leftHead.appendChild(info);
+  left.appendChild(leftHead);
+
+  const convList = document.createElement('div');
+  convList.style.cssText = 'flex:1;overflow-y:auto;min-height:0';
+  left.appendChild(convList);
+
+  // 拉取会话列表
+  let chats: ChatDto[] = [];
+  try {
+    chats = await call<ChatDto[]>('bot_get_chatlist', { botId: bot.id });
+  } catch (e) {
+    convList.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+  }
+  if (chats.length === 0) {
+    convList.appendChild(ui.empty('暂无会话'));
+  }
+
+  // ── 右栏:会话头部 + 消息线程 + 发送框 ──
+  const right = document.createElement('div');
+  right.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--bg)';
+  pane.appendChild(right);
+
+  const rightHead = document.createElement('div');
+  rightHead.className = 'main-header';
+  rightHead.style.cssText = 'flex-shrink:0';
+  const rightTitle = document.createElement('div');
+  rightTitle.className = 'main-title';
+  rightTitle.style.cssText = 'font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  rightTitle.textContent = '选择一个会话';
+  rightHead.appendChild(rightTitle);
+  right.appendChild(rightHead);
+
+  const thread = document.createElement('div');
+  thread.className = 'messages';
+  thread.style.cssText = 'flex:1;min-height:0';
+  right.appendChild(thread);
+  thread.appendChild(ui.empty('从左侧选择一个会话'));
+
+  // 发送框(单行输入 + 圆形发送按钮)
+  const composer = document.createElement('div');
+  composer.className = 'composer';
+  composer.style.cssText = 'flex-shrink:0';
+  const cRow = document.createElement('div');
+  cRow.className = 'composer-row';
+  const sendBtn = document.createElement('button');
+  sendBtn.className = 'composer-send';
+  sendBtn.title = '发送';
+  sendBtn.innerHTML = iconSvg('send', { width: 18, height: 18 });
+  sendBtn.disabled = true;
+  const inputEl = ui.input({
+    placeholder: '输入消息，Enter 发送',
+    onChange: updateSendBtn,
+    onEnter: () => void doSend(),
+  });
+  cRow.appendChild(inputEl);
+  cRow.appendChild(sendBtn);
+  composer.appendChild(cRow);
+  right.appendChild(composer);
+
+  let activeChat: ChatDto | null = null;
+  let sending = false;
+
+  // 发送按钮状态:空内容 / 发送中 均禁用
+  function updateSendBtn(): void {
+    sendBtn.disabled = sending || inputEl.value.trim().length === 0;
+  }
+
+  // 发送文本:成功后把返回的 MsgDto 追加为气泡
+  async function doSend(): Promise<void> {
+    if (!activeChat || sending) return;
+    const text = inputEl.value.trim();
+    if (!text) return;
+    sending = true;
+    updateSendBtn();
+    try {
+      const msg = await call<MsgDto>('bot_send_text', { botId: bot.id, chatId: activeChat.chat_id, text });
+      thread.insertAdjacentHTML('beforeend', await renderMessage(msg, 'solo'));
+      inputEl.value = '';
+      updateSendBtn();
+      thread.scrollTop = thread.scrollHeight;
+    } catch (e) {
+      ui.toast(e instanceof Error ? e.message : String(e));
+    } finally {
+      sending = false;
+      updateSendBtn();
+    }
+  }
+  sendBtn.addEventListener('click', () => void doSend());
+
+  // 会话行:名称 + 最后一条消息(截断) + 未读徽章
+  const makeConvRow = (chat: ChatDto): HTMLElement => {
+    const r = document.createElement('div');
+    r.className = 'ui-list-item';
+    r.dataset.chatId = String(chat.chat_id);
+    r.style.cursor = 'pointer';
+    const meta = document.createElement('div');
+    meta.className = 'ui-list-meta';
+    const t = document.createElement('div');
+    t.className = 'ui-list-title';
+    t.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    t.textContent = chat.name;
+    const s = document.createElement('div');
+    s.className = 'ui-list-sub';
+    s.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    s.textContent = chat.last_msg ? truncateText(chat.last_msg, 40) : '';
+    meta.appendChild(t);
+    meta.appendChild(s);
+    r.appendChild(meta);
+    if (chat.unread > 0) {
+      const b = ui.badge({ text: String(chat.unread), variant: 'danger' });
+      b.classList.add('bot-unread');
+      b.style.cssText = 'flex-shrink:0';
+      r.appendChild(b);
+    }
+    r.addEventListener('click', () => void openChat(chat));
+    return r;
+  };
+
+  // 打开会话:加载消息线程(清空后重建) + 贴底 + 标记已读 + 清空左侧未读徽章
+  async function openChat(chat: ChatDto): Promise<void> {
+    if (activeChat && activeChat.chat_id === chat.chat_id) return;
+    activeChat = chat;
+    rightTitle.textContent = chat.name;
+    thread.innerHTML = '';
+    thread.appendChild(ui.spinner());
+    let msgs: MsgDto[] = [];
+    try {
+      msgs = await call<MsgDto[]>('bot_get_chat_msgs', { botId: bot.id, chatId: chat.chat_id });
+    } catch (e) {
+      thread.innerHTML = '';
+      thread.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+      return;
+    }
+    thread.innerHTML = '';
+    if (msgs.length === 0) {
+      thread.appendChild(ui.empty('暂无消息，发送第一条吧'));
+    } else {
+      const htmls: string[] = [];
+      for (const m of msgs) htmls.push(await renderMessage(m, 'solo'));
+      thread.innerHTML = htmls.join('');
+    }
+    thread.scrollTop = thread.scrollHeight;
+    // 标记已读(失败忽略)
+    try { await call('bot_mark_chat_noticed', { botId: bot.id, chatId: chat.chat_id }); } catch {}
+    // 清空该会话未读徽章并高亮当前行
+    const rowEl = convList.querySelector<HTMLElement>(`[data-chat-id="${chat.chat_id}"]`);
+    if (rowEl) {
+      rowEl.querySelector('.bot-unread')?.remove();
+      convList.querySelectorAll('.ui-list-item.active').forEach((el) => el.classList.remove('active'));
+      rowEl.classList.add('active');
+    }
+  }
+
+  for (const chat of chats) {
+    convList.appendChild(makeConvRow(chat));
+  }
 }
