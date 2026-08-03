@@ -948,6 +948,32 @@ impl Db {
         .await?
     }
 
+    /// 按 bot 行 id 全局查 bots 行(Bot 是应用级服务,不按 owner 过滤)。
+    pub async fn get_bot_by_id(&self, bot_id: i64) -> AppResult<Option<BotRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<BotRow>> {
+            let c = conn.blocking_lock();
+            let row = c
+                .query_row(
+                    "SELECT id, bot_account_id, owner_account_id, display_name, status, created_at FROM bots WHERE id = ?1",
+                    params![bot_id],
+                    |r| {
+                        Ok(BotRow {
+                            id: r.get(0)?,
+                            bot_account_id: r.get::<_, i64>(1)? as u32,
+                            owner_account_id: r.get::<_, i64>(2)? as u32,
+                            display_name: r.get(3)?,
+                            status: r.get(4)?,
+                            created_at: r.get(5)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(row)
+        })
+        .await?
+    }
+
     pub async fn set_bot_status(&self, owner_account_id: u32, bot_id: i64, status: &str) -> AppResult<()> {
         let conn = self.conn.clone();
         let status = status.to_string();
@@ -986,6 +1012,55 @@ impl Db {
                 params![owner_account_id, bot_id],
                 |row| row.get(0),
             ).optional()?;
+            Ok(row)
+        })
+        .await?
+    }
+
+    // ── 全局 by-id 变体(bot 是应用级服务,不按 owner 过滤) ──────────────
+
+    pub async fn delete_bot_by_id(&self, bot_id: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM bots WHERE id = ?1", params![bot_id])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn set_bot_status_by_id(&self, bot_id: i64, status: &str) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let status = status.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("UPDATE bots SET status = ?2 WHERE id = ?1", params![bot_id, status])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn set_bot_config_by_id(&self, bot_id: i64, config_json: Option<&str>) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let config_json = config_json.map(|s| s.to_string());
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("UPDATE bots SET config_json = ?2 WHERE id = ?1", params![bot_id, config_json])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn get_bot_config_by_id(&self, bot_id: i64) -> AppResult<Option<String>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
+            let c = conn.blocking_lock();
+            let row = c
+                .query_row("SELECT config_json FROM bots WHERE id = ?1", params![bot_id], |row| row.get(0))
+                .optional()?;
             Ok(row)
         })
         .await?

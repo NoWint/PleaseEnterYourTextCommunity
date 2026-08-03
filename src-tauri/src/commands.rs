@@ -2885,15 +2885,13 @@ pub async fn create_bot(state: State<'_, AppState>, display_name: String) -> App
 /// 列出当前用户的所有 bot。
 #[tauri::command]
 pub async fn list_bots(state: State<'_, AppState>) -> AppResult<Vec<BotDto>> {
-    let owner_id = current_owner_id(&state)?;
-    state.bots.list(owner_id).await
+    state.bots.list().await
 }
 
 /// 删除当前用户的一个 bot。
 #[tauri::command]
 pub async fn delete_bot(state: State<'_, AppState>, bot_id: i64) -> AppResult<()> {
-    let owner_id = current_owner_id(&state)?;
-    state.bots.delete(owner_id, bot_id).await
+    state.bots.delete(bot_id).await
 }
 
 /// 启/停当前用户某个 bot 的 IO。
@@ -2903,8 +2901,7 @@ pub async fn set_bot_io(
     bot_id: i64,
     running: bool,
 ) -> AppResult<BotDto> {
-    let owner_id = current_owner_id(&state)?;
-    state.bots.set_io(owner_id, bot_id, running).await
+    state.bots.set_io(bot_id, running).await
 }
 
 /// 更新当前用户某个 bot 的 LLM 配置。
@@ -2914,8 +2911,7 @@ pub async fn update_bot_llm(
     bot_id: i64,
     config: crate::dto::LlmConfigInput,
 ) -> AppResult<BotDto> {
-    let owner_id = current_owner_id(&state)?;
-    state.bots.update_bot_llm(owner_id, bot_id, config).await
+    state.bots.update_bot_llm(bot_id, config).await
 }
 
 /// 读取当前用户某个 bot 的 LLM 配置（未配置时为 None）。
@@ -2924,8 +2920,7 @@ pub async fn get_bot_llm(
     state: State<'_, AppState>,
     bot_id: i64,
 ) -> AppResult<Option<crate::dto::LlmConfigInput>> {
-    let owner_id = current_owner_id(&state)?;
-    state.bots.get_bot_llm(owner_id, bot_id).await
+    state.bots.get_bot_llm(bot_id).await
 }
 
 /// 获取当前用户某个 bot 账号的聊天列表。
@@ -2934,8 +2929,7 @@ pub async fn bot_get_chatlist(
     state: State<'_, AppState>,
     bot_id: i64,
 ) -> AppResult<Vec<ChatDto>> {
-    let owner_id = current_owner_id(&state)?;
-    let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(bot_id).await?;
     build_chatlist(&ctx, None).await
 }
 
@@ -2946,8 +2940,7 @@ pub async fn bot_get_chat_msgs(
     bot_id: i64,
     chat_id: u32,
 ) -> AppResult<Vec<MsgDto>> {
-    let owner_id = current_owner_id(&state)?;
-    let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(bot_id).await?;
     get_chat_msgs_impl(&ctx, chat_id, None).await
 }
 
@@ -2959,8 +2952,7 @@ pub async fn bot_send_text(
     chat_id: u32,
     text: String,
 ) -> AppResult<MsgDto> {
-    let owner_id = current_owner_id(&state)?;
-    let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(bot_id).await?;
     let msg_id = send_text_impl(&ctx, chat_id, text).await?;
     msg_to_dto(&ctx, msg_id).await
 }
@@ -2972,8 +2964,7 @@ pub async fn bot_mark_chat_noticed(
     bot_id: i64,
     chat_id: u32,
 ) -> AppResult<()> {
-    let owner_id = current_owner_id(&state)?;
-    let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(bot_id).await?;
     mark_chat_noticed_impl(&ctx, chat_id).await
 }
 
@@ -2994,12 +2985,11 @@ pub async fn add_bot_to_chat(
     bot_id: i64,
     chat_id: u32,
 ) -> AppResult<()> {
-    let owner_id = current_owner_id(&state)?;
     let main_ctx = state
         .current()
         .await
         .ok_or_else(|| AppError::Core("no account".into()))?;
-    let bot_ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    let bot_ctx = state.bots.ctx_for_bot(bot_id).await?;
     // 仅群组/广播可生成邀请 QR;1:1 会话 get_securejoin_qr 会报错
     let qr = securejoin::get_securejoin_qr(&main_ctx, Some(deltachat::chat::ChatId::new(chat_id)))
         .await

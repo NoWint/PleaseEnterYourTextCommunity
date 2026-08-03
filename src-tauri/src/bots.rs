@@ -123,8 +123,9 @@ impl BotService {
 
     /// 列出指定用户的所有 bot，读取其账号地址与 IO 运行状态。
     /// 账号上下文不可用时优雅跳过（addr = None）。
-    pub async fn list(&self, owner_id: u32) -> AppResult<Vec<BotDto>> {
-        let rows = self.db.list_bots(owner_id).await?;
+    /// 列出全部 bot(应用级服务,不区分 owner)。
+    pub async fn list(&self) -> AppResult<Vec<BotDto>> {
+        let rows = self.db.list_all_bots().await?;
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             let ctx = self.accounts.lock().await.get_account(row.bot_account_id);
@@ -145,10 +146,10 @@ impl BotService {
     }
 
     /// 删除 bot：停 IO → 移除 accounts 账号 → 删除 db 行。
-    pub async fn delete(&self, owner_id: u32, bot_id: i64) -> AppResult<()> {
+    pub async fn delete(&self, bot_id: i64) -> AppResult<()> {
         let row = self
             .db
-            .get_bot(owner_id, bot_id)
+            .get_bot_by_id(bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
         if let Some(ctx) = self.accounts.lock().await.get_account(row.bot_account_id) {
@@ -159,16 +160,16 @@ impl BotService {
             .await
             .remove_account(row.bot_account_id)
             .await?;
-        self.db.delete_bot(owner_id, bot_id).await?;
+        self.db.delete_bot_by_id(bot_id).await?;
         self.bot_ids.lock().await.remove(&row.bot_account_id);
         Ok(())
     }
 
-    /// 校验 bot 归属当前 owner, 返回其 deltachat Context
-    pub async fn ctx_for_bot(&self, owner_id: u32, bot_id: i64) -> AppResult<Context> {
+    /// 返回 bot 的 deltachat Context(全局按 bot_id,不校验当前账号归属)。
+    pub async fn ctx_for_bot(&self, bot_id: i64) -> AppResult<Context> {
         let row = self
             .db
-            .get_bot(owner_id, bot_id)
+            .get_bot_by_id(bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
         let ctx = self
@@ -181,10 +182,10 @@ impl BotService {
     }
 
     /// 启/停单个 bot 的 IO，并把状态写回 db，返回最新 DTO。
-    pub async fn set_io(&self, owner_id: u32, bot_id: i64, running: bool) -> AppResult<BotDto> {
+    pub async fn set_io(&self, bot_id: i64, running: bool) -> AppResult<BotDto> {
         let row = self
             .db
-            .get_bot(owner_id, bot_id)
+            .get_bot_by_id(bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
         let ctx = self.accounts.lock().await.get_account(row.bot_account_id);
@@ -196,7 +197,7 @@ impl BotService {
             }
         }
         let status = if running { "running" } else { "stopped" };
-        self.db.set_bot_status(owner_id, bot_id, status).await?;
+        self.db.set_bot_status_by_id(bot_id, status).await?;
         let addr = match &ctx {
             Some(ctx) => ctx.get_config(Config::ConfiguredAddr).await?,
             None => None,
@@ -286,19 +287,18 @@ impl BotService {
     /// 更新某个 bot 的 LLM 配置，并返回最新 DTO。
     pub async fn update_bot_llm(
         &self,
-        owner_id: u32,
         bot_id: i64,
         config: LlmConfigInput,
     ) -> AppResult<BotDto> {
         let row = self
             .db
-            .get_bot(owner_id, bot_id)
+            .get_bot_by_id(bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
         let json = serde_json::to_string(&config)
             .map_err(|e| AppError::Core(format!("llm config serialize: {e}")))?;
         self.db
-            .set_bot_config(owner_id, bot_id, Some(&json))
+            .set_bot_config_by_id(bot_id, Some(&json))
             .await?;
         let ctx = self.accounts.lock().await.get_account(row.bot_account_id);
         let addr = match &ctx {
@@ -316,16 +316,12 @@ impl BotService {
     }
 
     /// 读取某个 bot 的 LLM 配置；未配置或 JSON 解析失败返回 None。
-    pub async fn get_bot_llm(
-        &self,
-        owner_id: u32,
-        bot_id: i64,
-    ) -> AppResult<Option<LlmConfigInput>> {
+    pub async fn get_bot_llm(&self, bot_id: i64) -> AppResult<Option<LlmConfigInput>> {
         self.db
-            .get_bot(owner_id, bot_id)
+            .get_bot_by_id(bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
-        let raw = self.db.get_bot_config(owner_id, bot_id).await?;
+        let raw = self.db.get_bot_config_by_id(bot_id).await?;
         match raw.as_deref() {
             None | Some("") => Ok(None),
             Some(json) => match serde_json::from_str::<LlmConfigInput>(json) {
@@ -380,14 +376,14 @@ mod tests {
             .await
             .unwrap();
 
-        let dto = svc.set_io(owner_id, bot_id, false).await.unwrap();
+        let dto = svc.set_io(bot_id, false).await.unwrap();
         assert!(!dto.io_running);
         assert_eq!(dto.bot_account_id, bot_account_id);
         assert_eq!(dto.display_name, "TestBot");
         let row = db.get_bot(owner_id, bot_id).await.unwrap().unwrap();
         assert_eq!(row.status, "stopped");
 
-        let dto = svc.set_io(owner_id, bot_id, true).await.unwrap();
+        let dto = svc.set_io(bot_id, true).await.unwrap();
         assert!(dto.io_running);
         let row = db.get_bot(owner_id, bot_id).await.unwrap().unwrap();
         assert_eq!(row.status, "running");
@@ -399,13 +395,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (_, _, svc) = test_env(&tmp).await;
 
-        let err = svc.delete(1, 999).await.unwrap_err();
+        let err = svc.delete(999).await.unwrap_err();
         assert!(matches!(err, AppError::Core(_)));
     }
 
-    /// ctx_for_bot 校验归属：owner 本人能拿到 context，非 owner 访问应报 not found。
+    /// ctx_for_bot 全局按 id:存在的 bot 能拿到 context,不存在的 id 报 not found。
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_ctx_for_bot_non_owned_returns_error() {
+    async fn test_ctx_for_bot_global_by_id() {
         let tmp = tempfile::tempdir().unwrap();
         let (accounts, db, svc) = test_env(&tmp).await;
 
@@ -419,12 +415,10 @@ mod tests {
             .await
             .unwrap();
 
-        // owner 本人可以拿到 bot 的 context
-        let ctx = svc.ctx_for_bot(owner_id, bot_id).await.unwrap();
+        let ctx = svc.ctx_for_bot(bot_id).await.unwrap();
         assert_eq!(ctx.get_id(), bot_account_id);
 
-        // 非 owner（2）访问该 bot 应返回 not found 错误
-        let err = svc.ctx_for_bot(2, bot_id).await.unwrap_err();
+        let err = svc.ctx_for_bot(999).await.unwrap_err();
         assert!(matches!(err, AppError::Core(_)));
     }
 
@@ -451,13 +445,10 @@ mod tests {
             model: Some("gpt-4o-mini".to_string()),
             provider: Some("openai".to_string()),
         };
-        let dto = svc.update_bot_llm(owner_id, bot_id, config.clone()).await.unwrap();
+        let dto = svc.update_bot_llm(bot_id, config.clone()).await.unwrap();
         assert_eq!(dto.bot_account_id, bot_account_id);
-        // 归属校验：非 owner 更新应报错
-        let err = svc.update_bot_llm(2, bot_id, config.clone()).await.unwrap_err();
-        assert!(matches!(err, AppError::Core(_)));
 
-        let read = svc.get_bot_llm(owner_id, bot_id).await.unwrap().unwrap();
+        let read = svc.get_bot_llm(bot_id).await.unwrap().unwrap();
         assert_eq!(read.system_prompt, config.system_prompt);
         assert_eq!(read.base_url, config.base_url);
         assert_eq!(read.api_key, config.api_key);
