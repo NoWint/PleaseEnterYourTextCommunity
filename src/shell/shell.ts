@@ -222,8 +222,12 @@ export async function renderShell(): Promise<void> {
     }
   });
 
-  // 请求通知权限
-  if ('Notification' in window && Notification.permission === 'default') {
+  // 请求通知权限:仅在用户开启通知偏好时(否则一启动就弹权限框很突兀)
+  if (
+    'Notification' in window &&
+    Notification.permission === 'default' &&
+    localStorage.getItem('peyt.notificationsEnabled') !== 'false'
+  ) {
     Notification.requestPermission();
   }
 
@@ -241,6 +245,8 @@ let notifQueue: QueuedNotif[] = [];
 let notifTimer: ReturnType<typeof setTimeout> | null = null;
 
 function queueNotification(chatId: number, name: string, preview: string): void {
+  // 应用级总开关(设置页持久化的偏好) + 系统权限都满足才弹
+  if (localStorage.getItem('peyt.notificationsEnabled') === 'false') return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   notifQueue.push({ chatId, name, preview });
   if (notifTimer) clearTimeout(notifTimer);
@@ -361,13 +367,18 @@ async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
 
 async function updateBadge(): Promise<void> {
   try {
+    const tauri = window as unknown as TauriWindow;
+    // 角标开关关闭时直接清零(设置页切换后立即可见)
+    if (localStorage.getItem('peyt.badgeEnabled') === 'false') {
+      if (tauri.__TAURI__?.app?.setBadgeCount) await tauri.__TAURI__.app.setBadgeCount(0);
+      return;
+    }
     // 同时拉常规 + 归档会话的未读:归档会话新消息也应计入总角标(Delta 语义:归档不打扰但有未读提示)
     const [normal, archived] = await Promise.all([
       call<ChatListItem[]>('get_chatlist'),
       call<ChatListItem[]>('get_chatlist', { archivedOnly: true }),
     ]);
     const total = [...normal, ...archived].reduce((sum, c) => sum + (c.unread || 0), 0);
-    const tauri = window as unknown as TauriWindow;
     if (tauri.__TAURI__?.app?.setBadgeCount) {
       await tauri.__TAURI__.app.setBadgeCount(total);
     }

@@ -185,7 +185,10 @@ export async function renderChatView(chatId: number): Promise<void> {
     await refreshMessages(chatId);
     renderComposer(chatId, () => refreshMessages(chatId));
     bindScrollListener(chatId);
-    try { await call('mark_chat_noticed', { chatId }); } catch {}
+    // 打开聊天 = 已读:标记 seen(清未读徽标 + 向对方发送已读回执)。
+    // 不能用 mark_chat_noticed —— 那只是 InFresh→InNoticed,core 不会发 MDN,
+    // 对方永远看不到「已读」。
+    try { await call('mark_chat_seen', { chatId }); } catch {}
     saveState();
     // 监听 message.js reply 按钮 dispatch 的事件
     if (!main.dataset.replyListenerBound) {
@@ -245,8 +248,9 @@ export async function appendNewMessages(chatId: number): Promise<void> {
     await renderAllMessages(box);
     if (wasAtBottom) {
       box.scrollTop = box.scrollHeight;
-      // 用户看到了新消息 → 标记已读并触发 MDN,让发送方(delta)显示已读
-      try { await call('mark_chat_noticed', { chatId }); } catch {}
+      // 用户看到了新消息 → 标记 seen 并触发 MDN,让发送方显示已读。
+      // (mark_chat_noticed 不触发 MDN,对方看不到已读。)
+      try { await call('mark_chat_seen', { chatId }); } catch {}
     }
   } catch (e) {
     console.error('appendNewMessages failed:', e);
@@ -319,17 +323,16 @@ async function loadEarlier(chatId: number): Promise<void> {
 
 // Delta 式全量渲染:所有已加载消息都是真实 DOM 节点,浏览器原生管理滚动。
 // scrollHeight = 真实内容高度,scrollTop 天然稳定 —— 不需要 spacer 估算、不需要
-// 手动补偿,从根源消除闪烁循环与微动。数据量可控(get_chat_msgs 每次 50 条分页,
-// loadEarlier 累积到几百条,全量 DOM 渲染完全可行,Delta 桌面端即此方案)。
+// 手动补偿。
 //
-// 增量优化:已存在的消息节点复用(不重建),只新建缺失的。日期分隔线/未读分隔线
-// 通过 data-* 标记复用。全量重渲染(频道切换)时 box 内容整体重建。
+// 消除闪烁的关键:不调用 box.innerHTML=''(清空会销毁全部节点触发整区重绘),
+// 改为有序对账(diff)—— 已有消息节点原样保留(不重写 innerHTML,内容零重绘),
+// 只新建缺失节点、移除多余节点、把新节点插到正确位置。发送消息时只有那条
+// 新气泡被创建,整条消息流不再闪烁。
 async function renderAllMessages(box: HTMLElement): Promise<void> {
   // 并发守卫:多次渲染交错时,只有最后一次写入 DOM
   const token = ++renderToken;
   const msgs = state.messages;
-  // 渲染前记录:box.innerHTML='' 会清掉 scrollTop,渲染后按 scrollHeight 增量补偿,
-  // 保持视口内容稳定(全量 DOM 下 scrollHeight 是真实内容高度,补偿即真实位移)。
   const prevScrollTop = box.scrollTop;
   const prevScrollHeight = box.scrollHeight;
 
@@ -337,60 +340,61 @@ async function renderAllMessages(box: HTMLElement): Promise<void> {
     ? msgs.length - currentChatUnread
     : -1;
 
-  // 复用已有节点:按 data-msg 索引,避免全量重建
-  const existing = new Map<number, HTMLElement>();
+  // 现有节点索引:key = m:msg_id / d:日期 / u:未读位置
+  const existing = new Map<string, HTMLElement>();
   for (const el of Array.from(box.children)) {
-    const msgId = (el as HTMLElement).dataset?.msg;
-    if (msgId) existing.set(Number(msgId), el as HTMLElement);
+    const h = el as HTMLElement;
+    const key = h.dataset.msg
+      ? `m:${h.dataset.msg}`
+      : h.classList.contains('msg-date-divider') && h.dataset.date
+        ? `d:${h.dataset.date}`
+        : h.classList.contains('msg-unread-divider') && h.dataset.unread
+          ? `u:${h.dataset.unread}`
+          : '';
+    if (key) existing.set(key, h);
   }
 
-  // 当前 DOM 里已有的日期/未读分隔线(复用)
-  const existingDividers = new Set<string>();
-  box.querySelectorAll<HTMLElement>('.msg-date-divider').forEach((d) => existingDividers.add(`d:${d.dataset.date}`));
-  box.querySelectorAll<HTMLElement>('.msg-unread-divider').forEach((d) => existingDividers.add(`u:${d.dataset.unread}`));
-
-  // 组装新序列:日期分隔线 + 消息 + 未读分隔线,顺序与 state.messages 一致
-  const frag = document.createDocumentFragment();
+  // 组装目标序列(有序 key + 节点)。日期/未读分隔线缺则建;消息缺则渲染。
+  const items: Array<{ key: string; el: HTMLElement }> = [];
   let prevDate: string | null = null;
 
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i];
     const dateStr = formatDate(new Date(m.ts * 1000));
 
-    // 日期分隔线(仅在需要时插入,复用已存在的)
     if (dateStr !== prevDate) {
       const key = `d:${dateStr}`;
-      if (!existingDividers.has(key)) {
-        const d = document.createElement('div');
+      let d = existing.get(key);
+      if (!d) {
+        d = document.createElement('div');
         d.className = 'msg-date-divider';
         d.dataset.date = dateStr;
         d.textContent = dateStr;
-        frag.appendChild(d);
-        existingDividers.add(key);
+        existing.set(key, d);
       }
+      items.push({ key, el: d });
       prevDate = dateStr;
     }
 
-    // 未读分隔线
     if (i === dividerIndex) {
       const key = `u:${dividerIndex}`;
-      if (!existingDividers.has(key)) {
-        const d = document.createElement('div');
+      let d = existing.get(key);
+      if (!d) {
+        d = document.createElement('div');
         d.className = 'msg-unread-divider';
         d.dataset.unread = String(dividerIndex);
         d.innerHTML = `<span class="divider-line"></span><span class="divider-label">新消息</span><span class="divider-line"></span>`;
-        frag.appendChild(d);
-        existingDividers.add(key);
+        existing.set(key, d);
       }
+      items.push({ key, el: d });
     }
 
-    const existingEl = existing.get(m.msg_id);
-    if (existingEl) {
-      // 复用:修正分组角色(相邻同人折叠),位置由文档流决定
-      applyGroupRole(m, i, dividerIndex, dateStr, existingEl);
-      frag.appendChild(existingEl);
+    const key = `m:${m.msg_id}`;
+    let el = existing.get(key);
+    if (el) {
+      // 复用:只修正分组角色(邻居变化),内容不动
+      applyGroupRole(m, i, dividerIndex, dateStr, el);
     } else {
-      // 新建消息
       const role = computeGroupRole(m, i, dividerIndex, dateStr);
       const msgFrag = document.createElement('div');
       msgFrag.innerHTML = await renderMessage(m, role);
@@ -399,21 +403,51 @@ async function renderAllMessages(box: HTMLElement): Promise<void> {
         bindMessageActions(msgFrag);
         node.classList.add('msg-enter');
         node.addEventListener('animationend', () => node.classList.remove('msg-enter'), { once: true });
-        frag.appendChild(node);
+        existing.set(key, node);
+        el = node;
       }
     }
+    if (el) items.push({ key, el });
   }
 
   // await 之后检查并发 token:若有更新的渲染,放弃本次
   if (token !== renderToken) return;
 
-  // 原子替换:新序列整体替换 box 内容。浏览器一次绘制。
-  box.innerHTML = '';
-  box.appendChild(frag);
+  // 1) 移除不再需要的节点(删除的消息/过期分隔线/空态提示)。
+  // renderAllMessages 只在有消息时被调用,空态(.ui-empty)只出现在无消息分支,
+  // 不会与消息并存,因此非目标节点一律移除。
+  const desired = new Set(items.map((it) => it.key));
+  for (const el of Array.from(box.children)) {
+    const h = el as HTMLElement;
+    const key = h.dataset.msg
+      ? `m:${h.dataset.msg}`
+      : h.classList.contains('msg-date-divider') && h.dataset.date
+        ? `d:${h.dataset.date}`
+        : h.classList.contains('msg-unread-divider') && h.dataset.unread
+          ? `u:${h.dataset.unread}`
+          : '';
+    if (!desired.has(key)) el.remove();
+  }
 
-  // scrollTop 补偿:box.innerHTML='' 清掉了 scrollTop,按 scrollHeight 增量补偿,
-  // 保持视口内容稳定(全量 DOM 下 scrollHeight 是真实高度,增量即真实位移)。
-  // 调用方若要贴底(如 appendNewMessages 底部路径),在此之后自行设 scrollTop=scrollHeight。
+  // 2) 有序对账:保持 items 顺序,每个目标节点应紧跟在「上一个已就位节点」之后。
+  // anchor 记录上一个已就位节点;当前项正确位置 = box 首元素(anchor 为空)
+  // 或 current.previousSibling === anchor。否则 insertBefore 到 anchor 之后。
+  // 已有节点在正确位置时零操作(不移动、不重写内容 → 不闪烁);
+  // 只有缺失节点/错位节点才被插入。注意方向:此前实现用 nextSibling === anchor
+  // 且 insertBefore(el, anchor),首次渲染会把新节点逐个插到前面 → 整流反转、
+  // 最新消息跑到顶部、滚不到底。已修正为 previousSibling 语义。
+  let anchor: HTMLElement | null = null;
+  for (const it of items) {
+    const el = it.el;
+    const correctlyPlaced = el.parentNode === box && (anchor === null ? box.firstChild === el : el.previousSibling === anchor);
+    if (!correctlyPlaced) {
+      box.insertBefore(el, anchor ? anchor.nextSibling : null);
+    }
+    anchor = el;
+  }
+
+  // scrollTop 补偿:顶部插入(loadEarlier)时按 scrollHeight 增量保持视口;
+  // 底部追加无需补偿(scrollTop 本来就贴底,appendNewMessages 会再设 scrollHeight)。
   const heightDelta = box.scrollHeight - prevScrollHeight;
   const target = Math.max(0, prevScrollTop + heightDelta);
   if (Math.abs(target - box.scrollTop) > 0.5) {

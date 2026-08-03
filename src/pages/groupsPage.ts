@@ -200,7 +200,7 @@ function showChannelContextMenu(anchor: HTMLElement, chatId: number): void {
       icon: 'check',
       action: async () => {
         try {
-          await call('mark_chat_noticed', { chatId });
+          await call('mark_chat_seen', { chatId });
         } catch (e) {
           showToast(e instanceof Error ? e.message : String(e));
         }

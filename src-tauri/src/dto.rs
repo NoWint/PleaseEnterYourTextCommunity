@@ -33,6 +33,8 @@ pub struct ChatDto {
     pub last_msg: Option<String>,
     pub last_ts: Option<i64>,
     pub unread: u32,
+    pub avatar: Option<String>, // blobdir 绝对路径(单聊=对方头像,群聊=群头像)
+    pub color: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,6 +55,7 @@ pub struct ChatInfoDto {
     pub is_contact_request: bool,
     pub is_self_talk: bool,
     pub chat_type: String,
+    pub is_encrypted: bool,
     pub members: Vec<MemberDto>,
 }
 
@@ -95,6 +98,8 @@ pub struct ContactDto {
     pub id: u32,
     pub name: String,
     pub addr: String,
+    pub avatar: Option<String>, // blobdir 绝对路径
+    pub color: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
