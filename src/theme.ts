@@ -12,33 +12,37 @@ export type ThemeName =
   | 'blush'
   | 'brutal'
   | 'crt'
-  | 'toon';
+  | 'toon'
+  | 'zzz';
 
 export type AnyTheme = ThemeName | string;
 
-/** 内置主题元数据 — 设置页外观选择器的唯一数据源 (swatch 为 CSS 渐变色串)。 */
+/** 内置主题元数据 — 设置页外观选择器的唯一数据源 (swatch 为 CSS 渐变色串)。
+ *  group: 主题明暗分类,用于选择器分组显示。 */
 export interface BuiltinTheme {
   id: string;
   label: string;
   swatch: string;
+  group: 'dark' | 'light';
   preview?: string;
 }
 
 export const BUILTIN_THEMES: BuiltinTheme[] = [
-  { id: 'nowint', label: 'Nowint', swatch: 'linear-gradient(135deg,#0d0d0d,#1a1a1a)' },
-  { id: 'violet', label: 'Violet', swatch: 'linear-gradient(135deg,#1a0d2e,#6b3fa0)' },
-  { id: 'goldenhour', label: 'GoldenHour', swatch: 'linear-gradient(135deg,#2e1a0d,#d4a043)' },
-  { id: 'forest', label: 'Forest', swatch: 'linear-gradient(135deg,#0a2318,#2f9e6e)' },
-  { id: 'midnight', label: 'Midnight', swatch: 'linear-gradient(135deg,#0a1630,#3f7bd9)' },
-  { id: 'ember', label: 'Ember', swatch: 'linear-gradient(135deg,#230a12,#c23a4d)' },
-  { id: 'graphite', label: 'Graphite', swatch: 'linear-gradient(135deg,#121419,#3f4a5c)' },
-  { id: 'paper', label: 'Paper', swatch: 'linear-gradient(135deg,#f5efe6,#fbf7f0)' },
-  { id: 'frost', label: 'Frost', swatch: 'linear-gradient(135deg,#eef3f8,#f7fafc)' },
-  { id: 'sage', label: 'Sage', swatch: 'linear-gradient(135deg,#eef3ec,#f8faf4)' },
-  { id: 'blush', label: 'Blush', swatch: 'linear-gradient(135deg,#f7eef1,#fcf8f9)' },
-  { id: 'brutal', label: 'Brutalism', swatch: 'linear-gradient(135deg,#0d0d0d,#f5f5f5)', preview: 'border-radius:0;border:2px solid #111' },
-  { id: 'crt', label: 'CRT', swatch: 'linear-gradient(135deg,#0a0e0a,#33ff66)', preview: 'border-radius:2px;box-shadow:0 0 10px rgba(51,255,102,.5)' },
-  { id: 'toon', label: 'Toon', swatch: 'linear-gradient(135deg,#FFE156,#ff4fd8)', preview: 'border-radius:16px;box-shadow:0 4px 0 rgba(0,0,0,.35)' },
+  { id: 'nowint', label: 'Nowint', group: 'dark', swatch: 'linear-gradient(135deg,#0d0d0d,#1a1a1a)' },
+  { id: 'violet', label: 'Violet', group: 'dark', swatch: 'linear-gradient(135deg,#1a0d2e,#6b3fa0)' },
+  { id: 'goldenhour', label: 'GoldenHour', group: 'light', swatch: 'linear-gradient(135deg,#2e1a0d,#d4a043)' },
+  { id: 'forest', label: 'Forest', group: 'dark', swatch: 'linear-gradient(135deg,#0a2318,#2f9e6e)' },
+  { id: 'midnight', label: 'Midnight', group: 'dark', swatch: 'linear-gradient(135deg,#0a1630,#3f7bd9)' },
+  { id: 'ember', label: 'Ember', group: 'dark', swatch: 'linear-gradient(135deg,#230a12,#c23a4d)' },
+  { id: 'graphite', label: 'Graphite', group: 'dark', swatch: 'linear-gradient(135deg,#121419,#3f4a5c)' },
+  { id: 'paper', label: 'Paper', group: 'light', swatch: 'linear-gradient(135deg,#f5efe6,#fbf7f0)' },
+  { id: 'frost', label: 'Frost', group: 'light', swatch: 'linear-gradient(135deg,#eef3f8,#f7fafc)' },
+  { id: 'sage', label: 'Sage', group: 'light', swatch: 'linear-gradient(135deg,#eef3ec,#f8faf4)' },
+  { id: 'blush', label: 'Blush', group: 'light', swatch: 'linear-gradient(135deg,#f7eef1,#fcf8f9)' },
+  { id: 'brutal', label: 'Brutalism', group: 'dark', swatch: 'linear-gradient(135deg,#0c0c0c,#FFD60A)', preview: 'border-radius:0;border:3px solid #FFD60A' },
+  { id: 'crt', label: 'CRT', group: 'dark', swatch: 'linear-gradient(135deg,#0a0e0a,#33ff66)', preview: 'border-radius:2px;box-shadow:0 0 10px rgba(51,255,102,.5)' },
+  { id: 'toon', label: 'Toon', group: 'light', swatch: 'linear-gradient(135deg,#FFE156,#ff4fd8)', preview: 'border-radius:16px;box-shadow:0 4px 0 rgba(0,0,0,.35)' },
+  { id: 'zzz', label: 'ZZZ', group: 'dark', swatch: 'linear-gradient(135deg,#0d0d0d,#ffe600)', preview: 'border-radius:4px;box-shadow:0 0 10px rgba(255,230,0,.45)' },
 ];
 
 export function getCurrentTheme(): AnyTheme {

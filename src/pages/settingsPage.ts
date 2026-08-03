@@ -3,7 +3,7 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from '../components/icon.js';
 import { renderAvatarHtml } from '../components/avatar.js';
-import { getCurrentTheme, applyTheme, BUILTIN_THEMES, getCurrentFontScale, applyFontScale, FONT_SCALES, type FontScale } from '../theme.js';
+import { getCurrentTheme, applyTheme, BUILTIN_THEMES, getCurrentFontScale, applyFontScale, FONT_SCALES, type FontScale, type BuiltinTheme } from '../theme.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
@@ -188,26 +188,61 @@ function triggerAvatarUpload(main: HTMLElement): void {
 }
 
 // ── 外观 ──────────────────────────────────────────────
+// Telegram 式主页微缩预览:预览容器挂 data-theme 触发该主题的变量作用域,
+// 内部元素用 var(--xxx) 渲染迷你三栏界面,真实呈现主题效果。
+function themePreviewHtml(id: string): string {
+  return `
+  <span class="theme-swatch theme-preview" data-theme="${id}">
+    <span class="tp-rail"></span>
+    <span class="tp-nav">
+      <i class="tp-nav-item"></i><i class="tp-nav-item"></i><i class="tp-nav-item"></i>
+    </span>
+    <span class="tp-chat">
+      <span class="tp-chat-head"></span>
+      <span class="tp-msg"><i class="tp-bubble"></i></span>
+      <span class="tp-msg short"><i class="tp-bubble"></i></span>
+      <span class="tp-msg out"><i class="tp-bubble"></i></span>
+      <span class="tp-input"></span>
+    </span>
+    <span class="theme-swatch-check">${iconSvg('check')}</span>
+  </span>`;
+}
+
 function renderAppearance(main: HTMLElement): void {
   const current = getCurrentTheme();
   const pluginThemes = window.__peytchat_themes || [];
-  const themesHtml = [
-    ...BUILTIN_THEMES.map((t) => `
-      <div class="settings-theme ${current === t.id ? 'active' : ''}" data-theme="${t.id}">
-        <div class="theme-swatch" style="background:${t.swatch}${t.preview ? `;${t.preview}` : ''}"></div>
-        <span>${escapeHtml(t.label)}</span>
-      </div>`),
-    ...pluginThemes.map((t) => `
-      <div class="settings-theme ${current === t.id ? 'active' : ''}" data-theme="${t.id}">
-        <div class="theme-swatch" style="background:${t.swatch}"></div>
-        <span>${escapeHtml(t.name)}</span>
-      </div>`),
-  ].join('');
+  const renderCard = (t: { id: string; label: string; swatch: string; preview?: string; mode?: 'plugin' }) => {
+    const isActive = current === t.id;
+    const thumb = t.mode === 'plugin'
+      ? `<span class="theme-swatch" style="background:${t.swatch}"></span>`
+      : themePreviewHtml(t.id);
+    return `
+    <button type="button" class="settings-theme ${isActive ? 'active' : ''}" data-theme-id="${t.id}">
+      ${thumb}
+      <span class="theme-name">${escapeHtml(t.label)}</span>
+    </button>`;
+  };
+  const dark = BUILTIN_THEMES.filter((t) => t.group === 'dark');
+  const light = BUILTIN_THEMES.filter((t) => t.group === 'light');
+  const groupHtml = (title: string, list: { id: string; label: string; swatch: string; preview?: string; mode?: 'plugin' }[]) => `
+    <div class="theme-group">
+      <div class="theme-group-head">
+        <span class="theme-group-title">${escapeHtml(title)}</span>
+        <span class="theme-group-count">${list.length}</span>
+        <span class="theme-group-line"></span>
+      </div>
+      <div class="settings-themes">${list.map((t) => renderCard(t)).join('')}</div>
+    </div>`;
+  const themesHtml = groupHtml('深色主题', dark)
+    + groupHtml('浅色主题', light)
+    + (pluginThemes.length
+      ? groupHtml('插件主题', pluginThemes.map((t) => ({ id: t.id, label: t.name, swatch: t.swatch, mode: 'plugin' as const })))
+      : '');
   const currentScale = getCurrentFontScale();
   main.innerHTML = `
-    <div class="settings-section">
+    <div class="settings-section settings-appearance">
       <h2>外观</h2>
-      <div class="settings-themes">${themesHtml}</div>
+      ${themesHtml}
       <div class="settings-font-row">
         <div class="settings-font-label">字体大小</div>
         <div id="font-scale-picker"></div>
@@ -216,7 +251,7 @@ function renderAppearance(main: HTMLElement): void {
   `;
   main.querySelectorAll<HTMLElement>('.settings-theme').forEach((el) => {
     el.addEventListener('click', () => {
-      const theme = el.dataset.theme as string;
+      const theme = el.dataset.themeId as string;
       applyTheme(theme);
       main.querySelectorAll('.settings-theme').forEach((e) => e.classList.remove('active'));
       el.classList.add('active');
