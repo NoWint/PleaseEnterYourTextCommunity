@@ -132,7 +132,10 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   const collapsed = groupRole === 'middle' || groupRole === 'last';
   const collapsedCls = collapsed ? ' collapsed' : '';
   const groupCls = ` msg-group-${groupRole}`;
-  const roleName = !isOut && msg.from_id ? getRoleName(msg.from_id) : '';
+  // 单聊(非群聊):气泡内不显示 role tag(role 是 workspace 概念)和顶部 username
+  // (对方用户名已在聊天头显示,Delta 单聊行为)
+  const isSingle = !state.currentChatIsGroup;
+  const roleName = !isOut && msg.from_id && !isSingle ? getRoleName(msg.from_id) : '';
   const roleTag = roleName ? `<span class="msg-role">${escapeHtml(roleName)}</span>` : '';
   // Reply mark: ↩ replaced with reply SVG icon per Task 14 brief step 1.6
   const replyIcon = iconSvg('reply', { width: 12, height: 12 });
@@ -238,8 +241,9 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
     : '';
   const isOutAttr = isOut ? ' data-is-out="1"' : '';
   // 折叠时:头像隐藏(气泡式紧凑流),名字隐藏;名字/时间都放进气泡 meta 行
+  // 单聊:始终不显示顶部 username(已在聊天头,Delta 单聊行为)
   const avatarDisplay = collapsed ? '' : avatarHtml;
-  const nameDisplay = collapsed
+  const nameDisplay = (collapsed || isSingle)
     ? ''
     : `<span class="msg-name">${escapeHtml(msg.from_name)}</span>`;
   // delta 式 footer:展开/折叠都在气泡底部显示时间戳+状态图标(右侧)

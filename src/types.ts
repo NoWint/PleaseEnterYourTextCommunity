@@ -135,6 +135,7 @@ export interface AppState {
   messagesOldestId: number | null;
   noMoreMsgs: boolean;
   currentMembers: MemberDto[];
+  currentChatIsGroup: boolean;
   cards: CardDto[];
   currentCardId: number | null;
   currentView: CurrentView;

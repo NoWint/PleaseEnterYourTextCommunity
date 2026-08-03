@@ -109,7 +109,8 @@ export async function renderChatView(chatId: number): Promise<void> {
     // 渲染骨架(含 Task 13 头部按钮:members / pin,触发 detail panel)
     // 成员数标签:state.currentMembers 来自上面 get_chat_info,失败为空则隐藏
     const memberCount = state.currentMembers?.length || 0;
-    const membersTag = memberCount > 0
+    // 单聊不显示 "N 成员"(对应用户名已在标题,气泡内也无 name/role tag)
+    const membersTag = memberCount > 0 && state.currentChatIsGroup
       ? `<span class="ch-members">${memberCount} 成员</span>`
       : '';
     main.innerHTML = `
@@ -168,9 +169,12 @@ export async function renderChatView(chatId: number): Promise<void> {
       const chat = chats.find((c) => c.chat_id === chatId);
       currentChatUnread = chat?.unread || 0;
       currentChatIsSelfTalk = chat?.is_self_talk === true;
+      // 群聊标记存 state(message.ts 渲染气泡时也读):单聊隐藏 name/role tag
+      state.currentChatIsGroup = chat?.is_group === true;
     } catch {
       currentChatUnread = 0;
       currentChatIsSelfTalk = false;
+      state.currentChatIsGroup = false;
     }
     await refreshMessages(chatId);
     renderComposer(chatId, () => refreshMessages(chatId));
@@ -519,6 +523,11 @@ function bindScrollListener(chatId: number): void {
 function channelName(chatId: number): string {
   // self-talk(保存的消息/设备聊天)不在 workspace channels 里,单独给友好名称
   if (currentChatIsSelfTalk) return '保存的消息';
+  // 单聊:不显示 #id,用对方 username(非 self 成员)
+  if (!state.currentChatIsGroup) {
+    const other = state.currentMembers?.find((mm) => !mm.is_self);
+    if (other?.name) return other.name;
+  }
   const ch = state.channels.find((c: ChannelDto) => c.chat_id === chatId);
   return ch ? ch.name : `#${chatId}`;
 }

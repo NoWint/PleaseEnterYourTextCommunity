@@ -12,6 +12,7 @@ export const state: AppState = {
   messagesOldestId: null,
   noMoreMsgs: false,
   currentMembers: [],
+  currentChatIsGroup: false,
   cards: [],
   currentCardId: null,
   currentView: 'kanban',
