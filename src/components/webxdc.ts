@@ -37,10 +37,13 @@ interface WebxdcInfo {
   summary: string;
 }
 
+// core 返回的更新结构:StatusUpdateItem { payload, info } + serial + max_serial。
+// 前端把 payload 映射为 update(传给 webxdc 应用的 setUpdateListener)、info 映射为 desc。
 interface WebxdcStatusUpdate {
   serial: number;
-  update: unknown;
-  desc?: string | null;
+  max_serial?: number;
+  payload?: unknown;
+  info?: string | null;
 }
 
 /** iframe 桥 → 宿主的请求消息。 */
@@ -123,7 +126,7 @@ export async function openWebxdc(msgId: number): Promise<void> {
       <span class="webxdc-title">${escapeHtml(title)}</span>
       <button class="webxdc-close" title="关闭">${iconSvg('x', { width: 18, height: 18 })}</button>
     </header>
-    <iframe class="webxdc-frame" title="webxdc 应用" sandbox="allow-scripts allow-same-origin"></iframe>
+    <iframe class="webxdc-frame" title="webxdc 应用" sandbox="allow-scripts allow-forms"></iframe>
   `;
   document.body.appendChild(overlay);
   const frame = overlay.querySelector<HTMLIFrameElement>('.webxdc-frame')!;
@@ -183,6 +186,9 @@ export function closeWebxdc(): void {
 // 注册一次,仅在 activeMsgId 非空时处理,避免永久空转。
 
 window.addEventListener('message', (ev) => {
+  // 来源校验:只接受当前活动 webxdc iframe 的消息。否则任意同源脚本可冒充 guest
+  // 触发宿主调后端命令(安全)。opaque origin 下 ev.source 仍是 iframe 的 Window 引用。
+  if (ev.source !== activeFrame?.contentWindow) return;
   const msg = ev.data as BridgeMsg | undefined;
   if (!msg || msg.webxdcBridge !== 1) return;
   const mid = activeMsgId;
@@ -198,16 +204,22 @@ async function handleBridgeRequest(msgId: number, msg: BridgeMsg, source: Messag
     switch (msg.type) {
       case 'sendUpdate': {
         const payload = msg.data?.update as unknown;
-        const serial = await call<number>('send_webxdc_status_update', { msgId, payload });
+        const desc = String(msg.data?.desc ?? '');
+        // core 期望 StatusUpdateItem JSON 结构 {"payload":..., "info":...}。
+        const serial = await call<number>('send_webxdc_status_update', {
+          msgId,
+          payload: JSON.stringify({ payload, info: desc }),
+        });
         reply({ serial });
         // 本地回显:让发送者自己的 setUpdateListener 立即收到(serial 去重避免与
         // WebxdcStatusUpdate 事件推送重复)。
-        pushUpdateToFrame({ update: payload, serial, desc: String(msg.data?.desc ?? '') });
+        pushUpdateToFrame({ update: payload, serial, desc });
         break;
       }
       case 'getAllUpdates': {
         const updates = await call<WebxdcStatusUpdate[]>('get_webxdc_status_updates', { msgId });
-        const norm = updates.map((u) => ({ update: u.update, serial: u.serial, desc: u.desc ?? '' }));
+        // core 字段是 payload/info,映射为 webxdc 应用的 update/desc
+        const norm = updates.map((u) => ({ update: u.payload, serial: u.serial, desc: u.info ?? '' }));
         reply({ updates: norm, maxSerial: norm.length ? norm[norm.length - 1].serial : 0 });
         break;
       }
@@ -217,10 +229,10 @@ async function handleBridgeRequest(msgId: number, msg: BridgeMsg, source: Messag
         const next = updates.find((u) => u.serial > since);
         reply(next
           ? {
-              update: next.update,
+              update: next.payload,
               serial: next.serial,
               maxSerial: updates.length ? updates[updates.length - 1].serial : next.serial,
-              desc: next.desc ?? '',
+              desc: next.info ?? '',
             }
           : null);
         break;
@@ -248,7 +260,7 @@ function pushUpdateToFrame(data: { update: unknown; serial: number; desc: string
 async function refreshUpdatesToFrame(msgId: number, frame: HTMLIFrameElement): Promise<void> {
   try {
     const updates = await call<WebxdcStatusUpdate[]>('get_webxdc_status_updates', { msgId });
-    const norm = updates.map((u) => ({ update: u.update, serial: u.serial, desc: u.desc ?? '' }));
+    const norm = updates.map((u) => ({ update: u.payload, serial: u.serial, desc: u.info ?? '' }));
     const win = frame.contentWindow;
     if (!win) return;
     win.postMessage(

@@ -422,8 +422,8 @@ async function startVoiceRecording(
   activeVoiceRecorder = rec;
 }
 
-// 停止并丢弃当前录音(composer 重渲染时调用,释放麦克风)
-function cleanupVoiceRecorder(): void {
+// 停止并丢弃当前录音(composer 重渲染或切页时调用,释放麦克风)
+export function cleanupVoiceRecorder(): void {
   const rec = activeVoiceRecorder;
   if (!rec) return;
   activeVoiceRecorder = null;
