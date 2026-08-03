@@ -71,13 +71,14 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       `;
     }
   }
+  // 微信/QQ 式输入框:左侧录音按钮 + 计时,中间大 textarea,右侧圆形发送。
   area.innerHTML = `
     <div class="composer">
       ${replyPreview}
       <div class="composer-row">
-        <textarea id="composer-input" placeholder="发消息到频道... (@提及 / #频道)" rows="1"></textarea>
-        <span class="composer-mic-timer" id="composer-mic-timer"></span>
         <button type="button" class="composer-mic" id="composer-mic" title="录音">${iconSvg('mic', { width: 16, height: 16 })}</button>
+        <span class="composer-mic-timer" id="composer-mic-timer"></span>
+        <textarea id="composer-input" placeholder="发消息到频道... (@提及 / #频道)" rows="1"></textarea>
         <button type="button" class="composer-send" id="composer-send" title="发送" disabled>${iconSvg('arrow-up', { width: 18, height: 18, strokeWidth: 2.2 })}</button>
       </div>
     </div>
@@ -149,20 +150,14 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         return;
       }
     }
-    // 发送
-    const isReplying = !!area.dataset.replyTo;
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      // Cmd/Ctrl+Enter 始终发送（含回复）
+    // 发送(微信/QQ 语义):普通 Enter 发送;Ctrl/Cmd+Enter 换行(不含 Shift —— Shift+Enter 留给
+    // @/# 建议面板的 Tab 插入,且浏览器默认也可换行)。建议面板打开时 Enter 已被上方分支拦截。
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       await send(chatId, input, area, onSent);
-    } else if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-      if (isReplying) {
-        // 回复中：普通 Enter 换行，不发送
-        insertNewline(input);
-      } else {
-        e.preventDefault();
-        await send(chatId, input, area, onSent);
-      }
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      insertNewline(input);
     } else if (e.key === 'Escape') {
       if (area.dataset.replyTo) {
         delete area.dataset.replyTo;

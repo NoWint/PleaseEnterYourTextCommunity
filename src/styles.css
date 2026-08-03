@@ -425,7 +425,7 @@ html.window-overlay .wb-controls { display: none; }
 .chat-header .ch-topic { font-size: var(--font-scale-secondary); color: var(--text-weak); margin-left: 8px; }
 .chat-header .ch-actions { color: var(--text-action); font-size: var(--font-scale-body); display: flex; gap: 14px; }
 .chat-header .ch-actions span { cursor: pointer; }
-.messages { flex: 1; overflow-y: auto; padding: var(--space-4) var(--space-5); padding-top: 88px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: none; }
+.messages { flex: 1; overflow-y: auto; padding: var(--space-4) var(--space-5); padding-top: 88px; padding-bottom: 120px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: none; }
 .messages::-webkit-scrollbar { display: none; }
 
 /* 全站隐藏滚动条(保留滚动功能) */
@@ -490,16 +490,26 @@ html.window-overlay .wb-controls { display: none; }
 }
 .msg .msg-reaction:hover { background: var(--active); border-color: var(--text-weak); }
 .msg-reaction-count { font-size: var(--font-scale-micro); font-weight: 600; color: var(--text-mute); line-height: 1; margin-left: 1px; }
-/* 输入区:胶囊输入条 + 圆形发送按钮 (iMessage 式) */
-/* 输入区:回复条在卡片内顶部,textarea+发送按钮在下方一行 */
+/* 输入区:悬浮玻璃卡片(与 chat-header 同材质),回复条在卡片内顶部 */
 .composer {
   display: flex; flex-direction: column; gap: var(--space-2);
-  padding: 12px 16px 14px; background: var(--panel);
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.20), inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
 }
+/* 微信/QQ 式布局:录音按钮 + 计时在左,textarea 弹性居中,发送在右 */
 .composer-row {
   display: flex; align-items: flex-end; gap: 10px;
 }
 .composer input { width: 100%; padding: var(--space-2) var(--space-3); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font-size: var(--font-scale-body); font-family: var(--font); }
+/* 悬浮输入区容器:贴底、左右留边,脱离文档流浮在消息区之上(与 chat-header 对称) */
+#composer-area {
+  position: absolute; bottom: 14px; left: 14px; right: 14px;
+  z-index: 10;
+}
 
 .right-drawer {
   width: var(--drawer-w, 300px); background: var(--panel);
