@@ -41,6 +41,11 @@ let renderToken = 0;
 // 若拉取失败或为 0,则不渲染分隔线。
 let currentChatUnread = 0;
 
+// 虚拟化总高锚定基准:首次渲染时测得的真实 scrollHeight。之后每次渲染用 spacerBottom
+// 吸收估算误差,使 scrollHeight 恒定 → scrollTop 不被钳位 → 无递归渲染(底部闪烁循环)
+// 也不需要补偿(无微动)。切换频道时重置。
+let stableScrollHeight = 0;
+
 // 当前 chat 是否为 self-talk(保存的消息/设备聊天):在 renderChatView 拉 chatlist 时填充,
 // channelName 据此显示「保存的消息」而非 #id。
 let currentChatIsSelfTalk = false;
@@ -79,6 +84,8 @@ export async function renderChatView(chatId: number): Promise<void> {
     clearReactionsCache();
     // F3:切换频道时清空 pinned 缓存,避免右键菜单显示上一个频道的置顶状态
     clearPinnedCache();
+    // 总高锚定基准随频道重置
+    stableScrollHeight = 0;
   }
   state.currentChatId = chatId;
   (state as LegacyState).homeMode = false;
@@ -384,9 +391,6 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
   // 则本次(过时)直接放弃写入,避免 stale 数据覆盖 DOM。
   const token = ++renderToken;
   const visible = state.messages.slice(start, end);
-  // 渲染前记录 scrollHeight/scrollTop,用于贴底场景的滚动位置修正(见函数末尾)。
-  const prevScrollTop = box.scrollTop;
-  const prevScrollHeight = box.scrollHeight;
 
   const dividerIndex = (currentChatUnread > 0 && state.messages.length >= currentChatUnread)
     ? state.messages.length - currentChatUnread
@@ -463,21 +467,34 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
   const spacerTop = box.querySelector<HTMLElement>('.msg-spacer-top');
   const spacerBottom = box.querySelector<HTMLElement>('.msg-spacer-bottom');
   if (spacerTop) spacerTop.style.height = (start * ITEM_HEIGHT) + 'px';
-  if (spacerBottom) spacerBottom.style.height = ((state.messages.length - end) * ITEM_HEIGHT) + 'px';
 
-  // 滚动位置修正:
-  //  1. 渲染前用户已在底部(贴底)→ 渲染后 scrollHeight 变化(spacer 估算 vs 真实高度),
-  //     scrollTop 需跟随新 scrollHeight 保持贴底,否则被钳位 → 触发 scroll → 递归渲染
-  //     → 最后一条消失又出现,闪烁循环。贴底补偿自收敛。
-  //  2. 非底部(纯滚动):不补偿。spacer 估算误差会让 scrollHeight 微变,但用户没贴底,
-  //     scrollTop 不会被钳位;主动补偿反而让视口内容微动(块内元素上下微动)。
-  const atBottom = box.clientHeight > 0 &&
-    prevScrollTop + box.clientHeight >= prevScrollHeight - 50;
-  if (atBottom) {
-    const target = box.scrollHeight - box.clientHeight;
-    if (Math.abs(target - box.scrollTop) > 0.5) {
-      box.scrollTop = target;
+  // 总高锚定(根治闪烁循环 + 微动):
+  // spacer 用估算高度(ITEM_HEIGHT),与真实消息高度有偏差 → 渲染后 scrollHeight 变化
+  // → scrollTop 被钳位 → 触发 scroll → 递归渲染(底部闪烁循环);或补偿导致微动。
+  // 解法:用 spacerBottom 吸收估算误差,使 scrollHeight 恒定于 stableScrollHeight,
+  // scrollTop 无需补偿、不触发递归、也不微动。
+  //
+  // 首次渲染(频道刚切换,stableScrollHeight=0):先设估算 spacerBottom 测真实总高,
+  // 记录为基准;后续渲染锚定该基准,不再变。
+  const realContent = box.scrollHeight - (spacerTop?.offsetHeight || 0) - (spacerBottom?.offsetHeight || 0);
+  if (spacerBottom) {
+    if (stableScrollHeight === 0) {
+      // 首次:spacerBottom 保持估算,测真实总高作为基准
+      const estimatedBottom = (state.messages.length - end) * ITEM_HEIGHT;
+      spacerBottom.style.height = estimatedBottom + 'px';
+      stableScrollHeight = box.scrollHeight;
+    } else {
+      // 后续:spacerBottom 吸收误差,总高回到基准
+      const desiredBottom = Math.max(0, stableScrollHeight - (spacerTop?.offsetHeight || 0) - realContent);
+      spacerBottom.style.height = desiredBottom + 'px';
     }
+  }
+
+  // 总高恒定后 scrollTop 不需要补偿。钳位防护:仅当 scrollTop 超出新范围(极端情况)
+  // 才校正,避免每帧微调。
+  const maxScroll = box.scrollHeight - box.clientHeight;
+  if (box.scrollTop > maxScroll + 1) {
+    box.scrollTop = maxScroll;
   }
 }
 
