@@ -561,6 +561,24 @@ html { background: var(--bg); }
 .ui-switch input:checked + .ui-switch-slider { background: var(--success); }
 .ui-switch input:checked + .ui-switch-slider::before { transform: translateX(18px); background: var(--bg); }
 
+/* 复选 */
+.ui-checkbox { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--font-scale-body); color: var(--text); user-select: none; }
+.ui-checkbox input { width: 14px; height: 14px; accent-color: var(--text); cursor: pointer; margin: 0; }
+.ui-checkbox-label { line-height: 1.4; }
+
+/* 标签 */
+.ui-label { display: block; font-size: var(--font-scale-secondary); font-weight: 600; color: var(--text-weak); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+
+/* 分段控件 */
+.ui-segmented { display: inline-flex; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.ui-segment { padding: 4px 12px; font-size: var(--font-scale-body); color: var(--text-weak); cursor: pointer; border: none; background: none; font-weight: 500; font-family: inherit; transition: background 120ms, color 120ms; }
+.ui-segment.active { background: var(--text); color: var(--on-accent); }
+.ui-segment:not(.active):hover { background: var(--capsule); color: var(--text); }
+
+/* date 输入对齐其它输入控件 */
+.ui-input[type="date"] { appearance: none; -webkit-appearance: none; color-scheme: dark; }
+.ui-input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.7; }
+
 /* 标签 / 徽章 / 头像 */
 .ui-chip {
   display: inline-flex; align-items: center; gap: 5px;

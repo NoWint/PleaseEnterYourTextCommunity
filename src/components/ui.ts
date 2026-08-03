@@ -1,5 +1,8 @@
 import { iconSvg, type IconName } from './icon.js';
 import { showToast } from '../toast.js';
+import { escapeHtml } from './escape.js';
+import { createInlineInput } from './inlineInput.js';
+import { showInlineConfirm } from './inlineConfirm.js';
 
 /**
  * 统一 UI 组件库 — 所有界面组件从这里创建,形态与动画全局一致。
@@ -21,7 +24,10 @@ export function button(opts: ButtonOpts): HTMLButtonElement {
   const el = document.createElement('button');
   const size = opts.size ? ` ui-button-${opts.size}` : '';
   el.className = `ui-button${opts.variant ? ` ui-button-${opts.variant}` : ''}${opts.danger ? ' ui-button-danger' : ''}${size}`;
-  if (opts.icon) el.insertAdjacentHTML('afterbegin', iconSvg(opts.icon, { width: 14, height: 14 }));
+  if (opts.icon) {
+    const px = opts.size === 'sm' ? 12 : opts.size === 'lg' ? 16 : 14;
+    el.insertAdjacentHTML('afterbegin', iconSvg(opts.icon, { width: px, height: px }));
+  }
   if (opts.label) el.appendChild(document.createTextNode(opts.label));
   if (opts.title) el.title = opts.title;
   if (opts.disabled) el.disabled = true;
@@ -83,11 +89,67 @@ export function field(opts: { label: string; children: HTMLElement; help?: strin
   return el;
 }
 
+export function label(opts: { text: string; htmlFor?: string }): HTMLLabelElement {
+  const el = document.createElement('label');
+  el.className = 'ui-label';
+  if (opts.htmlFor) el.htmlFor = opts.htmlFor;
+  el.textContent = opts.text;
+  return el;
+}
+
 export function switch_(opts: { checked?: boolean; onChange?: (v: boolean) => void; disabled?: boolean }): HTMLElement {
   const el = document.createElement('label');
   el.className = 'ui-switch';
   el.innerHTML = `<input type="checkbox" ${opts.checked ? 'checked' : ''} ${opts.disabled ? 'disabled' : ''}><span class="ui-switch-slider"></span>`;
   el.querySelector('input')!.addEventListener('change', () => opts.onChange?.(el.querySelector('input')!.checked));
+  return el;
+}
+
+// ── 复选 / 分段 / 文件 ────────────────────────────────
+export function checkbox(opts: { label?: string; checked?: boolean; disabled?: boolean; onChange?: (v: boolean) => void }): HTMLLabelElement {
+  const el = document.createElement('label');
+  el.className = 'ui-checkbox';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = !!opts.checked;
+  if (opts.disabled) cb.disabled = true;
+  cb.addEventListener('change', () => opts.onChange?.(cb.checked));
+  el.appendChild(cb);
+  if (opts.label) {
+    const span = document.createElement('span');
+    span.className = 'ui-checkbox-label';
+    span.textContent = opts.label;
+    el.appendChild(span);
+  }
+  return el;
+}
+
+export function segmented(opts: { items: Array<{ value: string; label: string }>; value?: string; onChange?: (v: string) => void }): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = 'ui-segmented';
+  for (const it of opts.items) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `ui-segment${it.value === opts.value ? ' active' : ''}`;
+    b.dataset.value = it.value;
+    b.textContent = it.label;
+    b.addEventListener('click', () => {
+      el.querySelectorAll('.ui-segment').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      opts.onChange?.(it.value);
+    });
+    el.appendChild(b);
+  }
+  return el;
+}
+
+export function file(opts: { accept?: string; multiple?: boolean; onChange?: (files: FileList | null) => void }): HTMLInputElement {
+  const el = document.createElement('input');
+  el.type = 'file';
+  el.style.display = 'none';
+  if (opts.accept) el.accept = opts.accept;
+  if (opts.multiple) el.multiple = true;
+  el.addEventListener('change', () => { opts.onChange?.(el.files); el.value = ''; });
   return el;
 }
 
@@ -295,7 +357,24 @@ export interface MenuItem {
   danger?: boolean;
   action?: () => void | Promise<void>;
 }
-export function menu(anchor: HTMLElement, items: MenuItem[], position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' = 'bottom-left'): void {
+export interface MenuOpts {
+  /** 关闭方式:'click' 外部点击关闭(默认);'hover' 额外在鼠标离开菜单时关闭(dropdown.ts 行为) */
+  closeOn?: 'click' | 'hover';
+  /** 同 anchor 再次触发时关闭已开菜单(toggle) */
+  toggle?: boolean;
+  /** 菜单关闭后回调 */
+  onClose?: () => void;
+}
+let activeMenuHide: (() => void) | null = null;
+let activeMenuAnchor: HTMLElement | null = null;
+export function menu(anchor: HTMLElement, items: MenuItem[], position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' = 'bottom-left', opts?: MenuOpts): void {
+  const closeOn = opts?.closeOn ?? 'click';
+  if (opts?.toggle && activeMenuAnchor === anchor) {
+    activeMenuHide?.();
+    return;
+  }
+  activeMenuHide?.();
+  activeMenuAnchor = anchor;
   document.querySelectorAll('.ui-menu').forEach((m) => m.remove());
   const el = document.createElement('div');
   el.className = 'ui-menu';
@@ -325,12 +404,18 @@ export function menu(anchor: HTMLElement, items: MenuItem[], position: 'top-left
   const hide = (): void => {
     if (closing) return;
     closing = true;
+    if (activeMenuHide === hide) activeMenuHide = null;
+    if (activeMenuAnchor === anchor) activeMenuAnchor = null;
     el.classList.add('closing');
     setTimeout(() => {
       el.remove();
       document.removeEventListener('click', outside);
+      document.removeEventListener('keydown', onEsc);
+      el.removeEventListener('mouseleave', onLeave);
+      opts?.onClose?.();
     }, 120);
   };
+  activeMenuHide = hide;
   el.querySelectorAll<HTMLButtonElement>('.ui-menu-item').forEach((b) => {
     b.addEventListener('click', () => {
       const it = items[Number(b.dataset.i)];
@@ -339,9 +424,17 @@ export function menu(anchor: HTMLElement, items: MenuItem[], position: 'top-left
     });
   });
   const outside = (e: MouseEvent): void => {
-    if (!el.contains(e.target as Node)) hide();
+    if (!el.contains(e.target as Node) && e.target !== anchor) hide();
   };
-  setTimeout(() => document.addEventListener('click', outside), 0);
+  const onEsc = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') hide();
+  };
+  const onLeave = (): void => hide();
+  if (closeOn === 'hover') el.addEventListener('mouseleave', onLeave);
+  setTimeout(() => {
+    document.addEventListener('click', outside);
+    document.addEventListener('keydown', onEsc);
+  }, 0);
 }
 
 // ── 搜索框 ────────────────────────────────────────────
@@ -376,20 +469,16 @@ export function toast(msg: string): void {
   showToast(msg);
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  })[c]!);
-}
-
 /** 聚合导出 */
 export const ui = {
   button, iconButton,
-  input, textarea, select, field, switch_,
+  input, textarea, select, field, label, switch_, checkbox, segmented, file,
   chip, badge, avatar,
   card, listItem, divider,
   overlay, dialog, inputDialog, confirm,
   tabs, menu, search,
   spinner, empty, toast,
+  inlineInput: createInlineInput,
+  inlineConfirm: showInlineConfirm,
 };
 export default ui;
