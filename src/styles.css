@@ -2790,6 +2790,10 @@ body {
 /* 主题选择器(设置页外观):无论当前主题是什么,选择器自身都固定为 Nowint 默认观感,
    确保色板预览(深/浅/效果层)不被当前主题的圆角/边框/字体等样式 token 污染 */
 .settings-appearance {
+  /* 主题网格需自适应窗口:通用 .settings-section 的 max-width:600px 会锁死内容宽,
+     导致 auto-fill grid 永远只排 3 列。外观页放宽上限,让网格随可用宽度排更多列。
+     设 1200px 上限,避免超宽窗口下卡片被 1fr 拉伸得过宽。 */
+  max-width: 1200px;
   /* 固定 token,隔离当前主题的样式覆盖 */
   --radius-xs: 6px;
   --radius-sm: 8px;
