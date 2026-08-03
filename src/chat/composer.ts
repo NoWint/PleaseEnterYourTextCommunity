@@ -134,12 +134,19 @@ export function renderComposer(chatId: number, onSent: () => void): void {
       }
     }
     // 发送
-    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+    const isReplying = !!area.dataset.replyTo;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      // Cmd/Ctrl+Enter 始终发送（含回复）
       e.preventDefault();
       await send(chatId, input, area, onSent);
-    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      await send(chatId, input, area, onSent);
+    } else if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      if (isReplying) {
+        // 回复中：普通 Enter 换行，不发送
+        insertNewline(input);
+      } else {
+        e.preventDefault();
+        await send(chatId, input, area, onSent);
+      }
     } else if (e.key === 'Escape') {
       if (area.dataset.replyTo) {
         delete area.dataset.replyTo;
@@ -148,6 +155,18 @@ export function renderComposer(chatId: number, onSent: () => void): void {
     }
   };
   input.focus();
+}
+
+/** 在光标处插入换行并自适应高度（回复多行输入用）。 */
+function insertNewline(input: HTMLTextAreaElement): void {
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  input.value = input.value.slice(0, start) + '\n' + input.value.slice(end);
+  const pos = start + 1;
+  input.selectionStart = pos;
+  input.selectionEnd = pos;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
 }
 
 // 检测 textarea 中光标前的 @xxx / #xxx 模式,弹出对应建议列表

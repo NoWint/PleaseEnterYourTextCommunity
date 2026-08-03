@@ -13,7 +13,7 @@ import type { PluginStatus } from './types.js';
  */
 export async function renderPluginSettings(main: HTMLElement): Promise<void> {
   main.innerHTML = `
-    <div class="settings-section">
+    <div class="settings-section plugin-settings-page">
       <h2>插件</h2>
       <div id="plugin-settings-list"><div class="plugin-empty">加载中…</div></div>
     </div>
