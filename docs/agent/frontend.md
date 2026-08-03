@@ -1,6 +1,6 @@
 # 前端地图（src/，Vanilla TS）
 
-48 个 TS 文件。无框架、无路由库、无状态管理库。全部样式在单文件 `src/styles.css`（~2433 行）。
+57 个 TS 文件。无框架、无路由库、无状态管理库。全部样式在单文件 `src/styles.css`（~2438 行）。
 
 ---
 
@@ -110,19 +110,19 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 ## 7. 聊天（`src/chat/`）
 
-### chatView.ts — 核心聊天渲染 + 虚拟化
+### chatView.ts — 核心聊天渲染（Delta 式全量 DOM）
 
-- 常量：`ITEM_HEIGHT=60`（估算消息高）、`BUFFER=20`（上下缓冲）、`VIEWPORT=30`。
 - `renderChatView(chatId)`：用 `main.dataset.renderedChatId` 判断是否同频道已渲染（跳过全量重渲染）。切频道才重置分页。加载 roles/topic/pins/members → 渲染骨架（header + `#messages` + `#composer-area`）→ `refreshMessages`。
-- `renderVisibleMessages(box, start, end)`：**增量 DOM 更新**——滚出窗口的节点 `remove()`、滚进窗口的 `insertBefore` 到锚点前，窗口内节点不动。两个常驻 spacer（`ensureSpacers`）撑住总高度，`scrollHeight` 全程不变 → scrollTop 由浏览器文档流维护，**无需手动恢复**（根治滚动闪烁与位置回跳）。`renderToken` 守卫并发渲染，`msg-enter` 动画在 `animationend` 清理。
-- 消息分组（WhatsApp 式连续发送者折叠：solo/first/middle/last），日期分隔线，「新消息」未读分隔线。
-- `appendNewMessages(chatId)`：实时增量（拉最新 50 条去重 push 重渲染），到底自动滚。
-- `appendOptimisticMessage(tmpMsg)`：composer 乐观发送。
-- self-talk（保存的消息）会话打开时标题显示「保存的消息」（`currentChatIsSelfTalk`）。
+- **Delta 式全量 DOM 渲染**（`renderAllMessages`）：所有已加载消息都是真实 DOM 节点，浏览器原生管理滚动。`scrollHeight` = 真实内容高度，scrollTop 天然稳定——**不用 spacer 估算、不用手动补偿**，根治手写虚拟化的闪烁循环/微动/位置回跳。分页每次 50 条（`get_chat_msgs`），滚到顶 `loadEarlier` prepend 并补偿 scrollTop。
+- 消息分组（WhatsApp 式连续发送者折叠：solo/first/middle/last，用全局索引计算），日期分隔线，「新消息」未读分隔线。`renderToken` 守卫并发渲染，`msg-enter` 动画在 `animationend` 清理。
+- `appendNewMessages(chatId)`：实时增量（拉最新 50 条去重 push 全量渲染），到底自动滚；有并发守卫 + tmp 乐观消息清理。
+- 单聊（非群聊）头部只显示对方 username，气泡内不显示 name/role tag。
+- `jumpToMessage(msgId)`：全量 DOM 下直接找节点滚动 + 高亮（供搜索跳转）。
+- self-talk（保存的消息）会话打开时标题显示「保存的消息」。
 
 ### composer.ts
 
-输入框 + 发送；回复预览；`@`/`#` 提及自动补全浮层；`/` 斜杠命令路由到 `window.__peytchat_commands`。发送流程：乐观 tmp → `send_text`/`send_reply` → onSent 刷新；失败标 failed 可点击重发。**草稿**：`renderComposer` 为 async，输入防抖 500ms 调 `set_draft` 保存、打开时 `get_draft` 恢复、发送成功后清空草稿。
+输入框 + 发送；回复预览；`@`/`#` 提及自动补全浮层；`/` 斜杠命令路由到 `window.__peytchat_commands`。发送流程：乐观 tmp → `send_text`/`send_reply` → onSent 刷新；失败标 failed 可点击重发。**草稿**：`renderComposer` 为 async，输入防抖 500ms 调 `set_draft` 保存、打开时 `get_draft` 恢复、发送成功后清空草稿。**语音录音**：mic 按钮 → `getUserMedia` + `MediaRecorder` → blob base64 → `send_voice`；切页时 `cleanupVoiceRecorder` 释放麦克风。
 
 ### message.ts
 
@@ -159,6 +159,16 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 - **inlineConfirm.ts**：零弹窗内联确认（替代 `confirm()`），支持 undo toast，3s 自动取消。
 - **navBanner.ts**：PEYT Studio 欢迎 banner。
 - **memberDetail.ts**：右抽屉成员详情（发消息/返回）。
+- **ui.ts**：统一组件库（listItem/button/dialog/inputDialog/badge/empty/menu/toast 等）。
+- **commandPalette.ts**：Cmd/Ctrl+P 命令面板（模糊匹配 + 键盘导航）。
+- **gallery.ts**：会话内媒体相册（图库/文件/视频/音频 tab + 全屏查看器）。
+- **voicePlayer.ts**：语音消息播放器（播放/暂停 + 计时）。
+- **webxdc.ts**：webxdc 消息卡片 + 沙箱 iframe 运行时 + window.webxdc 桥 + StatusUpdate 同步。
+- **blockedContacts.ts**：屏蔽列表（取消屏蔽）。
+- **protectionDialog.ts**：保护状态/加密指纹对话框。
+- **setupMultiDevice.ts**：多设备绑定（导出/导入密钥）。
+- **backupDialog.ts**：备份与恢复（带密码导出/导入）。
+- **mailingListProfile.ts**：邮件列表/广播资料弹窗。
 
 ## 11. 插件系统前端（`src/plugins/`）
 
@@ -194,4 +204,4 @@ message → api, state, toast, components/dropdown|inlineConfirm|icon
 composer → api, state, toast, chat/chatView(appendOptimisticMessage), components/icon
 ```
 
-**性能注意**：页面整块 `innerHTML` 替换（重挂载）。chatView 用虚拟化只渲染可视区 ~70 条。message.ts 有反应/置顶缓存。
+**性能注意**：页面整块 `innerHTML` 替换（重挂载）。chatView 用 **Delta 式全量 DOM 渲染**（所有已加载消息真实 DOM，分页 50 条/次，滚到顶 loadEarlier）。message.ts 有反应/置顶缓存。

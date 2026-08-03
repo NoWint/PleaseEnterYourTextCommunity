@@ -10,7 +10,7 @@
 
 `EventPayload`：`{ typ, chat_id?, msg_id?, contact_id?, progress?, comment?, text? }`（null 字段会作为 `null` 序列化，不省略）。`IncomingMsg` 的 `text` 是消息前 80 字符（空则 viewtype 标签如 `"[image]"`）。未匹配的事件变体静默丢弃。
 
-## 转发的 23 个事件
+## 转发的 22 个事件
 
 | typ | 前端处理 |
 |---|---|

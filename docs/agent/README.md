@@ -9,10 +9,10 @@
 | 文件 | 内容 | 何时读 |
 |---|---|---|
 | **[README.md](README.md)**（本文件） | 总览、技术栈、快速开始、仓库结构、架构与数据流 | 刚接触项目 / 想了解全貌 |
-| **[frontend.md](frontend.md)** | 前端 48 个 TS 文件的地图：启动、状态/类型、持久化、路由、页面、聊天、卡片、组件、插件前端、主题、动效、模块依赖 | 改前端任何功能 |
-| **[backend.md](backend.md)** | 后端 11 个 Rust 文件：启动、AppState、86 个命令分组、卡片命令详解、插件后端、终端、错误处理、配置 | 改 Tauri 命令 / 后端逻辑 |
+| **[frontend.md](frontend.md)** | 前端 57 个 TS 文件的地图：启动、状态/类型、持久化、路由、页面、聊天、卡片、组件、插件前端、主题、动效、模块依赖 | 改前端任何功能 |
+| **[backend.md](backend.md)** | 后端 11 个 Rust 文件：启动、AppState、100 个命令分组、卡片命令详解、插件后端、终端、错误处理、配置 | 改 Tauri 命令 / 后端逻辑 |
 | **[database.md](database.md)** | 10 张表完整 schema、全部 DTO、卡片数据模型与同步机制 | 动数据库 / 加表 / 改字段 |
-| **[events.md](events.md)** | deltachat 核心 → 前端的事件流（23 个事件 + 前端处理） | 实时更新 / 事件处理 |
+| **[events.md](events.md)** | deltachat 核心 → 前端的事件流（22 个事件 + 前端处理） | 实时更新 / 事件处理 |
 | **[conventions.md](conventions.md)** | 跨切面机制（[CARD]/[PEYT_INVITE] 前缀、插件系统、图标三处同步、主题、动效、styles.css 陷阱）+ 开发约定 + 常见任务 + 坑 | 动手前必读，特别是新功能 |
 
 ---
@@ -75,7 +75,7 @@ npx tsc --noEmit                    # 唯一的静态校验（无测试、无 li
 │   └── superpowers/
 │       ├── specs/             # 设计规格（改功能前先读）
 │       └── plans/             # 实施计划（与 spec 成对）
-├── src/                       # 前端（48 个 TS 文件）
+├── src/                       # 前端（57 个 TS 文件）
 │   ├── main.ts                # 入口 boot()
 │   ├── state.ts               # 全局可变状态 AppState 单例
 │   ├── types.ts               # 全部共享类型
@@ -83,21 +83,24 @@ npx tsc --noEmit                    # 唯一的静态校验（无测试、无 li
 │   ├── api.ts                 # call() invoke 封装 + onEvent()（单一事件桥）
 │   ├── theme.ts               # data-theme 主题
 │   ├── toast.ts               # showToast 单例
-│   ├── styles.css             # 全部样式（~2433 行，单文件）
+│   ├── styles.css             # 全部样式（~2438 行，单文件）
 │   ├── shell/                 # 三栏骨架：shell / rail / navPanel / rightDrawer / columnResizer
 │   ├── pages/                 # 顶级页：messages / groups / inbox / settings / terminal / work / debug
-│   ├── chat/                  # chatView（虚拟化）/ composer / message
+│   ├── chat/                  # chatView（Delta 式全量 DOM 渲染）/ composer（含语音录音）/ message
 │   ├── work/                  # 卡片：kanban / list / calendar / timeline / cardDetail / activity
 │   ├── components/            # icon / avatar / dropdown / inlineInput / inlineConfirm / ui /
-│   │                          #   contextMenu / search / viewToggle / navBanner / memberDetail
+│   │                          #   contextMenu / search / viewToggle / navBanner / memberDetail /
+│   │                          #   commandPalette / gallery / voicePlayer / webxdc /
+│   │                          #   blockedContacts / protectionDialog / setupMultiDevice /
+│   │                          #   backupDialog / mailingListProfile
 │   ├── plugins/               # 插件系统前端：manager / api / permissions / settings / storage / view / confirm / types
 │   └── views/login.ts         # 登录页
 └── src-tauri/                 # 后端（11 个 Rust 文件）
     ├── src/
     │   ├── main.rs            # 入口 → peytchat_lib::run()
-    │   ├── lib.rs             # Tauri builder，注册全部 86 个命令 + 事件转发
-    │   ├── state.rs           # AppState（accounts / db / plugins / terminals）
-    │   ├── commands.rs        # 全部业务命令（~2343 行）
+    │   ├── lib.rs             # Tauri builder，注册全部 100 个命令 + 事件转发
+    │   ├── state.rs           # AppState（accounts / db / plugins / terminals / data_dir）
+    │   ├── commands.rs        # 全部业务命令（~2728 行）
     │   ├── envelope.rs        # [PEYT] 信封协议发送端构建器
     │   ├── db.rs              # SQLite 封装 + migrate() 建 10 张表
     │   ├── dto.rs             # 全部 DTO

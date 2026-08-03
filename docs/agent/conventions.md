@@ -62,7 +62,7 @@ GitHub Pages 市场 → Rust PluginManager（安装/卸载/启停，文件系统
 
 ## 6. styles.css 结构与「重复选择器陷阱」
 
-styles.css ~2433 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 1334 行往后是 Task 17 区）：
+styles.css ~2438 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 1334 行往后是 Task 17 区）：
 
 | 选择器 | 旧（死）行 | 新（活）行 |
 |---|---|---|
@@ -100,8 +100,11 @@ styles.css ~2433 行。**很多选择器定义了两次：前面的旧规则是�
 | `2026-07-31-sidebar-redesign-design.md` | 侧栏重构 |
 | `2026-07-31-terminal-page-design.md` | 终端页 |
 | `2026-08-02-peyt-envelope-protocol-design.md` | 信封协议（不进 git） |
-| `2026-08-03-delta-alignment-roadmap.md` | Delta 功能对齐路线图（批次 1 已完成） |
-| `2026-08-03-delta-batch1-archive-saved-draft.md` | 批次 1 实施计划 |
+| `2026-08-03-delta-alignment-roadmap.md` | Delta 功能对齐路线图（批次 1-4 已完成，4.5 通话待做） |
+| `2026-08-03-delta-batch1-archive-saved-draft.md` | 批次 1 实施计划（已完成） |
+| `2026-08-03-delta-batch2-search-gallery-palette-mailing.md` | 批次 2 实施计划（已完成） |
+| `2026-08-03-delta-batch3-voice-webxdc.md` | 批次 3 实施计划（已完成） |
+| `2026-08-03-delta-batch4-notifications-encryption-backup.md` | 批次 4 实施计划（已完成） |
 
 ## 8. 常见任务指南
 
@@ -125,7 +128,7 @@ styles.css ~2433 行。**很多选择器定义了两次：前面的旧规则是�
 `db.rs::migrate()` 里 `CREATE TABLE IF NOT EXISTS`；`Db` 加方法（spawn_blocking + rusqlite）。
 
 ### 修消息相关
-先读 `chat/chatView.ts`（虚拟化）、`chat/message.ts`（渲染/缓存）、`shell.ts`（事件订阅）。注意别破坏虚拟化（增量 DOM 更新：窗口内节点不动、滚出 remove、滚进 insertBefore，两个常驻 spacer 撑高度；scrollHeight 不变所以 scrollTop 由浏览器维护，**不要**引入手动恢复 scrollTop 或 `innerHTML=''` 整体替换——会回到旧位置）。
+先读 `chat/chatView.ts`（Delta 式全量 DOM 渲染）、`chat/message.ts`（渲染/缓存）、`shell.ts`（事件订阅）。注意别破坏全量渲染：所有已加载消息都是真实 DOM 节点，浏览器原生管理滚动（`renderAllMessages` 复用已有节点、`box.innerHTML=''` 整体替换后按 scrollHeight 增量补偿 scrollTop）。**不要**引入手写 spacer 虚拟化/估算高度——那是滚动闪烁与微动的根源，已废弃。
 
 ### 动效
 CSS 入场（animation）+ `.closing` 出场（JS 加类 + 延时 remove）。reduced-motion 块兜底。别给整屏大区块加透明度动画（会闪）。

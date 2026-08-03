@@ -34,15 +34,15 @@ npx tsc --noEmit                 # TypeScript 类型检查
 - 模块划分：
   - `shell/` — 三栏布局骨架：`rail.ts`（左侧 workspace 竖栏）、`navPanel.ts`（频道树 + 主内容路由，含「保存的消息」入口）、`rightDrawer.ts`（右侧详情抽屉）。
   - `pages/` — 顶级页面：messages、groups、inbox、settings、terminal、work、debug。
-  - `chat/` — `chatView.ts`（消息列表，**增量 DOM 虚拟化**：窗口内节点不动、滚出 remove、滚进 insertBefore，两个常驻 spacer 撑高度，scrollTop 由浏览器维护）、`composer.ts`（含草稿防抖保存/恢复）、`message.ts`（消息/emoji 反应渲染与缓存）。
+  - `chat/` — `chatView.ts`（消息列表，**Delta 式全量 DOM 渲染**：所有已加载消息都是真实 DOM 节点，浏览器原生管理滚动——根治手写虚拟化的闪烁/微动/回跳；分页每次 50 条，滚到顶 loadEarlier）、`composer.ts`（含草稿防抖保存/恢复 + 语音录音按钮）、`message.ts`（消息/emoji 反应渲染与缓存，单聊隐藏 name/role tag）。
   - `work/` — 卡片任务系统：kanban、list、calendar、timeline、cardDetail、activity。
-  - `components/` — 通用组件：icon、avatar、dropdown、contextMenu、search、inlineInput/Confirm、viewToggle、navBanner、memberDetail、ui（组件库）。
+  - `components/` — 通用组件：icon、avatar、dropdown、contextMenu、search、inlineInput/Confirm、viewToggle、navBanner、memberDetail、ui（组件库）、commandPalette（命令面板）、gallery（媒体相册）、voicePlayer（语音播放）、webxdc（webxdc 沙箱运行时）、blockedContacts（屏蔽列表）、protectionDialog（保护状态/指纹）、setupMultiDevice（多设备）、backupDialog（备份恢复）、mailingListProfile（邮件列表）。
   - `plugins/` — 插件系统前端：`manager.ts` 在启动时加载已启用插件，`createPluginApi` 注入 `peytchat` 全局对象。
 
 ### 后端（src-tauri/，Rust + Tauri v2）
 
-- [lib.rs](src-tauri/src/lib.rs)：`AppState::new()` 初始化 → 注册全部 Tauri command（`invoke_handler`，86 个）。**新增后端命令必须在这里登记**。
-- [commands.rs](src-tauri/src/commands.rs)（~2343 行）：所有业务命令：登录/账号、聊天、群组、SecureJoin、workspace/channel、reaction/reply、卡片、Inbox/Activity、插件、归档/保存消息/草稿。
+- [lib.rs](src-tauri/src/lib.rs)：`AppState::new()` 初始化 → 注册全部 Tauri command（`invoke_handler`，100 个）。**新增后端命令必须在这里登记**。
+- [commands.rs](src-tauri/src/commands.rs)（~2728 行）：所有业务命令：登录/账号、聊天、群组、SecureJoin、workspace/channel、reaction/reply、卡片、Inbox/Activity、插件、归档/保存消息/草稿、语音/webxdc、imex（多设备/备份）、加密信息。
 - [envelope.rs](src-tauri/src/envelope.rs)：`[PEYT]` 信封协议发送端构建器（`build_envelope`），发送端已接卡片/项目邀请。
 - [db.rs](src-tauri/src/db.rs)：rusqlite + SQLite，存 workspaces/channels/cards/inbox_events/roles 等应用级数据（与 deltachat 核心自己的消息存储分离）。`migrate()` 用 `CREATE TABLE IF NOT EXISTS` 做建表迁移。
 - [plugins.rs](src-tauri/src/plugins.rs)：插件注册表拉取、安装（zip）、卸载、启停。
