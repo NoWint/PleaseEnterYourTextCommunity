@@ -71,7 +71,7 @@ pub async fn spawn(accounts: Arc<Mutex<Accounts>>, db: Arc<Db>, bot_ids: Arc<Mut
 - `tokio::spawn` 后台任务；`accounts.get_event_emitter()` 建自有接收端（async_broadcast 多接收者，与 events.rs 并存）。
 - 循环 `recv()`，命中 `EventType::IncomingMsg { chat_id, msg_id }` 且 `event.id ∈ bot_ids` 且该 Bot `status == 'running'` 且 LLM 配置齐全：
   1. 短取 `accounts.get_account(event.id)` 得 Bot context；`Message::load_from_db` 加载消息，取发送者 `Contact`
-  2. 防死循环：发送者是其他 Bot 账号（`contact_id ∈ bot_ids` 对应的 Self contact）→ 跳过
+  2. 防死循环：取发送者 `Contact::get_addr()`，若落在所有 Bot 账号的 `ConfiguredAddr` 集合内（即发送者是另一个 Bot）→ 跳过
   3. `chat::get_chat_msgs(bot_ctx, chat_id)` 取尾部 20 条 `ChatItem::Msg`：文本消息渲染 `「{name}: {text}」`，非文本记 `[图片]`/`[文件]`/`[语音]`/`[App]` 等
   4. `messages = [ChatMessage(system, 提示词)] + 历史`，调 `llm::complete`
   5. `Message::new(Viewtype::Text)` + `chat::send_msg(bot_ctx, chat_id, &mut msg)` 回复同聊
