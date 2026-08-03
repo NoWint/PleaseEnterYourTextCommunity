@@ -557,12 +557,13 @@ html.window-overlay .wb-controls { display: none; }
    指示器挂在 .composer 容器边缘(卡片顶边),而非输入框内部 —— 悬停即抓,操作容易。 */
 .composer { position: relative; }
 .composer-main { position: relative; }
-/* resize 指示器:位于容器上边缘,悬停浮现抓取条 */
+/* resize 指示器:位于容器上边缘。始终显示(热区常驻),悬停浮现抓取条。
+   按下立即切 textarea 模式(见 composer.ts),拖动调高,缩到单行松手切回 input。 */
 .composer-resize {
   position: absolute; top: -3px; left: 0; right: 0;
   height: 9px; cursor: row-resize;
   z-index: 20;
-  display: none; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   /* 放大热区但不遮输入:只有中间细条可点 */
 }
 .composer-resize::before {
@@ -571,8 +572,8 @@ html.window-overlay .wb-controls { display: none; }
   opacity: 0; transition: opacity 120ms var(--ease-out);
 }
 .composer:hover .composer-resize::before, .composer-resize:hover::before, .composer-resize:active::before { opacity: 0.9; }
-/* 展开时:显示指示器,textarea 撑高(最小高度调低,避免展开突兀) */
-.composer.expanded .composer-resize { display: flex; }
+/* 展开(textarea)模式:textarea 撑高(最小高度调低,避免展开突兀)。
+   resize 条本身两种模式都常显。 */
 .composer.expanded textarea {
   min-height: 88px;
   max-height: 320px;

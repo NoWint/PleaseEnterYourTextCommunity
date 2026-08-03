@@ -52,6 +52,8 @@ let draftTimer: ReturnType<typeof setTimeout> | null = null;
 let expanded = false;
 const PLACEHOLDER_COLLAPSED = '发消息到频道... (@提及 / #频道)';
 const PLACEHOLDER_EXPANDED = 'Enter 换行,Ctrl+Enter 发送';
+/** input 模式单行高度(判定拖拽是否缩到单行 → 自动切回 input) */
+const INPUT_HEIGHT = 38;
 
 // 表情面板常用 emoji(微信风格常用集,零依赖内嵌)
 const EMOJI_PANEL: string[] = [
@@ -151,33 +153,49 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     await send(chatId, input, area, onSent);
     updateSendState();
   });
-  // 展开按钮:切换两种模式(收起=单行 Enter 发送;展开=大 textarea Enter 换行)。
-  // CSS 类 .expanded 驱动高度/指示器显隐/placeholder/键盘语义。
+  // 模式切换:收起 = input(单行 Enter 发送);展开 = textarea(多行 Enter 换行)。
+  // 自动切换:
+  //  - input → textarea:按下顶部 resize 条立即切换,**高度保持当前**(无缝衔接)
+  //  - textarea → input:拖到单行高度松手自动切回
   const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
-  const applyExpanded = (): void => {
+  const setExpanded = (next: boolean, keepHeight: boolean): void => {
+    expanded = next;
     composerEl?.classList.toggle('expanded', expanded);
     input.placeholder = expanded ? PLACEHOLDER_EXPANDED : PLACEHOLDER_COLLAPSED;
-    // 模式切换:收起 → 单行;展开 → 重置为默认大高度(用户可用顶部指示器再拖)
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    if (expanded) {
+      // 进入 textarea:保持当前高度(无缝);无 inline 高度则给默认大高度
+      if (!keepHeight || !input.style.height || input.style.height === 'auto') {
+        input.style.height = Math.max(input.getBoundingClientRect().height || 38, 150) + 'px';
+      }
+    } else {
+      // 退出 textarea:恢复内容自适应(单行)
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    }
     input.focus();
   };
+  // 展开按钮保留:一键在两种模式间切换(显式,非自动)
   expandBtn?.addEventListener('click', () => {
-    expanded = !expanded;
-    applyExpanded();
+    setExpanded(!expanded, false);
   });
-  // 顶部 resize 指示器:仅展开模式显示。pointerdown → 拖拽纵向调高 textarea
-  // (拖动区间 [40, 320]px),Apple §2 直接操作:1:1 跟随,pointer capture 不丢。
+  // 顶部 resize 指示器:input 模式下也常显(提示可拖)。pointerdown → 立即切
+  // textarea 模式(高度不变无缝),再拖拽调高。拖回单行高度松手 → 自动切回 input。
   const resizeHandle = document.getElementById('composer-resize') as HTMLElement | null;
   resizeHandle?.addEventListener('pointerdown', (e) => {
-    if (!expanded) return;
     e.preventDefault();
+    // 自动切换 input → textarea:按下即切,高度保持当前(无缝衔接)
+    if (!expanded) {
+      setExpanded(true, true);
+    }
     const startY = e.clientY;
     const startH = input.getBoundingClientRect().height;
+    let collapsePending = false;
     const onMove = (ev: PointerEvent): void => {
       const delta = ev.clientY - startY; // 向上拖 = 负增量 = 增高
-      const h = Math.min(320, Math.max(40, startH - delta));
+      const h = Math.min(320, Math.max(38, startH - delta));
       input.style.height = h + 'px';
+      // 拖到单行高度 → 标记待切回 input(松手时生效,实时无跳变)
+      collapsePending = h <= INPUT_HEIGHT + 8;
       // 输入框变高 → 消息区底部让位,若在底部则同步上顶,保持最新消息可见。
       // 直接滚到底:composer 顶部抬高多少,消息底部就补多少,消除"消息沉下去"的断档。
       const messagesEl = document.getElementById('messages');
@@ -186,6 +204,10 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     const onUp = (): void => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      // 自动切换 textarea → input:高度缩到单行,松手无缝切回
+      if (expanded && collapsePending) {
+        setExpanded(false, false);
+      }
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
