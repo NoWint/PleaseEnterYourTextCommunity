@@ -1,5 +1,7 @@
 pub mod bridge;
 pub mod builtins;
+pub mod net;
+pub mod file;
 
 use std::path::PathBuf;
 use std::sync::Arc;
