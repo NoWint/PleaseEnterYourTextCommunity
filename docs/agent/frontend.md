@@ -24,7 +24,7 @@
 
 | 字段 | 类型 | 用途 |
 |---|---|---|
-| `currentPage` | `Page` | 当前页面：messages/groups/work/inbox/bots/plugins/terminal/settings/debug |
+| `currentPage` | `Page` | 当前页面：messages/groups/work/inbox/bots/plugins/settings/debug |
 | `currentWsId` / `currentChatId` | `number \| null` | 当前 workspace / 频道 |
 | `workspaces` / `channels` / `messages` / `cards` | 各 DTO 数组 | 各域数据 |
 | `messagesOldestId` / `noMoreMsgs` | | 消息分页游标 |
@@ -38,7 +38,7 @@
 ### `src/types.ts` 全部类型
 
 ```ts
-export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'terminal' | 'settings' | 'debug';
+export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'settings' | 'debug';
 export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about';
 export type PluginsTab = 'market' | 'installed';
 export type PluginPermission = 'messages:read' | 'messages:send' | 'ui:css' | 'ui:theme' | 'commands' | 'llm' | 'network';
@@ -57,7 +57,7 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 `saveState()` / `loadState()`。存入 localStorage：`peyt.currentPage` / `peyt.currentWsId` / `peyt.currentChatId` / `peyt.currentView` / `peyt.detailPanelOpen` / `peyt.currentWorkTab` / `peyt.viewPrefs` / `peyt.peytBannerDismissed` / `peyt.currentSettingsSection`。
 
-其他散落 key：`peyt.theme`（theme.ts）、`peyt.navWidth`/`peyt.drawerWidth`（columnResizer）、`collapsedCategories`（groupsPage）、`peyt.term.history`（terminalPage）、`peyt.badgeEnabled`、`peyt.plugin.perms`、`plugin:*`（插件存储）。
+其他散落 key：`peyt.theme`（theme.ts）、`peyt.fontScale`（theme.ts）、`peyt.navWidth`/`peyt.drawerWidth`（columnResizer）、`collapsedCategories`（groupsPage）、`peyt.badgeEnabled`、`peyt.plugin.perms`、`plugin:*`（插件存储）。
 
 ## 4. API 层（`src/api.ts`）
 
@@ -80,7 +80,6 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 | inbox | 占位头（主区看通知） |
 | bots | 占位头（主区 `botsPage.ts` bot 管理） |
 | plugins | `plugins/view.ts`（market/installed tab 导航） |
-| terminal | `terminalPage.ts` 快捷命令面板 |
 | settings | `settingsPage.ts` 设置导航 |
 | debug | `debugPage.ts`（消息原文检查器 + 事件流 + 会话诊断） |
 
@@ -88,7 +87,6 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 | page | 渲染 |
 |---|---|
-| terminal | terminalPage 自己管 main |
 | plugins | plugins/view renderPluginsMain |
 | settings | settingsPage renderSettingsMain |
 | inbox | inboxPage renderInboxMain（通知中心） |
@@ -107,7 +105,6 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 - **groupsPage**：workspace 频道树（只 chat 类型），category 折叠（localStorage 持久化），每分类 + 建频道，右键菜单。
 - **inboxPage**：通知中心（mention/reply/card_assign/system），点击跳转源频道并定位消息。
 - **settingsPage**：account（头像上传/显示名）、appearance（主题选择器，含插件主题）、team、notifications（桌面通知/徽标）、plugins、about。
-- **terminalPage**：xterm.js + 工具栏（工作目录/会话/expert 开关）。**离开页面时 `cleanupTerminalPage()` 必须关闭 PTY 会话并移除监听**（renderMain 调用）。
 - **workPage**：nav 是 channels/activity 两 tab；channels 只显示 `spaceType === 'card'` 的频道。
 
 ## 7. 聊天（`src/chat/`）
@@ -144,7 +141,7 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 ## 9. Shell（`src/shell/`）
 
 - **shell.ts**：骨架 HTML + **`handleIncomingMsg`**（[CARD]/[PEYT_INVITE] 前缀，见 conventions.md）+ 全部事件订阅（见 events.md）+ 全局快捷键（Cmd/Ctrl+K 搜索，Esc 关浮层/清回复/折叠抽屉）+ `updateBadge`（Dock 徽标）。`refreshSidebar()` 是 **150ms 防抖包装**（内部 `doRefreshSidebar`）——避免 realtime 事件风暴下并发 renderNavPanel 导致「保存的消息」入口重复 prepend。
-- **rail.ts**：最左 56px 图标栏。页面图标 + 插件 + 终端 + 设置 + 底部头像（主题/账号设置/登出）。
+- **rail.ts**：最左 56px 图标栏。页面图标 + 插件 + 设置 + 底部头像（主题/账号设置/登出）。
 - **navPanel.ts**：路由分发 + `refreshChannels()` + `getSpaceType(chatId)`（带 Map 缓存）+ `renderSavedMessagesEntry()`（「保存的消息」入口，置顶在消息列表顶部，点击打开 self-talk chat；`.saved-messages-entry` class 保证唯一）。
 - **rightDrawer.ts**：members（按角色分组 + 搜索）/ pins tab；折叠后显示悬浮展开按钮。
 - **columnResizer.ts**：pointer 拖拽调列宽（NAV 180–460 / DRAWER 220–520，橡皮筋阻尼，`--nav-w`/`--drawer-w` CSS 变量，localStorage 持久化）。

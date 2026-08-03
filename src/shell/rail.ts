@@ -43,12 +43,7 @@ export async function renderRail(): Promise<void> {
     ${iconSvg('package', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
-  // 终端入口 — 位于插件按钮下方
-  const terminalIconHtml = `<div class="rail-icon ${state.currentPage === 'terminal' ? 'active' : ''}" data-page="terminal" title="终端">
-    ${iconSvg('terminal', { width: 24, height: 24, strokeWidth: 1.5 })}
-  </div>`;
-
-  // 调试入口 — 消息原文列表 (位于终端按钮下方, separator 之上)
+  // 调试入口 — 消息原文列表 (位于插件按钮下方, separator 之上)
   const debugIconHtml = `<div class="rail-icon ${state.currentPage === 'debug' ? 'active' : ''}" data-page="debug" title="调试">
     ${iconSvg('bug', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
@@ -62,7 +57,6 @@ export async function renderRail(): Promise<void> {
   rail.innerHTML = `
     ${pageIconsHtml}
     ${pluginIconHtml}
-    ${terminalIconHtml}
     ${debugIconHtml}
     <div class="rail-separator"></div>
     <div class="rail-flex"></div>
