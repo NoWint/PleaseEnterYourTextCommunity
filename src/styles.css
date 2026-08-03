@@ -560,7 +560,9 @@ html.window-overlay .wb-controls { display: none; }
 .ui-button:active { transform: scale(0.97); }
 .ui-button:disabled { opacity: 0.4; cursor: default; }
 .ui-button-primary {
-  background: var(--text); color: var(--panel); font-weight: 600;
+  /* 前景必须用 --on-accent:--panel 在暗色玻璃主题是 rgba(255,255,255,.10),
+     浅色文字落在浅色背景上会隐形;--on-accent 各主题均与 --text 亮度相反 */
+  background: var(--text); color: var(--on-accent); font-weight: 600;
   border-color: transparent;
 }
 .ui-button-primary:hover { background: color-mix(in srgb, var(--text) 88%, var(--bg)); }
@@ -737,7 +739,7 @@ html.window-overlay .wb-controls { display: none; }
 .ui-chip:active { transform: scale(0.96); }
 .ui-badge {
   display: inline-block; padding: 1px 7px; border-radius: 999px;
-  background: var(--text); color: var(--panel); font-size: var(--font-scale-micro); font-weight: 600;
+  background: var(--text); color: var(--on-accent); font-size: var(--font-scale-micro); font-weight: 600;
   animation: ui-pop-in 250ms var(--ease-out);
 }
 .ui-badge-success { background: var(--success); color: var(--bg); }
@@ -1228,7 +1230,7 @@ html.window-overlay .wb-controls { display: none; }
 .voice-play {
   flex: none; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
   border: none; border-radius: 999px; cursor: pointer;
-  background: var(--text); color: var(--panel);
+  background: var(--text); color: var(--on-accent);
   transition: transform 120ms var(--ease-out), opacity 120ms var(--ease-out);
 }
 .voice-play:hover { opacity: 0.85; }
@@ -2590,7 +2592,7 @@ body {
   flex: none; border: none; border-radius: 999px; cursor: pointer;
   font-size: 12px; font-family: inherit; padding: 3px 12px;
 }
-.nav-request-accept { background: var(--text); color: var(--panel); font-weight: 600; }
+.nav-request-accept { background: var(--text); color: var(--on-accent); font-weight: 600; }
 .nav-request-accept:hover { opacity: 0.85; }
 .nav-request-reject { background: transparent; color: var(--text-weak); }
 .nav-request-reject:hover { color: var(--danger); }
@@ -2607,7 +2609,7 @@ body {
   width: 24px; height: 24px; border-radius: var(--radius-sm);
   background: var(--capsule); color: var(--text-weak);
 }
-.cp-contact:hover .cp-add { background: var(--text); color: var(--panel); }
+.cp-contact:hover .cp-add { background: var(--text); color: var(--on-accent); }
 
 /* 群成员添加为好友按钮 */
 .rd-add-friend {
