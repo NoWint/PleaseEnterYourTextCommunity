@@ -17,6 +17,8 @@ pub enum AppError {
     Db(String),
     #[error("插件错误：{0}")]
     Plugin(String),
+    #[error("HTTP {0}: {1}")]
+    Http(u16, String),
 }
 
 impl From<anyhow::Error> for AppError {
@@ -44,3 +46,16 @@ impl From<tokio::task::JoinError> for AppError {
 }
 
 pub type AppResult<T> = Result<T, AppError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_http_error_serialization() {
+        let e = AppError::Http(500, "boom".into());
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains("\"kind\":\"Http\""));
+        assert!(json.contains("boom"));
+    }
+}
