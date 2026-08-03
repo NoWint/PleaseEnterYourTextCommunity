@@ -1,9 +1,9 @@
-import { call } from '../api.js';
+import { call, transformBlobURL } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
-import { ui } from '../components/ui.js';
-import { escapeHtml } from '../components/escape.js';
+import { ui, colorHex } from '../components/ui.js';
+import { escapeHtml, escapeAttr } from '../components/escape.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
 import { renderMemberDetail } from '../components/memberDetail.js';
@@ -193,6 +193,19 @@ async function renderMessageList(): Promise<void> {
         await renderMain();
       },
     });
+    // 会话头像:单聊 = 对方联系人头像/颜色(后端 build_chatlist 已解析);
+    // 群聊/保存消息 = 会话自身图标。avatarUrl 需 await,故列表项先建再插入头像。
+    if (!item.querySelector('.ui-list-avatar')) {
+      const av = document.createElement('span');
+      av.className = 'ui-list-avatar';
+      const letter = (c.name || '?').charAt(0).toUpperCase() || '?';
+      const bg = colorHex(c.color);
+      const img = c.avatar ? await transformBlobURL(c.avatar) : null;
+      av.innerHTML = img
+        ? `<img src="${escapeAttr(img)}" alt="" />`
+        : `<span class="ui-avatar-letter" style="background:${bg}">${escapeHtml(letter)}</span>`;
+      item.prepend(av);
+    }
     // 广播 / 邮件列表会话在标题前加类型标记(ui.listItem 的 title 是转义字符串,故改 innerHTML 注入)
     const chatType = (c as ChatListItem & { chat_type?: string }).chat_type;
     const typeMark = chatType === 'broadcast'

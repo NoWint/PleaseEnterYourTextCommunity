@@ -1,7 +1,7 @@
-import { call } from '../api.js';
+import { call, transformBlobURL } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
-import { ui } from './ui.js';
+import { ui, colorHex } from './ui.js';
 import { iconSvg } from './icon.js';
 import { escapeHtml, escapeAttr } from './escape.js';
 import type { ContactDto } from '../types.js';
@@ -34,15 +34,20 @@ export async function openContactsPicker(): Promise<void> {
   if (!listEl) return;
   const searchInput = dlg.overlay.querySelector<HTMLInputElement>('#cp-search-input');
 
-  const render = (query: string): void => {
+  const render = async (query: string): Promise<void> => {
     const q = query.trim().toLowerCase();
     const filtered = q ? contacts.filter((c) => c.name.toLowerCase().includes(q) || c.addr.toLowerCase().includes(q)) : contacts;
     if (filtered.length === 0) {
       listEl.innerHTML = `<div class="ui-empty" style="padding:24px 8px">没有匹配的联系人</div>`;
       return;
     }
-    listEl.innerHTML = filtered.map((c) => {
-      const avatarHtml = ui.avatar({ name: c.name || c.addr || '?', size: 32 }).outerHTML;
+    const rows = await Promise.all(filtered.map(async (c) => {
+      const url = c.avatar ? await transformBlobURL(c.avatar) : null;
+      const bg = colorHex(c.color);
+      const letter = (c.name || c.addr || '?').charAt(0).toUpperCase() || '?';
+      const avatarHtml = url
+        ? `<span class="ui-list-avatar"><img src="${escapeAttr(url)}" alt="" /></span>`
+        : `<span class="ui-list-avatar"><span class="ui-avatar-letter" style="background:${bg}">${escapeHtml(letter)}</span></span>`;
       return `
         <div class="ui-list-item cp-contact" data-addr="${escapeAttr(c.addr)}" style="padding:8px 10px">
           ${avatarHtml}
@@ -52,7 +57,8 @@ export async function openContactsPicker(): Promise<void> {
           </div>
           <span class="cp-add">${iconSvg('plus', { width: 14, height: 14 })}</span>
         </div>`;
-    }).join('');
+    }));
+    listEl.innerHTML = rows.join('');
     listEl.querySelectorAll<HTMLElement>('.cp-contact').forEach((el) => {
       el.addEventListener('click', () => void addContact(el.dataset.addr || ''));
     });
@@ -73,8 +79,8 @@ export async function openContactsPicker(): Promise<void> {
     }
   }
 
-  searchInput?.addEventListener('input', () => render(searchInput.value));
-  render('');
+  searchInput?.addEventListener('input', () => void render(searchInput.value));
+  void render('');
   searchInput?.focus();
 }
 

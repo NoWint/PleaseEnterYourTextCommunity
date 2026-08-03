@@ -165,10 +165,14 @@ export interface ChatListItem {
   is_contact_request: boolean;
   is_self_talk: boolean;
   chat_type: string;
+  avatar: string | null;
+  color: number | null;
 }
 
 export interface ContactDto {
   id: number;
   name: string;
   addr: string;
+  avatar: string | null;
+  color: number | null;
 }

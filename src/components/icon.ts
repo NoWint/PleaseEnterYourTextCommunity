@@ -6,7 +6,7 @@ export type IconName =
   | 'plus' | 'x' | 'hash' | 'reply'
   | 'pin' | 'copy' | 'trash' | 'smile'
   | 'chevron-down' | 'chevron-left' | 'chevron-right' | 'check' | 'check-check' | 'send'
-  | 'search' | 'log-out' | 'upload' | 'shield'
+  | 'search' | 'log-out' | 'upload' | 'shield' | 'shield-off'
   | 'volume-2' | 'volume-x' | 'bookmark' | 'more-horizontal'
   | 'forward' | 'file-text' | 'image' | 'paperclip' | 'edit'
   | 'arrow-up' | 'star' | 'alert-circle' | 'thumbs-up' | 'package' | 'terminal' | 'download'

@@ -305,9 +305,34 @@ async fn build_chatlist(ctx: &Context, archived_only: Option<bool>) -> AppResult
             (None, None)
         };
         let unread = chat_id.get_fresh_msg_cnt(ctx).await? as u32;
+        // 单聊用联系人最新显示名/头像/颜色(比 chat.name 缓存更可靠,对齐 core
+        // get_display_name:本地名→authname→邮箱);其他会话用 chat 自身头像/颜色。
+        // self-talk 保持「保存的消息」名(load_from_db 已设好)。
+        let mut name = chat.get_name().to_string();
+        let (avatar, color) = if !is_self_talk && chat.get_type() == Chattype::Single {
+            let mut av: Option<String> = None;
+            let mut col: Option<u32> = None;
+            if let Some(cid) = chat::get_chat_contacts(ctx, chat_id).await?.into_iter().next() {
+                let c = Contact::get_by_id(ctx, cid).await?;
+                name = c.get_display_name().to_string();
+                av = c
+                    .get_profile_image(ctx)
+                    .await?
+                    .map(|p| p.to_string_lossy().to_string());
+                col = Some(c.get_color());
+            }
+            (av, col)
+        } else {
+            let av = chat
+                .get_profile_image(ctx)
+                .await?
+                .map(|p| p.to_string_lossy().to_string());
+            let col = Some(chat.get_color(ctx).await?);
+            (av, col)
+        };
         out.push(ChatDto {
             chat_id: chat_id.to_u32(),
-            name: chat.get_name().to_string(),
+            name,
             is_group,
             is_contact_request,
             is_self_talk,
@@ -315,6 +340,8 @@ async fn build_chatlist(ctx: &Context, archived_only: Option<bool>) -> AppResult
             last_msg,
             last_ts,
             unread,
+            avatar,
+            color,
         });
     }
     Ok(out)
@@ -390,6 +417,7 @@ pub async fn get_chat_info(
 
     // chat_type 字符串:single/group/mailinglist/broadcast/self_talk/device
     let chat_type = chat_type_str(&chat, is_self_talk);
+    let is_encrypted = chat.is_encrypted(&ctx).await?;
 
     Ok(ChatInfoDto {
         chat_id: chat_id.to_u32(),
@@ -398,6 +426,7 @@ pub async fn get_chat_info(
         is_contact_request,
         is_self_talk,
         chat_type,
+        is_encrypted,
         members,
     })
 }
@@ -544,10 +573,17 @@ pub async fn get_contacts(state: State<'_, AppState>) -> AppResult<Vec<ContactDt
             continue;
         }
         let c = Contact::get_by_id(&ctx, id).await?;
+        let avatar = c
+            .get_profile_image(&ctx)
+            .await?
+            .map(|p| p.to_string_lossy().to_string());
+        let color = Some(c.get_color());
         out.push(ContactDto {
             id: id.to_u32(),
             name: c.get_display_name().to_string(),
             addr: c.get_addr().to_string(),
+            avatar,
+            color,
         });
     }
     Ok(out)
@@ -645,11 +681,38 @@ async fn mark_chat_noticed_impl(ctx: &Context, chat_id: u32) -> AppResult<()> {
     Ok(())
 }
 
+/// 把聊天里所有 fresh/noticed 消息标记为 seen 并触发已读回执(MDN)发送。
+/// 关键:core 只在消息进入 InSeen 时(经 markseen_msgs)才会向对方发 MDN;
+/// marknoticed_chat 只清未读徽标、不会发回执 —— 所以仅调 noticed 时对方永远收不到已读。
+/// 传全部 msg_id 即可:markseen_msgs 内部只对 InFresh/InNoticed 的消息发 MDN,
+/// 已 seen 的自动跳过,outgoing 消息状态不在 Fresh/Noticed 也不会误发。
+/// (供 mark_chat_seen 与 bot_mark_chat_seen 复用。)
+async fn mark_chat_seen_impl(ctx: &Context, chat_id: u32) -> AppResult<()> {
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    let items = chat::get_chat_msgs(ctx, chat_id).await?;
+    let msg_ids: Vec<MsgId> = items
+        .into_iter()
+        .filter_map(|it| match it {
+            ChatItem::Message { msg_id } => Some(msg_id),
+            _ => None,
+        })
+        .collect();
+    message::markseen_msgs(ctx, msg_ids).await?;
+    Ok(())
+}
+
 /// Mark all messages in a chat as noticed (clears unread badge).
 #[tauri::command]
 pub async fn mark_chat_noticed(state: State<'_, AppState>, chat_id: u32) -> AppResult<()> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     mark_chat_noticed_impl(&ctx, chat_id).await
+}
+
+/// 标记整聊已读(seen):清未读徽标 + 向对方发送已读回执。
+#[tauri::command]
+pub async fn mark_chat_seen(state: State<'_, AppState>, chat_id: u32) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    mark_chat_seen_impl(&ctx, chat_id).await
 }
 
 /// Returns the user's own SecureJoin QR code (e.g. `OPENPGP4FPR:...`)
@@ -2633,10 +2696,17 @@ pub async fn get_blocked_contacts(state: State<'_, AppState>) -> AppResult<Vec<C
     let mut out = Vec::new();
     for id in ids {
         let c = Contact::get_by_id(&ctx, id).await?;
+        let avatar = c
+            .get_profile_image(&ctx)
+            .await?
+            .map(|p| p.to_string_lossy().to_string());
+        let color = Some(c.get_color());
         out.push(ContactDto {
             id: id.to_u32(),
             name: c.get_display_name().to_string(),
             addr: c.get_addr().to_string(),
+            avatar,
+            color,
         });
     }
     Ok(out)
@@ -2867,6 +2937,40 @@ pub async fn get_contact_encryption_info(
     Ok(info)
 }
 
+/// 会话级加密信息(对齐 core ChatId::get_encryption_info / Delta getChatEncryptionInfo)。
+/// 群聊含全部非特殊成员指纹;未加密时返回 stock 提示文案。
+#[tauri::command]
+pub async fn get_chat_encryption_info(
+    state: State<'_, AppState>,
+    chat_id: u32,
+) -> AppResult<String> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let info = deltachat::chat::ChatId::new(chat_id).get_encryption_info(&ctx).await?;
+    Ok(info)
+}
+
+/// 自己的加密信息(SELF 是 special contact, Contact::get_encrinfo 拒绝 → 单独构造)。
+/// 返回 "我 (addr)\n指纹" 或空串(尚未生成密钥)。
+#[tauri::command]
+pub async fn get_self_encryption_info(state: State<'_, AppState>) -> AppResult<String> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let c = Contact::get_by_id(&ctx, ContactId::SELF).await?;
+    let addr = ctx
+        .get_config(Config::ConfiguredAddr)
+        .await?
+        .unwrap_or_default();
+    match c.fingerprint() {
+        Some(fpr) => Ok(format!("我 ({addr})\n{}", fpr.human_readable())),
+        None => Ok(String::new()),
+    }
+}
+
 fn current_owner_id(state: &AppState) -> AppResult<u32> {
     state
         .current_id
@@ -2966,6 +3070,17 @@ pub async fn bot_mark_chat_noticed(
 ) -> AppResult<()> {
     let ctx = state.bots.ctx_for_bot(bot_id).await?;
     mark_chat_noticed_impl(&ctx, chat_id).await
+}
+
+/// 标记当前用户某个 bot 账号的聊天为已读(seen),并发送已读回执。
+#[tauri::command]
+pub async fn bot_mark_chat_seen(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    chat_id: u32,
+) -> AppResult<()> {
+    let ctx = state.bots.ctx_for_bot(bot_id).await?;
+    mark_chat_seen_impl(&ctx, chat_id).await
 }
 
 /// 测试 LLM 配置：用固定示例消息调用一次，返回回复文本（用于配置对话框的「测试连接」）。

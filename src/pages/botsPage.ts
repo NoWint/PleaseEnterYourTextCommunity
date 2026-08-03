@@ -601,8 +601,8 @@ export async function openBotChats(bot: BotDto, main: HTMLElement): Promise<void
       thread.innerHTML = htmls.join('');
     }
     thread.scrollTop = thread.scrollHeight;
-    // 标记已读(失败忽略)
-    try { await call('bot_mark_chat_noticed', { botId: bot.id, chatId: chat.chat_id }); } catch {}
+    // 标记已读(seen,失败忽略):打开会话即已读,并让对方看到已读回执
+    try { await call('bot_mark_chat_seen', { botId: bot.id, chatId: chat.chat_id }); } catch {}
     // 清空该会话未读徽章并高亮当前行
     const rowEl = convList.querySelector<HTMLElement>(`[data-chat-id="${chat.chat_id}"]`);
     if (rowEl) {

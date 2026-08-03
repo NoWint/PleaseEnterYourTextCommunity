@@ -333,24 +333,40 @@ async function renderTeam(main: HTMLElement): Promise<void> {
 }
 
 // ── 通知 ──────────────────────────────────────────────
+// 偏好持久化:peyt.notificationsEnabled = 应用级总开关(对齐 Delta desktopSettings.notifications),
+// peyt.badgeEnabled = Dock 角标。开关状态读偏好而非 Notification.permission —— 系统权限是
+// 「能否弹」,偏好是「要不要弹」,两者分离(Delta 亦是:总开关 + OS 权限)。
 function renderNotifications(main: HTMLElement): void {
   main.innerHTML = '';
-  const desktopEnabled = Notification.permission === 'granted';
+  const notifEnabled = localStorage.getItem('peyt.notificationsEnabled') !== 'false';
   const badgeEnabled = localStorage.getItem('peyt.badgeEnabled') !== 'false';
+  const permissionGranted = 'Notification' in window && Notification.permission === 'granted';
   const section = document.createElement('div');
   section.className = 'settings-section';
   section.innerHTML = '<h2>通知</h2>';
 
-  const desktopSwitch = ui.switch_({ checked: desktopEnabled, onChange: async (v) => {
-    if (v && Notification.permission !== 'granted') await Notification.requestPermission();
+  const desktopSwitch = ui.switch_({ checked: notifEnabled, onChange: async (v) => {
+    localStorage.setItem('peyt.notificationsEnabled', String(v));
+    if (v && 'Notification' in window && Notification.permission !== 'granted') {
+      await Notification.requestPermission();
+    }
   } });
   const desktopRow = document.createElement('div');
   desktopRow.className = 'settings-toggle-row';
   desktopRow.append('桌面通知', desktopSwitch);
   section.appendChild(desktopRow);
+  // 副说明:系统权限与偏好分开显示,让用户知道为什么开了也没弹窗
+  const permHint = document.createElement('div');
+  permHint.className = 'settings-toggle-hint';
+  permHint.textContent = permissionGranted
+    ? '系统通知权限已开启'
+    : '系统通知权限未开启,开启开关时浏览器会请求权限';
+  section.appendChild(permHint);
 
   const badgeSwitch = ui.switch_({ checked: badgeEnabled, onChange: (v) => {
     localStorage.setItem('peyt.badgeEnabled', String(v));
+    // 关闭时立即清空角标
+    if (!v) void clearBadge();
   } });
   const badgeRow = document.createElement('div');
   badgeRow.className = 'settings-toggle-row';
@@ -358,6 +374,13 @@ function renderNotifications(main: HTMLElement): void {
   section.appendChild(badgeRow);
 
   main.appendChild(section);
+}
+
+async function clearBadge(): Promise<void> {
+  try {
+    const tauri = window as unknown as { __TAURI__?: { app?: { setBadgeCount?: (n: number) => Promise<void> } } };
+    if (tauri.__TAURI__?.app?.setBadgeCount) await tauri.__TAURI__.app.setBadgeCount(0);
+  } catch {}
 }
 
 // ── 关于 ──────────────────────────────────────────────

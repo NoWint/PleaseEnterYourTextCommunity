@@ -663,6 +663,16 @@ html { background: var(--bg); }
 .ui-list-sub { font-size: var(--font-scale-secondary); color: var(--text-mute); margin-top: 2px; }
 .nav-item-trailing { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .ui-divider { height: 1px; background: var(--border); margin: 8px 0; }
+/* 列表项头像(消息列表/通讯录):圆形小头像,无图时显示首字母色块 */
+.ui-list-avatar {
+  flex: none; width: 36px; height: 36px; border-radius: 50%;
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+}
+.ui-list-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ui-avatar-letter {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  color: var(--text); font-weight: 600; font-size: var(--font-scale-body);
+}
 
 /* 标签页 */
 .ui-tabs { display: flex; gap: 2px; padding: 3px; background: var(--capsule); border-radius: 999px; }
@@ -2326,6 +2336,7 @@ body {
 .settings-btn-danger:hover { background: var(--danger-bg-strong); }
 .settings-danger-zone { margin-top: 24px; background: var(--capsule); border-radius: var(--radius-md); padding: 14px 16px; }
 .settings-toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; }
+.settings-toggle-hint { font-size: var(--font-scale-secondary); color: var(--text-mute); margin: -6px 0 8px; }
 .toggle-switch { position: relative; display: inline-block; width: 40px; height: 22px; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
 .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--border-strong); border-radius: 22px; transition: 0.2s; }

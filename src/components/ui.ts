@@ -9,6 +9,12 @@ import { showInlineConfirm } from './inlineConfirm.js';
  * 样式见 styles.css「=== UI 组件库 ===」。
  */
 
+// core Contact::get_color() 返回 u32 → #rrggbb;空值回退主题边框色
+export function colorHex(c: number | null | undefined): string {
+  if (c == null) return 'var(--border-strong)';
+  return '#' + (c & 0xffffff).toString(16).padStart(6, '0');
+}
+
 // ── 按钮 ──────────────────────────────────────────────
 export interface ButtonOpts {
   label?: string;
@@ -170,7 +176,7 @@ export function badge(opts: { text: string; variant?: 'default' | 'success' | 'd
   return el;
 }
 
-export function avatar(opts: { name?: string; url?: string; size?: number }): HTMLElement {
+export function avatar(opts: { name?: string; url?: string; size?: number; color?: string | null }): HTMLElement {
   const size = opts.size || 32;
   const el = document.createElement('div');
   el.className = 'ui-avatar';
@@ -180,6 +186,7 @@ export function avatar(opts: { name?: string; url?: string; size?: number }): HT
   if (opts.url) {
     el.innerHTML = `<img src="${escapeHtml(opts.url)}" alt="" />`;
   } else {
+    el.style.background = opts.color || 'var(--border-strong)';
     el.textContent = (opts.name || '?').charAt(0).toUpperCase();
   }
   return el;
