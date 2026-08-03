@@ -4,6 +4,7 @@ import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { ui } from '../components/ui.js';
 import { renderAvatarHtml } from '../components/avatar.js';
+import { openMailingListProfile } from '../components/mailingListProfile.js';
 import type { ChatListItem } from '../types.js';
 
 let panel: HTMLElement | null = null;
@@ -130,6 +131,17 @@ async function renderMessageList(): Promise<void> {
         await renderMain();
       },
     });
+    // 广播 / 邮件列表会话在标题前加类型标记(ui.listItem 的 title 是转义字符串,故改 innerHTML 注入)
+    const chatType = (c as ChatListItem & { chat_type?: string }).chat_type;
+    const typeMark = chatType === 'broadcast'
+      ? '<span class="nav-type-mark" style="margin-right:4px">📢</span>'
+      : chatType === 'mailinglist'
+        ? '<span class="nav-type-mark" style="margin-right:4px">✉️</span>'
+        : '';
+    if (typeMark) {
+      const titleEl = item.querySelector('.ui-list-title');
+      if (titleEl) titleEl.innerHTML = typeMark + escapeHtml(c.name);
+    }
     item.dataset.id = String(c.chat_id);
     if (state.currentChatId === c.chat_id) item.classList.add('active');
     item.addEventListener('contextmenu', (e) => {
@@ -230,8 +242,18 @@ async function joinPeytStudio(): Promise<void> {
 }
 
 function showChatContextMenu(anchor: HTMLElement, c: ChatListItem): void {
+  // 广播 / 邮件列表会话:查看资料 → 打开邮件列表资料弹窗;其余仍为占位
+  const chatType = (c as ChatListItem & { chat_type?: string }).chat_type;
+  const isMailing = chatType === 'mailinglist' || chatType === 'broadcast';
   ui.menu(anchor, [
-    { label: '查看资料', icon: 'user', action: () => ui.toast('查看资料(开发中)') },
+    {
+      label: '查看资料',
+      icon: 'user',
+      action: () => {
+        if (isMailing) void openMailingListProfile(c.chat_id, c);
+        else ui.toast('查看资料(开发中)');
+      },
+    },
     {
       label: c.is_archived ? '取消归档' : '归档',
       icon: 'inbox',

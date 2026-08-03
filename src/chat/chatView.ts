@@ -152,7 +152,16 @@ export async function renderChatView(chatId: number): Promise<void> {
       pinBtn.addEventListener('click', () => toggle('pin'));
       if (state.detailPanelOpen && state.detailTab === 'members') membersBtn.classList.add('active');
       if (state.detailPanelOpen && state.detailTab === 'pin') pinBtn.classList.add('active');
-      headerEl.append(membersBtn, pinBtn);
+      // Delta 批次 2:会话内搜索 + Gallery 相册按钮
+      const searchBtn = ui.iconButton({ icon: 'search', title: '会话内搜索' });
+      searchBtn.addEventListener('click', () => {
+        void import('../components/search.js').then(({ openChatSearch }) => openChatSearch(chatId));
+      });
+      const galleryBtn = ui.iconButton({ icon: 'image', title: '媒体相册' });
+      galleryBtn.addEventListener('click', () => {
+        void import('../components/gallery.js').then(({ openGallery }) => openGallery(chatId));
+      });
+      headerEl.append(searchBtn, galleryBtn, membersBtn, pinBtn);
     }
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
     // Task 12: 在 mark_chat_noticed 之前拉取 unread count,
@@ -512,6 +521,49 @@ export function appendOptimisticMessage(tmpMsg: MsgDto): void {
   void renderVisibleMessages(box, start, end).then(() => {
     box.scrollTop = box.scrollHeight;
   });
+}
+
+// 跳转到指定消息:确保 chat 已渲染,滚动到目标消息(虚拟化下按索引估算位置),
+// 并临时高亮。供 search.ts 消息结果点击调用。
+export async function jumpToMessage(msgId: number): Promise<void> {
+  if (state.currentChatId == null) return;
+  const chatId = state.currentChatId;
+  const box = document.getElementById('messages');
+  if (!box) return;
+  // 确保消息已加载(state.messages 含目标);未渲染则渲染 chat
+  if (!document.getElementById('messages')?.children.length) {
+    await renderChatView(chatId);
+  }
+  const idx = state.messages.findIndex((m) => m.msg_id === msgId);
+  if (idx < 0) {
+    // 目标不在已加载消息里(如更早的历史),尝试刷新拉全量
+    await refreshMessages(chatId);
+    const idx2 = state.messages.findIndex((m) => m.msg_id === msgId);
+    if (idx2 < 0) return;
+    await scrollToMsgIndex(idx2, box);
+    return;
+  }
+  await scrollToMsgIndex(idx, box);
+}
+
+// 按消息索引滚动可视区(虚拟化:估算 scrollTop),渲染后高亮目标节点
+async function scrollToMsgIndex(idx: number, box: HTMLElement): Promise<void> {
+  const targetTop = Math.max(0, idx * ITEM_HEIGHT - 100);
+  box.scrollTop = targetTop;
+  const range = getVisibleRange(targetTop, box.clientHeight, ITEM_HEIGHT);
+  await renderVisibleMessages(box, range.start, range.end);
+  // 目标消息可能在渲染窗口内;若不在,再渲染覆盖它的窗口
+  const msgId = state.messages[idx]?.msg_id;
+  if (msgId != null) {
+    const el = box.querySelector(`[data-msg="${msgId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (el as HTMLElement).style.background = 'var(--active)';
+      setTimeout(() => {
+        (el as HTMLElement).style.background = '';
+      }, 2000);
+    }
+  }
 }
 
 // 重渲染当前可视区(读最新 reactionsCache/状态),用于反应/消息状态实时更新。

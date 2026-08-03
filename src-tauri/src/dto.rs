@@ -52,6 +52,7 @@ pub struct ChatInfoDto {
     pub is_group: bool,
     pub is_contact_request: bool,
     pub is_self_talk: bool,
+    pub chat_type: String,
     pub members: Vec<MemberDto>,
 }
 

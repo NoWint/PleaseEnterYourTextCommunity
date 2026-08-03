@@ -237,6 +237,24 @@ fn viewtype_str(v: Viewtype) -> &'static str {
     }
 }
 
+fn chat_type_str(chat: &Chat, is_self_talk: bool) -> String {
+    use Chattype::*;
+    let t = chat.get_type();
+    match t {
+        Single => "single".to_string(),
+        Group => "group".to_string(),
+        Mailinglist => "mailinglist".to_string(),
+        OutBroadcast | InBroadcast => "broadcast".to_string(),
+        _ => {
+            if is_self_talk {
+                "self_talk".to_string()
+            } else {
+                format!("{:?}", t).to_lowercase()
+            }
+        }
+    }
+}
+
 fn download_state_str(s: DownloadState) -> &'static str {
     use DownloadState::*;
     match s {
@@ -359,12 +377,16 @@ pub async fn get_chat_info(
         let _ = self_id; // suppress unused warning
     }
 
+    // chat_type 字符串:single/group/mailinglist/broadcast/self_talk/device
+    let chat_type = chat_type_str(&chat, is_self_talk);
+
     Ok(ChatInfoDto {
         chat_id: chat_id.to_u32(),
         name: chat.get_name().to_string(),
         is_group,
         is_contact_request,
         is_self_talk,
+        chat_type,
         members,
     })
 }
@@ -1197,12 +1219,55 @@ pub async fn get_asset_url(path: String) -> AppResult<String> {
 pub async fn search_msgs(
     state: State<'_, AppState>,
     query: String,
+    chat_id: Option<u32>,
 ) -> AppResult<Vec<SearchResultDto>> {
     let ctx = state
         .current()
         .await
         .ok_or(AppError::Core("no account".into()))?;
     let mut out: Vec<SearchResultDto> = Vec::new();
+    // 会话内搜索(chat_id 传了):只查该会话最近 50 条;全局搜索:遍历 chatlist
+    if let Some(tid) = chat_id.map(deltachat::chat::ChatId::new) {
+        let chat = match Chat::load_from_db(&ctx, tid).await {
+            Ok(c) => c,
+            Err(_) => return Ok(out),
+        };
+        let chat_name = chat.get_name().to_string();
+        let items = match chat::get_chat_msgs(&ctx, tid).await {
+            Ok(v) => v,
+            Err(_) => return Ok(out),
+        };
+        let recent: Vec<_> = items.into_iter().rev().take(50).collect();
+        for item in recent {
+            if let ChatItem::Message { msg_id } = item {
+                let m = match Message::load_from_db(&ctx, msg_id).await {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let text = m.get_text();
+                if text.to_lowercase().contains(&query.to_lowercase()) {
+                    let from_id = m.get_from_id();
+                    let from_name = if from_id == ContactId::SELF {
+                        "我".to_string()
+                    } else {
+                        Contact::get_by_id(&ctx, from_id)
+                            .await
+                            .map(|c| c.get_display_name().to_string())
+                            .unwrap_or_default()
+                    };
+                    out.push(SearchResultDto {
+                        msg_id: msg_id.to_u32(),
+                        chat_id: tid.to_u32(),
+                        chat_name: chat_name.clone(),
+                        from_name,
+                        text: text.chars().take(80).collect(),
+                        ts: m.get_timestamp(),
+                    });
+                }
+            }
+        }
+        return Ok(out);
+    }
     let chatlist = Chatlist::try_load(&ctx, 0, None, None).await?;
     for i in 0..chatlist.len() {
         let chat_id = match chatlist.get_chat_id(i) {
@@ -2340,4 +2405,113 @@ pub async fn set_draft(
         chat_id.set_draft(&ctx, Some(&mut draft)).await?;
     }
     Ok(())
+}
+
+// ==== Delta 对齐批次 2 ====
+
+/// 会话内媒体列表:拉 get_chat_msgs 后按 view_type 过滤。
+/// view_type 传 'Image'|'Video'|'Audio'|'File'|None=全部。
+#[tauri::command]
+pub async fn get_chat_media(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    view_type: Option<String>,
+) -> AppResult<Vec<MsgDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    let items = chat::get_chat_msgs(&ctx, chat_id).await?;
+    let mut out = Vec::new();
+    for item in items {
+        if let ChatItem::Message { msg_id } = item {
+            let m = match message::Message::load_from_db(&ctx, msg_id).await {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let vt = m.get_viewtype();
+            // 按过滤:view_type 未指定(全部)或匹配
+            let keep = match view_type.as_deref() {
+                None => true,
+                Some("Image") => vt == Viewtype::Image || vt == Viewtype::Gif,
+                Some("Video") => vt == Viewtype::Video,
+                Some("Audio") => vt == Viewtype::Audio || vt == Viewtype::Voice,
+                Some("File") => vt == Viewtype::File,
+                _ => true,
+            };
+            if !keep { continue; }
+            let from_id = m.get_from_id();
+            let from_name = if from_id == deltachat::contact::ContactId::SELF {
+                "我".to_string()
+            } else {
+                Contact::get_by_id(&ctx, from_id)
+                    .await?
+                    .get_display_name()
+                    .to_string()
+            };
+            let (quote_from, quote_text) = match m.quoted_message(&ctx).await? {
+                Some(q) => {
+                    let q_from_id = q.get_from_id();
+                    let q_name = if q_from_id == deltachat::contact::ContactId::SELF {
+                        "我".to_string()
+                    } else {
+                        Contact::get_by_id(&ctx, q_from_id)
+                            .await?
+                            .get_display_name()
+                            .to_string()
+                    };
+                    (Some(q_name), Some(q.get_text()))
+                }
+                None => (None, None),
+            };
+            let file_path = m.get_file(&ctx).map(|p| p.to_string_lossy().to_string());
+            let file_name = m.get_filename();
+            let file_mime = m.get_filemime();
+            let file_bytes = m.get_filebytes(&ctx).await.unwrap_or(None);
+            let width = m.get_width();
+            let height = m.get_height();
+            let view_type_str = viewtype_str(vt).to_string();
+            let download_state = download_state_str(m.download_state()).to_string();
+            let subject = {
+                let s = m.get_subject();
+                if s.is_empty() { None } else { Some(s.to_string()) }
+            };
+            out.push(MsgDto {
+                msg_id: msg_id.to_u32(),
+                from_id: from_id.to_u32(),
+                from_name,
+                text: m.get_text(),
+                ts: m.get_timestamp(),
+                is_out: m.get_state().is_outgoing(),
+                state: state_str(m.get_state()).to_string(),
+                quote_from,
+                quote_text,
+                view_type: view_type_str,
+                file: file_path,
+                file_name,
+                file_mime,
+                file_bytes,
+                width: if width > 0 { Some(width) } else { None },
+                height: if height > 0 { Some(height) } else { None },
+                download_state,
+                subject,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// 广播消息已读回执计数。
+#[tauri::command]
+pub async fn get_message_read_receipt_count(
+    state: State<'_, AppState>,
+    msg_id: u32,
+) -> AppResult<u32> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let count = message::get_msg_read_receipt_count(&ctx, MsgId::new(msg_id)).await?;
+    Ok(count as u32)
 }

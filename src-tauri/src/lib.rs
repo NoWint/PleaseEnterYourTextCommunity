@@ -114,6 +114,9 @@ pub fn run() {
             commands::unsave_msg,
             commands::get_draft,
             commands::set_draft,
+            // Delta 对齐批次 2
+            commands::get_chat_media,
+            commands::get_message_read_receipt_count,
             // Terminal
             terminal::open_terminal,
             terminal::write_terminal,

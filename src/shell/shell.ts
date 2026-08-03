@@ -173,6 +173,15 @@ export async function renderShell(): Promise<void> {
 
   // 全局快捷键
   document.addEventListener('keydown', async (e) => {
+    // Cmd+P / Ctrl+P 命令面板
+    if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
+      e.preventDefault();
+      const { openCommandPalette, closeCommandPalette } = await import('../components/commandPalette.js');
+      const overlay = document.querySelector('.command-palette-overlay');
+      if (overlay) closeCommandPalette();
+      else openCommandPalette();
+      return;
+    }
     // Cmd+K / Ctrl+K 搜索
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();

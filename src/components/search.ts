@@ -32,6 +32,8 @@ interface CommandItem {
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let selectedIndex = 0;
+// 非 null 表示「会话内搜索」模式（chatView 头部按钮进入），只在当前会话内搜索消息
+let chatSearchChatId: number | null = null;
 
 function buildCommands(): CommandItem[] {
   return [
@@ -93,7 +95,7 @@ export function openSearch(): void {
   overlay.id = 'search-overlay';
   overlay.innerHTML = `
     <div class="search-dialog">
-      <input id="search-input" placeholder="搜索或输入命令..." autocomplete="off" />
+      <input id="search-input" placeholder="${chatSearchChatId != null ? '搜索此会话...' : '搜索或输入命令...'}" autocomplete="off" />
       <div id="search-results" class="search-results"></div>
     </div>
   `;
@@ -121,7 +123,15 @@ export function openSearch(): void {
   void doSearch('');
 }
 
+// 会话内搜索：chatView 头部搜索按钮调用。设置 chatSearchChatId 使 doSearch
+// 只搜当前会话，并复用 openSearch() 打开浮层（placeholder 显示「搜索此会话...」）
+export function openChatSearch(chatId: number): void {
+  chatSearchChatId = chatId;
+  openSearch();
+}
+
 export function closeSearch(): void {
+  chatSearchChatId = null;
   const overlay = document.getElementById('search-overlay');
   if (overlay) {
     overlay.classList.add('closing');
@@ -160,7 +170,7 @@ async function doSearch(q: string): Promise<void> {
   // 仅当 q 非空时执行消息/频道/成员搜索
   if (q) {
     try {
-      const results = await call<SearchResult[]>('search_msgs', { query: q });
+      const results = await call<SearchResult[]>('search_msgs', { query: q, chatId: chatSearchChatId ?? undefined });
       if (results && results.length > 0) {
         const items = results
           .map(
@@ -258,14 +268,25 @@ function bindSearchResults(): void {
         if (chatId != null) {
           state.currentChatId = chatId;
           closeSearch();
-          await renderChatView(chatId);
-          const msgEl = document.querySelector(`[data-msg="${id}"]`);
-          if (msgEl) {
-            msgEl.scrollIntoView({ behavior: 'smooth' });
-            (msgEl as HTMLElement).style.background = 'var(--active)';
-            setTimeout(() => {
-              (msgEl as HTMLElement).style.background = '';
-            }, 2000);
+          // chatView 是虚拟化渲染，目标消息可能在视口外，querySelector 找不到 →
+          // 改调 chatView 的 jumpToMessage(msgId)：渲染、滚动并临时高亮。
+          // 该函数由主 Agent 在 chatView.ts 暴露，尚未实现前走旧逻辑兜底。
+          const mod = (await import('../chat/chatView.js')) as unknown as {
+            jumpToMessage?: (msgId: number) => Promise<void>;
+          };
+          const jumpToMessage = mod.jumpToMessage;
+          if (jumpToMessage) {
+            await jumpToMessage(Number(id));
+          } else {
+            await renderChatView(chatId);
+            const msgEl = document.querySelector(`[data-msg="${id}"]`);
+            if (msgEl) {
+              msgEl.scrollIntoView({ behavior: 'smooth' });
+              (msgEl as HTMLElement).style.background = 'var(--active)';
+              setTimeout(() => {
+                (msgEl as HTMLElement).style.background = '';
+              }, 2000);
+            }
           }
         }
       } else if (type === 'member') {

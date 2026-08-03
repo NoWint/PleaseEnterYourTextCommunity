@@ -163,4 +163,5 @@ export interface ChatListItem {
   is_group: boolean;
   is_contact_request: boolean;
   is_self_talk: boolean;
+  chat_type: string;
 }
