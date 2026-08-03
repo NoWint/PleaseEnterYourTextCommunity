@@ -31,6 +31,16 @@ impl BotDriver for LlmDriver {
             return Ok(vec![]);
         };
         if !llm.is_complete() {
+            bot.activity
+                .record(
+                    bot.bot_id,
+                    crate::dto::bot_activity_kind::REPLY_SKIPPED,
+                    Some(msg.chat_id.to_u32()),
+                    Some(msg.msg_id.to_u32()),
+                    "LLM 配置不完整,跳过回复",
+                    None,
+                )
+                .await;
             return Ok(vec![]);
         }
 

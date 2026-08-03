@@ -17,7 +17,11 @@ use crate::dto::{BotConfig, bot_activity_kind as act};
 use crate::drivers::{BotRuntime, DriverRegistry, IncomingMsg, driver_kind_label};
 
 /// 全局并发上限:跨所有 bot 的 LLM/驱动调用总数。
+/// 未抢到 permit 的进站事件直接丢弃(不排队,避免内存无界增长)。
 const GLOBAL_MAX_CONCURRENT: usize = 4;
+
+/// 无有效配置时 NO_CONFIG 活动写入的节流间隔。
+const DEFAULT_RECORD_INTERVAL: Duration = Duration::from_secs(3);
 
 /// 启动 bot 事件调度器。常驻后台:接收所有账号 IncomingMsg,
 /// 命中 bot_ids 后快速 spawn 处理任务(并发受信号量限制)。
@@ -33,7 +37,7 @@ pub async fn spawn(
         accounts.get_event_emitter()
     };
     let global = Arc::new(Semaphore::new(GLOBAL_MAX_CONCURRENT));
-    let per_bot: Arc<Mutex<HashMap<u32, Arc<Semaphore>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let per_bot: Arc<Mutex<HashMap<u32, (u32, Arc<Semaphore>)>>> = Arc::new(Mutex::new(HashMap::new()));
     let rate: Arc<RateLimiter> = Arc::new(RateLimiter::new());
 
     while let Some(event) = emitter.recv().await {
@@ -57,10 +61,11 @@ pub async fn spawn(
         let per_bot = per_bot.clone();
         let rate = rate.clone();
         tokio::spawn(async move {
-            let Ok(permit) = global.acquire().await else {
+            // 未抢到全局 permit 的事件直接丢弃(不排队,避免任务无界堆积)
+            let Ok(_permit) = global.try_acquire() else {
+                log::debug!("bot {account_id}: global 并发超限,丢弃事件");
                 return;
             };
-            let _permit = permit;
             handle_bot_message(
                 &accounts, &db, &bot_ids, &activity, &registry, &per_bot, &rate,
                 account_id, chat_id, msg_id,
@@ -77,12 +82,15 @@ async fn handle_bot_message(
     bot_ids: &Arc<Mutex<HashSet<u32>>>,
     activity: &ActivityLog,
     registry: &DriverRegistry,
-    per_bot: &Arc<Mutex<HashMap<u32, Arc<Semaphore>>>>,
+    per_bot: &Arc<Mutex<HashMap<u32, (u32, Arc<Semaphore>)>>>,
     rate: &Arc<RateLimiter>,
     account_id: u32,
     chat_id: ChatId,
     msg_id: MsgId,
 ) {
+    // 限流/节流间隔:config 解析前先用默认值(NO_CONFIG 活动节流),解析后用配置值
+    let mut interval = DEFAULT_RECORD_INTERVAL;
+
     let row = match db.get_bot_by_account_id(account_id).await {
         Ok(Some(r)) => r,
         Ok(None) => return,
@@ -106,6 +114,10 @@ async fn handle_bot_message(
         }
     };
     let Some(config) = BotConfig::parse(config_json.as_deref()) else {
+        // 节流:同一会话在间隔内至多写一条 NO_CONFIG,避免洪水刷爆活动表
+        if !rate.should_record(bot_id, chat_id.to_u32(), interval) {
+            return;
+        }
         activity
             .record(
                 bot_id,
@@ -118,19 +130,38 @@ async fn handle_bot_message(
             .await;
         return;
     };
+    interval = Duration::from_secs(config.limits.reply_min_interval_secs.max(1));
 
-    // 每 bot 并发信号量(按账号缓存)
-    let max_concurrent = config.limits.max_concurrent.max(1) as usize;
+    // 每 bot 并发信号量(按账号缓存;max_concurrent 变更时重建)
+    let max_concurrent = config.limits.max_concurrent.max(1) as u32;
     let sema = {
         let mut map = per_bot.lock().await;
-        map.entry(account_id)
-            .or_insert_with(|| Arc::new(Semaphore::new(max_concurrent)))
-            .clone()
+        match map.get(&account_id) {
+            Some((cached_max, sema)) if *cached_max == max_concurrent => sema.clone(),
+            _ => {
+                let sema = Arc::new(Semaphore::new(max_concurrent as usize));
+                map.insert(account_id, (max_concurrent, sema.clone()));
+                sema
+            }
+        }
     };
-    let Ok(permit) = sema.acquire().await else {
-        return;
+    // 未抢到 permit 的事件直接丢弃(记 reply_skipped 活动),不排队
+    let _permit = match sema.try_acquire() {
+        Ok(p) => p,
+        Err(_) => {
+            activity
+                .record(
+                    bot_id,
+                    act::REPLY_SKIPPED,
+                    Some(chat_id.to_u32()),
+                    Some(msg_id.to_u32()),
+                    "并发超限,本次丢弃",
+                    None,
+                )
+                .await;
+            return;
+        }
     };
-    let _permit = permit;
 
     // 短取 context + 触发消息 + 发送者
     let ctx = {
@@ -170,9 +201,12 @@ async fn handle_bot_message(
         return;
     }
 
-    // 每会话回复间隔限流
-    let interval = Duration::from_secs(config.limits.reply_min_interval_secs.max(1));
-    if !rate.try_acquire(bot_id, chat_id.to_u32(), interval) {
+    // 每会话回复间隔限流(is_allowed 纯检查,不占槽;发送成功后才 stamp)
+    if !rate.is_allowed(bot_id, chat_id.to_u32(), interval) {
+        // 活动写入同样节流,避免洪水刷爆活动表
+        if !rate.should_record(bot_id, chat_id.to_u32(), interval) {
+            return;
+        }
         activity
             .record(
                 bot_id,
@@ -216,7 +250,7 @@ async fn handle_bot_message(
                         Some(chat_id.to_u32()),
                         Some(msg_id.to_u32()),
                         format!("驱动 {} 执行失败: {e}", driver_kind_label(driver.kind())),
-                        Some(format!("{{\"error\":\"{e}\"}}")),
+                        Some(serde_json::json!({ "error": e.to_string() }).to_string()),
                     )
                     .await;
             }
@@ -228,6 +262,8 @@ async fn handle_bot_message(
         out.set_text(reply.clone());
         match chat::send_msg(&ctx, chat_id, &mut out).await {
             Ok(_) => {
+                // 仅成功回复才占用限流槽位;未回复的消息不烧间隔
+                rate.stamp(bot_id, chat_id.to_u32());
                 activity
                     .record(
                         bot_id,
@@ -279,9 +315,12 @@ fn truncate(s: &str, n: usize) -> String {
     format!("{t}…")
 }
 
-/// 每会话回复间隔限流(时钟可注入,便于单测)。
+/// 每会话回复间隔限流 + 活动写入节流(时钟可注入,便于单测)。
 pub struct RateLimiter {
+    /// 最近一次成功回复时间(每会话)。
     last: StdMutex<HashMap<(i64, u32), Instant>>,
+    /// 最近一次活动写入时间(每会话,节流刷屏)。
+    record_cooldown: StdMutex<HashMap<(i64, u32), Instant>>,
     now: Box<dyn Fn() -> Instant + Send + Sync>,
 }
 
@@ -302,18 +341,36 @@ impl RateLimiter {
     {
         Self {
             last: StdMutex::new(HashMap::new()),
+            record_cooldown: StdMutex::new(HashMap::new()),
             now: Box::new(now),
         }
     }
 
-    /// 返回 true 表示允许(距上次回复 >= interval),并在允许时记录本次时间。
-    pub fn try_acquire(&self, bot_id: i64, chat_id: u32, interval: Duration) -> bool {
-        let mut last = self.last.lock().unwrap();
+    /// 纯检查:距上次成功回复是否已过 interval。不修改状态。
+    pub fn is_allowed(&self, bot_id: i64, chat_id: u32, interval: Duration) -> bool {
+        let last = self.last.lock().unwrap();
+        match last.get(&(bot_id, chat_id)) {
+            Some(t) if (self.now)() - *t < interval => false,
+            _ => true,
+        }
+    }
+
+    /// 记录本次成功回复时间(供 is_allowed 判定)。
+    pub fn stamp(&self, bot_id: i64, chat_id: u32) {
+        self.last
+            .lock()
+            .unwrap()
+            .insert((bot_id, chat_id), (self.now)());
+    }
+
+    /// 活动写入节流:同一 (bot,chat) 在 interval 内至多放行一次写入,并记录本次时间。
+    pub fn should_record(&self, bot_id: i64, chat_id: u32, interval: Duration) -> bool {
+        let mut record = self.record_cooldown.lock().unwrap();
         let key = (bot_id, chat_id);
-        match last.get(&key) {
+        match record.get(&key) {
             Some(t) if (self.now)() - *t < interval => false,
             _ => {
-                last.insert(key, (self.now)());
+                record.insert(key, (self.now)());
                 true
             }
         }
@@ -355,16 +412,33 @@ mod tests {
         });
 
         let interval = Duration::from_millis(1000);
-        assert!(limiter.try_acquire(1, 100, interval));
-        assert!(!limiter.try_acquire(1, 100, interval));
-        assert!(limiter.try_acquire(1, 101, interval));
-        assert!(limiter.try_acquire(2, 100, interval));
+
+        // is_allowed 是纯检查:不推进时间时反复调用,状态不变(无 stamp 副作用)
+        assert!(limiter.is_allowed(1, 100, interval));
+        assert!(limiter.is_allowed(1, 100, interval));
+        assert!(limiter.is_allowed(1, 100, interval));
+
+        // stamp 记录本次回复 → 同一 chat 在间隔内被拒,其他 chat 不受影响
+        limiter.stamp(1, 100);
+        assert!(!limiter.is_allowed(1, 100, interval));
+        assert!(limiter.is_allowed(1, 101, interval));
+        assert!(limiter.is_allowed(2, 100, interval));
 
         ms.store(1000, Ordering::Relaxed);
-        assert!(limiter.try_acquire(1, 100, interval));
+        assert!(limiter.is_allowed(1, 100, interval));
+
+        // 重新 stamp(模拟第二次成功回复)→ 边界行为正确
+        limiter.stamp(1, 100);
         ms.store(1499, Ordering::Relaxed);
-        assert!(!limiter.try_acquire(1, 100, interval));
+        assert!(!limiter.is_allowed(1, 100, interval));
         ms.store(2000, Ordering::Relaxed);
-        assert!(limiter.try_acquire(1, 100, interval));
+        assert!(limiter.is_allowed(1, 100, interval));
+
+        // should_record:每个 chat 每个间隔至多放行一次写入
+        assert!(limiter.should_record(3, 100, interval));
+        assert!(!limiter.should_record(3, 100, interval));
+        assert!(limiter.should_record(3, 101, interval));
+        ms.store(3000, Ordering::Relaxed);
+        assert!(limiter.should_record(3, 100, interval));
     }
 }

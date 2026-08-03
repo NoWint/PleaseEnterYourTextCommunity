@@ -3113,7 +3113,7 @@ pub async fn bot_mark_chat_seen(
 /// 测试 LLM 配置：用固定示例消息调用一次，返回回复文本（用于配置对话框的「测试连接」）。
 #[tauri::command]
 pub async fn test_llm_config(config: crate::dto::LlmConfigInput) -> AppResult<String> {
-    let client = crate::llm::LlmClient::new();
+    let client = crate::llm::shared_client();
     let msg = crate::llm::ChatMessage {
         role: "user".into(),
         content: "你好，请用一句话回复。".into(),

@@ -388,8 +388,11 @@ impl BotConfig {
     pub fn parse(raw: Option<&str>) -> Option<BotConfig> {
         let s = raw?;
         if let Ok(cfg) = serde_json::from_str::<BotConfig>(s) {
-            if cfg.llm.is_some() {
-                return Some(cfg);
+            // 含 llm 或 limits 键即视为新格式:即使 llm 为 null 也保留(limits 不丢失)
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
+                if v.get("llm").is_some() || v.get("limits").is_some() {
+                    return Some(cfg);
+                }
             }
         }
         Self::from_legacy(s)
@@ -522,8 +525,11 @@ mod tests {
     fn test_bot_config_parse_none_or_invalid() {
         assert!(BotConfig::parse(None).is_none());
         assert!(BotConfig::parse(Some("not json".into())).is_none());
-        // 新格式 llm 显式 null 且不是旧格式 → None
-        assert!(BotConfig::parse(Some(r#"{"llm":null,"limits":{"max_concurrent":4}}"#.into())).is_none());
+        // 新格式 llm 显式 null + limits(update_bot_config 序列化形态)→ 保留 limits
+        let cfg = BotConfig::parse(Some(r#"{"llm":null,"limits":{"max_concurrent":4}}"#.into()))
+            .expect("limits-only new format should parse");
+        assert_eq!(cfg.limits.max_concurrent, 4);
+        assert!(cfg.llm.is_none());
     }
 
     #[test]

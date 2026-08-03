@@ -50,11 +50,11 @@ pub fn parse_response(body: &str) -> AppResult<String> {
     Ok(content.to_string())
 }
 
-/// 错误是否值得重试:网络错误、429、5xx 视为瞬时。
+/// 错误是否值得重试:网络错误、HTTP 429 或任意 5xx 视为瞬时。
 pub fn is_retryable(e: &AppError) -> bool {
     match e {
         AppError::Network(_) => true,
-        AppError::Http(code, _) => matches!(code, 429 | 500 | 502 | 503 | 504),
+        AppError::Http(code, _) => *code == 429 || (500..=599).contains(code),
         _ => false,
     }
 }
@@ -147,6 +147,13 @@ impl Default for LlmClient {
     }
 }
 
+static LLM_CLIENT: std::sync::OnceLock<LlmClient> = std::sync::OnceLock::new();
+
+/// 进程级共享 LLM 客户端(复用 reqwest 连接池,避免每个命令新建)。
+pub fn shared_client() -> &'static LlmClient {
+    LLM_CLIENT.get_or_init(LlmClient::new)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,7 +212,9 @@ mod tests {
         assert!(is_retryable(&AppError::Network("timeout".into())));
         assert!(is_retryable(&AppError::Http(429, "limit".into())));
         assert!(is_retryable(&AppError::Http(500, "srv".into())));
+        assert!(is_retryable(&AppError::Http(501, "srv".into())));
         assert!(is_retryable(&AppError::Http(503, "srv".into())));
+        assert!(is_retryable(&AppError::Http(599, "srv".into())));
         assert!(!is_retryable(&AppError::Http(400, "bad".into())));
         assert!(!is_retryable(&AppError::Http(401, "auth".into())));
         assert!(!is_retryable(&AppError::Core("other".into())));
