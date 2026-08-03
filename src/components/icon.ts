@@ -9,7 +9,7 @@ export type IconName =
   | 'search' | 'log-out' | 'upload' | 'shield' | 'shield-off'
   | 'volume-2' | 'volume-x' | 'bookmark' | 'more-horizontal'
   | 'forward' | 'file-text' | 'image' | 'paperclip' | 'edit'
-  | 'arrow-up' | 'star' | 'alert-circle' | 'thumbs-up' | 'package' | 'terminal' | 'download'
+  | 'arrow-up' | 'star' | 'alert-circle' | 'thumbs-up' | 'package' | 'download'
   | 'calendar' | 'list' | 'clock' | 'inbox'
   // SP7: ViewToggle 视图切换图标 (kanban / timeline)
   | 'calendar' | 'list' | 'clock' | 'inbox' | 'columns' | 'timeline'

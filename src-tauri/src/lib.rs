@@ -9,7 +9,6 @@ mod events;
 mod llm;
 mod plugins;
 mod state;
-mod terminal;
 
 use tauri::Manager;
 
@@ -172,11 +171,6 @@ pub fn run() {
             commands::list_accounts,
             commands::switch_account,
             commands::add_bot_to_chat,
-            // Terminal
-            terminal::open_terminal,
-            terminal::write_terminal,
-            terminal::resize_terminal,
-            terminal::close_terminal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

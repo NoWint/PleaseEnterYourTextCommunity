@@ -3,7 +3,6 @@ import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
-import { renderAvatarHtml } from '../components/avatar.js';
 import { escapeHtml, escapeAttr } from '../components/escape.js';
 import { ui, type MenuItem } from '../components/ui.js';
 import { getSpaceType, refreshChannels } from '../shell/navPanel.js';
@@ -14,7 +13,6 @@ export async function renderGroupsPage(panel: HTMLElement): Promise<void> {
   const ws = state.workspaces.find((w) => w.id === state.currentWsId);
   const multiWs = state.workspaces.length > 1;
   const headerClickable = multiWs ? 'clickable' : '';
-  const avatarHtml = state.self ? await renderAvatarHtml(state.self) : '';
 
   panel.innerHTML = `
     <div class="nav-header ${headerClickable}" id="groups-header">
@@ -22,13 +20,6 @@ export async function renderGroupsPage(panel: HTMLElement): Promise<void> {
       <div class="nav-subtitle">${state.wsMembers[state.currentWsId || 0] || 0} members</div>
     </div>
     <div class="nav-list" id="groups-list"></div>
-    <div class="nav-user">
-      ${avatarHtml}
-      <div class="nav-user-info">
-        <div class="nav-user-name">${escapeHtml(state.self?.name || 'me')}</div>
-        <div class="nav-user-role">core</div>
-      </div>
-    </div>
   `;
 
   await renderChannelList();
