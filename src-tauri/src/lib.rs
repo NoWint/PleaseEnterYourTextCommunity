@@ -1,13 +1,15 @@
-mod bot_llm;
+mod activity;
 mod bots;
 mod commands;
 mod db;
+mod drivers;
 mod dto;
 mod envelope;
 mod error;
 mod events;
 mod llm;
 mod plugins;
+mod runtime;
 mod state;
 
 use tauri::Manager;
@@ -38,8 +40,27 @@ pub fn run() {
             if let Err(e) = tauri::async_runtime::block_on(state.bots.start_all()) {
                 log::warn!("failed to start bots: {e}");
             }
-            // 挂载 LLM 自动回复后台运行时(内部 spawn，单次调用)
-            state.bots.spawn_runtime();
+            // 活动日志:落库 + 实时 bot-activity 事件(时间线页/打字指示器通道)
+            let activity = {
+                let handle = app.handle().clone();
+                crate::activity::ActivityLog::new(state.db.clone()).with_callback(move |a| {
+                    use tauri::Emitter;
+                    let _ = handle.emit("bot-activity", &a);
+                })
+            };
+            // 驱动注册:B1 只有 LLM 驱动(后续 B3 加规则/定时)
+            let mut registry = crate::drivers::DriverRegistry::new();
+            registry.register(std::sync::Arc::new(crate::drivers::llm::LlmDriver::new(
+                crate::llm::LlmClient::new(),
+            )));
+            // 挂载事件调度器(常驻后台)
+            tauri::async_runtime::spawn(crate::runtime::spawn(
+                state.accounts.clone(),
+                state.db.clone(),
+                state.bots.bot_ids(),
+                activity,
+                registry,
+            ));
             app.manage(state);
             Ok(())
         })
@@ -162,6 +183,8 @@ pub fn run() {
             commands::set_bot_io,
             commands::update_bot_llm,
             commands::get_bot_llm,
+            commands::get_bot_config,
+            commands::update_bot_config,
             commands::bot_get_chatlist,
             commands::bot_get_chat_msgs,
             commands::bot_send_text,
