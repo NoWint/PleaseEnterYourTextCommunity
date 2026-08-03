@@ -228,22 +228,28 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   // 折叠时:头像隐藏(气泡式紧凑流),名字隐藏;名字/时间都放进气泡 meta 行
   const avatarDisplay = collapsed ? '' : avatarHtml;
   const nameDisplay = collapsed
-    ? `<span class="msg-time">${formatTs(msg.ts)}</span>`
-    : `<span class="msg-name">${escapeHtml(msg.from_name)}</span>
-       <span class="msg-time">${formatTs(msg.ts)}</span>`;
+    ? ''
+    : `<span class="msg-name">${escapeHtml(msg.from_name)}</span>`;
+  // delta 式 footer:展开/折叠都在气泡底部显示时间戳+状态图标(右侧)
+  const footerHtml = `
+    <footer class="msg-footer">
+      <span class="msg-time">${formatTs(msg.ts)}</span>
+      ${stateHtml}
+      ${resendBtn}
+    </footer>
+  `;
   const bubble = `
     <div class="msg-bubble">
       ${hoverActionsHtml}
       <div class="msg-meta">
         ${nameDisplay}
         ${roleTag}${replyMark}
-        ${stateHtml}
       </div>
       ${quoteBlock}
       <div class="msg-text">${textHtml}</div>
       ${attachmentHtml}
       ${reactionsHtml}
-      ${resendBtn}
+      ${footerHtml}
       <div class="msg-reaction-picker" id="rp-${msg.msg_id}">
         ${pickerHtml}
       </div>

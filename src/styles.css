@@ -784,6 +784,8 @@ html { background: var(--bg); }
 
 /* Task 8: 消息发送状态指示 + 重发按钮 */
 .msg-state { display: inline-flex; align-items: center; margin-left: auto; color: var(--text-mute); flex-shrink: 0; }
+/* delta 式 footer:时间戳+状态图标在气泡底部右侧 */
+.msg-footer { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: var(--font-scale-micro); color: var(--text-weak); }
 .msg-state svg { display: block; }
 .msg-state.state-delivered { color: var(--text-weak); }
 .msg-state.state-read { color: var(--success); }
