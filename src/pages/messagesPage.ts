@@ -53,6 +53,7 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
       <div class="nav-title">消息</div>
       <div class="nav-subtitle">私聊与群组</div>
       <button class="nav-archive-toggle" id="messages-archive-toggle" title="切换已归档会话" style="display:inline-flex;align-items:center;background:none;border:none;color:var(--text-weak);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;margin-top:6px;">${showArchived ? '返回消息' : '已归档'}</button>
+      <button class="nav-archive-toggle" id="messages-blocked-toggle" title="被屏蔽的联系人" style="display:inline-flex;align-items:center;background:none;border:none;color:var(--text-weak);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;margin-top:6px;margin-left:6px;">屏蔽列表</button>
       <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
     </div>
     <div class="nav-list" id="messages-list"></div>
@@ -69,6 +70,7 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
   bindAddButton();
   bindUserBar();
   bindArchiveToggle();
+  bindBlockedToggle();
 }
 
 function bindArchiveToggle(): void {
@@ -78,6 +80,15 @@ function bindArchiveToggle(): void {
     e.stopPropagation();
     showArchived = !showArchived;
     void renderMessagesPage(panel!);
+  });
+}
+
+function bindBlockedToggle(): void {
+  const btn = document.getElementById('messages-blocked-toggle');
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void import('../components/blockedContacts.js').then(({ openBlockedContacts }) => openBlockedContacts());
   });
 }
 

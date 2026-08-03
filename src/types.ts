@@ -165,3 +165,9 @@ export interface ChatListItem {
   is_self_talk: boolean;
   chat_type: string;
 }
+
+export interface ContactDto {
+  id: number;
+  name: string;
+  addr: string;
+}

@@ -2515,3 +2515,36 @@ pub async fn get_message_read_receipt_count(
     let count = message::get_msg_read_receipt_count(&ctx, MsgId::new(msg_id)).await?;
     Ok(count as u32)
 }
+
+// ==== 屏蔽列表 / 取消屏蔽 (Delta UnblockContacts) ====
+
+/// 列出被屏蔽的联系人。
+#[tauri::command]
+pub async fn get_blocked_contacts(state: State<'_, AppState>) -> AppResult<Vec<ContactDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let ids = Contact::get_all_blocked(&ctx).await?;
+    let mut out = Vec::new();
+    for id in ids {
+        let c = Contact::get_by_id(&ctx, id).await?;
+        out.push(ContactDto {
+            id: id.to_u32(),
+            name: c.get_display_name().to_string(),
+            addr: c.get_addr().to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// 取消屏蔽联系人。
+#[tauri::command]
+pub async fn unblock_contact(state: State<'_, AppState>, contact_id: u32) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    Contact::unblock(&ctx, ContactId::new(contact_id)).await?;
+    Ok(())
+}

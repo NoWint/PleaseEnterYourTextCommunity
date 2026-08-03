@@ -331,8 +331,12 @@ async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
 
 async function updateBadge(): Promise<void> {
   try {
-    const chats = await call<ChatListItem[]>('get_chatlist');
-    const total = chats.reduce((sum, c) => sum + (c.unread || 0), 0);
+    // 同时拉常规 + 归档会话的未读:归档会话新消息也应计入总角标(Delta 语义:归档不打扰但有未读提示)
+    const [normal, archived] = await Promise.all([
+      call<ChatListItem[]>('get_chatlist'),
+      call<ChatListItem[]>('get_chatlist', { archivedOnly: true }),
+    ]);
+    const total = [...normal, ...archived].reduce((sum, c) => sum + (c.unread || 0), 0);
     const tauri = window as unknown as TauriWindow;
     if (tauri.__TAURI__?.app?.setBadgeCount) {
       await tauri.__TAURI__.app.setBadgeCount(total);

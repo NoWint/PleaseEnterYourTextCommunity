@@ -26,6 +26,11 @@ type LegacyState = AppState & { homeMode?: boolean };
 
 let loadingEarlier = false;
 
+// appendNewMessages 并发守卫:MsgsChanged 和 IncomingMsg 会同时触发 refreshCurrentChat
+// → 两个并发 appendNewMessages。若无守卫,两者读同一份 state.messages 都判定"有新消息"
+// 然后都 push → 相同消息出现两条(state.messages 出现重复 msg_id → 滚动时增量渲染错乱卡顿)。
+let appendInFlight = false;
+
 // 并发守卫:递增 token。renderVisibleMessages 里 await 会让多个调用交错,
 // 后发的更新看到的前置调用若已过时(stale),会覆盖 DOM。
 // 每次新调用递增 renderToken 并捕获当前值,await 后仅当 token 仍是本次调用才写入 DOM。
@@ -210,15 +215,33 @@ export async function appendNewMessages(chatId: number): Promise<void> {
   if (state.currentChatId !== chatId) return;
   const box = document.getElementById('messages');
   if (!box) return; // 频道未渲染,跳过(下次 renderChatView 会全量拉取)
+  // 并发守卫:已有一次在跑则跳过本次(下次事件会再触发,不丢消息)。
+  // 否则双事件并发会重复 push 相同消息。
+  if (appendInFlight) return;
+  appendInFlight = true;
   try {
     // 只拉取最新的 50 条,找出 state.messages 里没有的新消息
     const msgs = await call<MsgDto[]>('get_chat_msgs', { chatId, beforeMsgId: null });
     const existingIds = new Set(state.messages.map((m) => m.msg_id));
+    // 真实消息到达时,移除本地乐观 tmp 消息(tmp_ 前缀),避免「乐观+真实」两条相同内容
+    // 并存显示。乐观 tmp 由 composer 生成,msg_id 是 tmp_<ts> 字符串,与真实数字 id 不同,
+    // 直接 push 真实消息会造成视觉上的重复(且 onSent 的 refreshMessages 可能晚于 MsgsChanged)。
+    if (msgs.some((m) => !existingIds.has(m.msg_id))) {
+      state.messages = state.messages.filter((m) => typeof m.msg_id !== 'string' || !String(m.msg_id).startsWith('tmp_'));
+    }
     const newMsgs = msgs.filter((m) => !existingIds.has(m.msg_id));
     if (newMsgs.length === 0) return;
     // 记录追加前是否在底部,用于决定是否自动滚到新消息
     const wasAtBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 50;
     state.messages.push(...newMsgs);
+    // 防御性去重:历史遗留的重复 msg_id 会导致滚动增量渲染反复重建 → 卡顿。
+    // 按 msg_id 去重(保留首次出现的)。
+    const seen = new Set<string | number>();
+    state.messages = state.messages.filter((m) => {
+      if (seen.has(m.msg_id)) return false;
+      seen.add(m.msg_id);
+      return true;
+    });
     if (wasAtBottom) {
       // 用户在底部 → 渲染新的底部范围(含新消息),并滚到底
       const end = state.messages.length;
@@ -234,6 +257,8 @@ export async function appendNewMessages(chatId: number): Promise<void> {
     }
   } catch (e) {
     console.error('appendNewMessages failed:', e);
+  } finally {
+    appendInFlight = false;
   }
 }
 
