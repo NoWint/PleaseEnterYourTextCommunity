@@ -2166,6 +2166,17 @@ body {
 .nav-work-item:hover { background: var(--capsule); color: var(--text); }
 .nav-work-item.active { background: var(--active); color: var(--text); }
 .nav-work-name { flex: 1; font-size: var(--font-scale-body); }
+.nav-meta-footer {
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  padding: 6px 8px 8px; flex-shrink: 0;
+}
+.nav-meta-link {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-faint); font-size: var(--font-scale-micro);
+  padding: 3px 8px; border-radius: var(--radius-xs);
+  transition: color 120ms var(--ease-out), background 120ms var(--ease-out);
+}
+.nav-meta-link:hover { color: var(--text-mute); background: var(--active); }
 .nav-user { display: flex; align-items: center; gap: 8px; padding: 12px 16px; cursor: pointer; }
 .nav-user:hover { background: var(--capsule); }
 .nav-user .avatar { width: 28px; height: 28px; border-radius: 50%; }
