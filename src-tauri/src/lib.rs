@@ -51,7 +51,7 @@ pub fn run() {
             };
             use std::sync::Arc;
             // 工具桥:emit 到前端 bot-tool-request(B5 前端监听;现仅记日志)
-            let bridge = Arc::new(crate::tools::ToolBridge::new().with_emitter(|v| {
+            let bridge = Arc::new(crate::tools::bridge::ToolBridge::new().with_emitter(|v| {
                 log::debug!("[tools] tool request: {v}");
             }));
             let mut tool_registry = crate::tools::ToolRegistry::new(bridge);

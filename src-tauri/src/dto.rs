@@ -385,6 +385,9 @@ pub struct BotConfig {
     pub llm: Option<LlmConfig>,
     #[serde(default)]
     pub limits: BotLimits,
+    /// 显式启用的工具名集合;None = 使用默认安全工具集
+    #[serde(default)]
+    pub tools: Option<Vec<String>>,
 }
 
 impl BotConfig {
@@ -430,6 +433,7 @@ impl BotConfig {
                 max_retries: default_max_retries(),
             }),
             limits: BotLimits::default(),
+            tools: None,
         })
     }
 }

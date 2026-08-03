@@ -98,8 +98,7 @@ mod tests {
     use std::sync::Mutex as StdMutex;
 
     use deltachat::chat::ChatId;
-    use deltachat::context::{Context, Events};
-    use deltachat::stock_str::StockStrings;
+    use deltachat::context::Context;
 
     use super::*;
     use crate::db::Db;
@@ -158,14 +157,11 @@ mod tests {
     impl TestCtx {
         async fn new() -> Self {
             let tmp = tempfile::tempdir().unwrap();
-            let dc = Context::new(
-                &tmp.path().join("dc.db"),
-                1,
-                Events::new(),
-                StockStrings::new(),
-            )
-            .await
-            .unwrap();
+            let mut accounts = deltachat::accounts::Accounts::new(tmp.path().join("accounts"), true)
+                .await
+                .unwrap();
+            let id = accounts.add_account().await.unwrap();
+            let dc = accounts.get_account(id).unwrap();
             let db = Db::new(tmp.path().join("app.db")).await.unwrap();
             let data_dir = tmp.path().to_path_buf();
             Self {

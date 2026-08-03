@@ -168,6 +168,7 @@ pub async fn build_history(ctx: &Context, chat_id: ChatId) -> AppResult<Vec<Chat
         history.push(ChatMessage {
             role: "user".into(),
             content: line,
+            ..Default::default()
         });
     }
     Ok(history)
