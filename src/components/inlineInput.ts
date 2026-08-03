@@ -1,3 +1,5 @@
+import { escapeHtml, escapeAttr } from './escape.js';
+
 export interface InlineInputOpts {
   placeholder: string;
   confirmLabel?: string;
@@ -52,7 +54,3 @@ export function createInlineInput(opts: InlineInputOpts): HTMLElement {
   return wrapper;
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: string): string { return escapeHtml(s); }

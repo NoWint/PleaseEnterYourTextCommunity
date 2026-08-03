@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 
 use deltachat::accounts::Accounts;
 use deltachat::config::Config;
+use deltachat::context::Context;
 
 use crate::bot_llm;
 use crate::db::Db;
@@ -80,6 +81,15 @@ impl BotService {
 
             ctx.start_io().await;
             let addr = ctx.get_config(Config::ConfiguredAddr).await?;
+            // 默认加为好友:主账号创建与 bot 的 1:1 会话,让 bot 出现在主账号会话列表
+            if let Some(bot_addr) = addr.as_deref() {
+                if let Some(owner_ctx) = self.accounts.lock().await.get_account(owner_id) {
+                    if let Ok(cid) = deltachat::contact::Contact::create(&owner_ctx, "", bot_addr).await
+                    {
+                        let _ = deltachat::chat::ChatId::create_for_contact(&owner_ctx, cid).await;
+                    }
+                }
+            }
             Ok(BotDto {
                 id: bot_id,
                 bot_account_id: id,
@@ -90,6 +100,13 @@ impl BotService {
             })
         }
         .await;
+
+        // 恢复主账号选中状态:core 的 add_account() 末尾会自动 select_account(新账号),
+        // 会把 bot 账号持久化为 selected_account。无论成功与否都必须改回 owner,
+        // 否则重启后应用会以 bot 为主账号。
+        if let Err(e) = self.accounts.lock().await.select_account(owner_id).await {
+            log::warn!("restore selected account to owner {owner_id} failed: {e}");
+        }
 
         match result {
             Ok(dto) => Ok(dto),
@@ -147,6 +164,22 @@ impl BotService {
         Ok(())
     }
 
+    /// 校验 bot 归属当前 owner, 返回其 deltachat Context
+    pub async fn ctx_for_bot(&self, owner_id: u32, bot_id: i64) -> AppResult<Context> {
+        let row = self
+            .db
+            .get_bot(owner_id, bot_id)
+            .await?
+            .ok_or_else(|| AppError::Core("bot not found".into()))?;
+        let ctx = self
+            .accounts
+            .lock()
+            .await
+            .get_account(row.bot_account_id)
+            .ok_or_else(|| AppError::Core("bot not found".into()))?;
+        Ok(ctx)
+    }
+
     /// 启/停单个 bot 的 IO，并把状态写回 db，返回最新 DTO。
     pub async fn set_io(&self, owner_id: u32, bot_id: i64, running: bool) -> AppResult<BotDto> {
         let row = self
@@ -178,16 +211,19 @@ impl BotService {
         })
     }
 
-    /// 启动某个用户名下所有 bot 的 IO。单个 bot 失败只记日志，不向外传播。
-    pub async fn start_all_for_owner(&self, owner_id: u32) -> AppResult<()> {
-        let rows = self.db.list_bots(owner_id).await?;
-        // 重建 bot 账号 id 集合(清空后重新插入该 owner 的全部 bot)
+    /// 启动全部 bot 的 IO(应用级后台服务,不依赖当前账号)。单个 bot 失败只记日志。
+    /// 同时重建 bot_ids 集合并执行「选中账号是 bot 则切回 owner」的自愈。
+    pub async fn start_all(&self) -> AppResult<()> {
+        let rows = self.db.list_all_bots().await?;
         {
             let mut ids = self.bot_ids.lock().await;
             ids.clear();
             for row in &rows {
                 ids.insert(row.bot_account_id);
             }
+        }
+        if let Some(owner) = self.ensure_selected_not_bot().await? {
+            log::warn!("selected account was a bot; switched back to owner {owner}");
         }
         for row in rows {
             if let Some(ctx) = self.accounts.lock().await.get_account(row.bot_account_id) {
@@ -201,6 +237,50 @@ impl BotService {
             }
         }
         Ok(())
+    }
+
+    /// 启动某个用户名下所有 bot 的 IO。单个 bot 失败只记日志，不向外传播。
+    pub async fn start_all_for_owner(&self, owner_id: u32) -> AppResult<()> {
+        let rows = self.db.list_bots(owner_id).await?;
+        // 重建 bot 账号 id 集合(清空后重新插入该 owner 的全部 bot)
+        {
+            let mut ids = self.bot_ids.lock().await;
+            ids.clear();
+            for row in &rows {
+                ids.insert(row.bot_account_id);
+            }
+        }
+        // 自愈:若持久化选中的账号是 bot(历史 bug:create_bot 曾让 add_account 把 bot
+        // 设为 selected_account),切回 owner,避免应用把 bot 当主账号使用。
+        if let Some(owner) = self.ensure_selected_not_bot().await? {
+            log::warn!("selected account was a bot; switched back to owner {owner}");
+        }
+        for row in rows {
+            if let Some(ctx) = self.accounts.lock().await.get_account(row.bot_account_id) {
+                ctx.start_io().await;
+            } else {
+                log::warn!(
+                    "bot {} (account {}) context unavailable, skipping",
+                    row.id,
+                    row.bot_account_id
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// 若持久化选中的账号是任一 bot 账号,切回其 owner 并返回修复后的 owner id。
+    /// 供 lib.rs 同步内存 current_id;无修复返回 None。
+    pub async fn ensure_selected_not_bot(&self) -> AppResult<Option<u32>> {
+        let mut accounts = self.accounts.lock().await;
+        let Some(sel) = accounts.get_selected_account_id() else {
+            return Ok(None);
+        };
+        if let Some(row) = self.db.get_bot_by_account_id(sel).await? {
+            accounts.select_account(row.owner_account_id).await?;
+            return Ok(Some(row.owner_account_id));
+        }
+        Ok(None)
     }
 
     /// 更新某个 bot 的 LLM 配置，并返回最新 DTO。
@@ -320,6 +400,31 @@ mod tests {
         let (_, _, svc) = test_env(&tmp).await;
 
         let err = svc.delete(1, 999).await.unwrap_err();
+        assert!(matches!(err, AppError::Core(_)));
+    }
+
+    /// ctx_for_bot 校验归属：owner 本人能拿到 context，非 owner 访问应报 not found。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_ctx_for_bot_non_owned_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (accounts, db, svc) = test_env(&tmp).await;
+
+        let owner_id = 1u32;
+        let bot_account_id = {
+            let mut accounts = accounts.lock().await;
+            accounts.add_account().await.unwrap()
+        };
+        let bot_id = db
+            .insert_bot(owner_id, bot_account_id, "CtxBot", chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+
+        // owner 本人可以拿到 bot 的 context
+        let ctx = svc.ctx_for_bot(owner_id, bot_id).await.unwrap();
+        assert_eq!(ctx.get_id(), bot_account_id);
+
+        // 非 owner（2）访问该 bot 应返回 not found 错误
+        let err = svc.ctx_for_bot(2, bot_id).await.unwrap_err();
         assert!(matches!(err, AppError::Core(_)));
     }
 

@@ -1,6 +1,7 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
+import { escapeHtml as esc } from '../components/escape.js';
 import type { ChannelDto, Page, SpaceType } from '../types.js';
 
 export async function refreshChannels(): Promise<void> {
@@ -126,7 +127,7 @@ export async function renderMain(): Promise<void> {
       await renderPluginsMain(main);
     } catch (err) {
       console.error('[plugins] renderPluginsMain failed:', err);
-      main.innerHTML = `<div class="empty">插件页加载失败<br><span style="font-size:10px;color:var(--text-faint)">${esc(String(err))}</span></div>`;
+      main.innerHTML = `<div class="empty">插件页加载失败<br><span style="font-size:var(--font-scale-micro);color:var(--text-faint)">${esc(String(err))}</span></div>`;
     }
     return;
   }
@@ -212,14 +213,4 @@ export async function renderMain(): Promise<void> {
   } catch {
     main.innerHTML = `<div class="empty">聊天视图加载失败</div>`;
   }
-}
-
-function esc(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[c]!);
 }

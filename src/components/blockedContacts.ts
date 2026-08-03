@@ -1,5 +1,6 @@
 import { call } from '../api.js';
 import { ui } from './ui.js';
+import { escapeHtml } from './escape.js';
 import type { ContactDto } from '../types.js';
 
 // 屏蔽列表弹窗(对齐 Delta UnblockContacts):列出被屏蔽的联系人,可取消屏蔽。
@@ -59,6 +60,3 @@ export async function openBlockedContacts(): Promise<void> {
   bind();
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

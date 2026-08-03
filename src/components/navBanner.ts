@@ -1,5 +1,6 @@
 import { iconSvg } from './icon.js';
 import { showToast } from '../toast.js';
+import { escapeHtml } from './escape.js';
 
 export interface NavBannerOpts {
   title: string;
@@ -58,8 +59,4 @@ export function showNavBanner(opts: NavBannerOpts): HTMLElement {
     document.body.appendChild(banner);
   }
   return banner;
-}
-
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }

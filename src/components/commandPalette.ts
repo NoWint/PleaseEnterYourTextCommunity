@@ -5,6 +5,7 @@
 // 仅注入极少量 .command-palette-overlay 定位与关闭动画（首次打开时挂到 <head>,不改 styles.css）。
 import { call } from '../api.js';
 import { state } from '../state.js';
+import { escapeHtml } from './escape.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from './icon.js';
 import { ui } from './ui.js';
@@ -64,12 +65,30 @@ async function newGroup(): Promise<void> {
     placeholder: '输入群名称',
     confirmLabel: '创建',
     onConfirm: async (name) => {
-      const chatId = await call<number>('create_group_chat', { name });
+      const emails = await promptMemberEmails();
+      const chatId = emails.length > 0
+        ? await call<number>('create_group', { name, memberEmails: emails })
+        : await call<number>('create_group_chat', { name });
       state.currentChatId = chatId;
       state.currentPage = 'messages';
       saveState();
       await navigateToPage('messages');
     },
+  });
+}
+
+/** 可选:输入群成员邮箱(逗号/空格分隔),为空返回 []。 */
+function promptMemberEmails(): Promise<string[]> {
+  return new Promise((resolve) => {
+    ui.inputDialog({
+      title: '添加成员（可跳过）',
+      placeholder: '邮箱,用逗号或空格分隔',
+      confirmLabel: '创建群',
+      onConfirm: (v) => {
+        const emails = v.split(/[,，\s]+/).map((e) => e.trim()).filter(Boolean);
+        resolve(emails);
+      },
+    });
   });
 }
 
@@ -136,7 +155,7 @@ function ensureStyles(): void {
   style.id = 'command-palette-css';
   style.textContent = `
 .command-palette-overlay { align-items: flex-start; padding-top: 60px; }
-.command-palette-overlay.closing { animation: fade-out 120ms ease-in forwards; }
+.command-palette-overlay.closing { animation: fade-out 150ms var(--ease-out) forwards; }
 `;
   document.head.appendChild(style);
 }
@@ -197,7 +216,7 @@ export function closeCommandPalette(): void {
   const overlay = document.getElementById('command-palette-overlay');
   if (overlay) {
     overlay.classList.add('closing');
-    setTimeout(() => overlay.remove(), 120);
+    setTimeout(() => overlay.remove(), 150);
   }
 }
 
@@ -269,6 +288,3 @@ function bindResults(resultsEl: HTMLElement): void {
   });
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

@@ -867,6 +867,27 @@ impl Db {
         .await?
     }
 
+    /// 列出全部 bot(不区分 owner),供应用级后台运行时使用。
+    pub async fn list_all_bots(&self) -> AppResult<Vec<BotRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<BotRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare("SELECT id, bot_account_id, owner_account_id, display_name, status, created_at FROM bots ORDER BY id")?;
+            let rows = stmt.query_map([], |r| {
+                Ok(BotRow {
+                    id: r.get(0)?,
+                    bot_account_id: r.get::<_, i64>(1)? as u32,
+                    owner_account_id: r.get::<_, i64>(2)? as u32,
+                    display_name: r.get(3)?,
+                    status: r.get(4)?,
+                    created_at: r.get(5)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
     pub async fn get_bot(&self, owner_account_id: u32, bot_id: i64) -> AppResult<Option<BotRow>> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || -> AppResult<Option<BotRow>> {
@@ -899,6 +920,32 @@ impl Db {
         })
         .await??;
         Ok(())
+    }
+
+    /// 按 bot 账号 id 查 bots 行(用于自愈:判断选中账号是否为 bot)。
+    pub async fn get_bot_by_account_id(&self, account_id: u32) -> AppResult<Option<BotRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<BotRow>> {
+            let c = conn.blocking_lock();
+            let row = c
+                .query_row(
+                    "SELECT id, bot_account_id, owner_account_id, display_name, status, created_at FROM bots WHERE bot_account_id = ?1",
+                    params![account_id],
+                    |r| {
+                        Ok(BotRow {
+                            id: r.get(0)?,
+                            bot_account_id: r.get::<_, i64>(1)? as u32,
+                            owner_account_id: r.get::<_, i64>(2)? as u32,
+                            display_name: r.get(3)?,
+                            status: r.get(4)?,
+                            created_at: r.get(5)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(row)
+        })
+        .await?
     }
 
     pub async fn set_bot_status(&self, owner_account_id: u32, bot_id: i64, status: &str) -> AppResult<()> {

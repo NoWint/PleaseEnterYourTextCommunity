@@ -4,13 +4,25 @@ import { saveState } from '../persist.js';
 import { showToast } from '../toast.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { iconSvg } from '../components/icon.js';
+import { ui } from '../components/ui.js';
 import { updatePinnedCache } from '../chat/message.js';
+import { escapeHtml, escapeAttr } from '../components/escape.js';
 import type { MemberDto, MsgDto } from '../types.js';
 
 interface ContactRole {
   contact_id: number;
+  role_id: number;
   role_name: string;
 }
+
+interface RoleDto {
+  id: number;
+  name: string;
+  color?: string | null;
+}
+
+// 角色选择器中的特殊选项值:触发「新建角色」输入弹窗
+const NEW_ROLE_VALUE = '__new';
 
 interface ChannelPin {
   msg_id: number;
@@ -181,6 +193,16 @@ async function renderMembers(body: HTMLElement): Promise<void> {
       if (!contactRoles.has(r.contact_id)) contactRoles.set(r.contact_id, []);
       contactRoles.get(r.contact_id)!.push(r.role_name);
     }
+    // 成员当前角色 id 映射 (取首个),用于角色选择器回显
+    const memberRoleIds = new Map<number, number>();
+    for (const r of allRoles) {
+      if (!memberRoleIds.has(r.contact_id)) memberRoleIds.set(r.contact_id, r.role_id);
+    }
+    // 工作区全部角色,供角色选择器下拉 (失败降级为空列表)
+    let roles: RoleDto[] = [];
+    try {
+      roles = await call<RoleDto[]>('list_roles', { workspaceId: state.currentWsId });
+    } catch {}
     const grouped = new Map<string, MemberDto[]>();
     grouped.set('core', []);
     grouped.set('Members', []);
@@ -202,7 +224,10 @@ async function renderMembers(body: HTMLElement): Promise<void> {
     for (const r of allRoles) {
       if (!order.includes(r.role_name) && grouped.has(r.role_name)) order.push(r.role_name);
     }
-    const searchHtml = `<div class="rd-search"><input id="rd-member-search" placeholder="搜索成员..." /></div>`;
+    const addMemberHtml = `
+      <div style="padding:8px 12px 0">
+        <button id="rd-add-member" style="width:100%;padding:6px 10px;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;background:var(--capsule);color:var(--text)">添加成员</button>
+      </div>`;
     // 已添加的联系人 addr 集合,用于成员行「已添加」标记 (群成员加好友复用 create_chat_by_email)
     let existingAddrs = new Set<string>();
     try {
@@ -221,10 +246,17 @@ async function renderMembers(body: HTMLElement): Promise<void> {
               const addBtn = !m.is_self && m.addr
                 ? `<button class="rd-add-friend ${isAdded ? 'added' : ''}" data-addr="${escapeAttr(m.addr)}" title="${isAdded ? '已是好友' : '添加为好友'}">${isAdded ? '已添加' : '添加'}</button>`
                 : '';
+              const roleId = memberRoleIds.get(m.contact_id);
+              const roleSelectHtml = m.is_self ? '' : `<select class="rd-role-select" data-cid="${m.contact_id}" title="分配角色" style="flex:none;max-width:88px;font-size:11px;padding:1px 4px;background:var(--capsule);color:var(--text);border:1px solid var(--border-strong);border-radius:4px;font-family:inherit">
+                <option value="" disabled ${roleId ? '' : 'selected'}>无角色</option>
+                ${roles.map((r) => `<option value="${r.id}" ${roleId === r.id ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
+                <option value="${NEW_ROLE_VALUE}">＋ 新建角色</option>
+              </select>`;
               return `<div class="rd-member ${m.is_self ? 'self' : 'clickable'}" data-name="${escapeAttr(m.name)}" ${m.is_self ? '' : `data-cid="${m.contact_id}"`}>
                 ${avatarHtml}
                 <span class="rd-name">${escapeHtml(m.name)}</span>
                 ${m.is_self ? `<span class="rd-self-tag">我</span>` : ''}
+                ${roleSelectHtml}
                 ${addBtn}
               </div>`;
             })
@@ -232,18 +264,21 @@ async function renderMembers(body: HTMLElement): Promise<void> {
           return `<div class="rd-group">${escapeHtml(groupLabel(name))} · ${list.length}</div>${items.join('')}`;
         })
     );
-    body.innerHTML =
-      searchHtml + (sectionResults.join('') || `<div style="padding:16px;color:var(--text-weak)">无成员</div>`);
-    const searchInput = body.querySelector<HTMLInputElement>('#rd-member-search');
-    if (searchInput) {
-      searchInput.addEventListener('input', () => {
-        const q = searchInput.value.toLowerCase();
-        body.querySelectorAll<HTMLElement>('.rd-member').forEach((el) => {
-          const name = el.dataset.name?.toLowerCase() || '';
-          el.style.display = name.includes(q) ? '' : 'none';
-        });
+    const searchWrap = document.createElement('div');
+    searchWrap.className = 'rd-search';
+    const searchInput = ui.input({ placeholder: '搜索成员...' });
+    searchInput.id = 'rd-member-search';
+    searchWrap.appendChild(searchInput);
+    body.insertAdjacentHTML('beforeend', addMemberHtml);
+    body.appendChild(searchWrap);
+    body.insertAdjacentHTML('beforeend', sectionResults.join('') || `<div style="padding:16px;color:var(--text-weak)">无成员</div>`);
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase();
+      body.querySelectorAll<HTMLElement>('.rd-member').forEach((el) => {
+        const name = el.dataset.name?.toLowerCase() || '';
+        el.style.display = name.includes(q) ? '' : 'none';
       });
-    }
+    });
     body.querySelectorAll<HTMLElement>('.rd-member[data-cid]').forEach((el) => {
       el.addEventListener('click', async () => {
         const cid = Number(el.dataset.cid);
@@ -262,6 +297,47 @@ async function renderMembers(body: HTMLElement): Promise<void> {
           btn.classList.add('added');
           btn.textContent = '已添加';
           showToast('已添加为好友');
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : String(err));
+        }
+      });
+    });
+    // 添加成员:输入邮箱加入当前群聊,成功后刷新成员列表
+    body.querySelector<HTMLElement>('#rd-add-member')?.addEventListener('click', () => {
+      ui.inputDialog({
+        title: '添加成员',
+        placeholder: '成员邮箱',
+        type: 'email',
+        onConfirm: async (email) => {
+          await call('add_group_member', { chatId: state.currentChatId, email });
+          showToast('已添加');
+          await renderMembers(body);
+        },
+      });
+    });
+    // 成员角色选择:阻止冒泡避免触发成员详情;分配已有角色或走「新建角色」流程
+    body.querySelectorAll<HTMLSelectElement>('.rd-role-select').forEach((sel) => {
+      sel.addEventListener('click', (e) => e.stopPropagation());
+      sel.addEventListener('change', async () => {
+        const cid = Number(sel.dataset.cid);
+        const val = sel.value;
+        try {
+          if (val === NEW_ROLE_VALUE) {
+            ui.inputDialog({
+              title: '新建角色',
+              placeholder: '角色名称',
+              onConfirm: async (name) => {
+                const roleId = await call<number>('create_role', { workspaceId: state.currentWsId, name, color: null });
+                await call('set_contact_role', { workspaceId: state.currentWsId, contactId: cid, roleId });
+                showToast('角色已设置');
+                await renderMembers(body);
+              },
+            });
+          } else if (val) {
+            await call('set_contact_role', { workspaceId: state.currentWsId, contactId: cid, roleId: Number(val) });
+            showToast('角色已设置');
+            await renderMembers(body);
+          }
         } catch (err) {
           showToast(err instanceof Error ? err.message : String(err));
         }
@@ -373,12 +449,3 @@ function formatRelativeTime(ts: number): string {
   return Math.floor(diff / 86400000) + '天前';
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
-}
-function escapeAttr(s: string): string {
-  return escapeHtml(s);
-}

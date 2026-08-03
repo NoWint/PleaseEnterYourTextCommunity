@@ -1,4 +1,5 @@
 import { showToast } from '../toast.js';
+import { escapeHtml } from './escape.js';
 
 export interface InlineConfirmOpts {
   message: string;
@@ -77,6 +78,3 @@ function showUndoToast(successLabel: string, undoLabel: string, onUndo: () => Pr
   setTimeout(dismiss, 5000);
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

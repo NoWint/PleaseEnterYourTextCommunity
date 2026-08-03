@@ -21,15 +21,18 @@
 //   Agent review;生产方案应让应用运行在 asset 协议 origin(cross-origin),
 //   经包内 webxdc.js(postMessage 桥)通信,本文件宿主侧已实现同一套桥协议。
 //
-// ── blob 加载(TODO 主 Agent) ─────────────────────────
-//   .xdc 是 zip 包,入口 HTML(document)需主 Agent 经 get_webxdc_blob 解包注入。
-//   本文件先用「简化方案」:iframe 引导页就绪 window.webxdc 桥后,尝试把 asset
-//   URL 当 HTML 直读(fetch + document.write,仅对可直读 HTML 的简化包有效);
-//   非 HTML(zip)则静默跳过,等待主 Agent 的真实加载路径。
+// ── blob 加载(真实 zip 解包路径,已实现) ───────────────
+//   .xdc 是 zip 包:入口 HTML(document)经 get_webxdc_blob 解包为临时文件路径,
+//   transformBlobURL + fetch 读取为字符串;再把入口 HTML 内的相对资源
+//   (src/href/srcset/CSS url())逐个内联为 data: URL(见 rewriteAssets),最后经
+//   document.write 注入 iframe —— window.webxdc 桥先就绪,应用脚本可直接调用。
+//   兼容分支:解包失败时退回旧「简化方案」——把 asset URL 当 HTML 直读,仅对可
+//   直读 HTML 的简化包有效。
 
 import { call, transformBlobURL } from '../api.js';
 import { state } from '../state.js';
 import { iconSvg } from './icon.js';
+import { escapeHtml } from './escape.js';
 
 interface WebxdcInfo {
   name: string;
@@ -61,6 +64,9 @@ let unsubEvent: (() => void) | null = null;
 let onEscKey: ((e: KeyboardEvent) => void) | null = null;
 
 const infoCache = new Map<number, WebxdcInfo>();
+
+// 已内联的 data: URL 缓存:按包内相对路径索引,避免同一资源反复 IPC + 读取。
+const assetCache = new Map<string, string>();
 
 /**
  * 渲染 webxdc 消息卡片 HTML(供 message.ts 在 Webxdc 附件处插入)。
@@ -133,8 +139,23 @@ export async function openWebxdc(msgId: number): Promise<void> {
   activeMsgId = msgId;
   activeFrame = frame;
 
-  // 简化方案:transformBlobURL 得到 asset:// 路径,嵌入引导页做直读尝试
-  // (xdc 包是 zip,真实解包由主 Agent 的 get_webxdc_blob 路径负责,见 TODO)。
+  // 真实加载路径:get_webxdc_blob 从 .xdc(zip)解包出入口 HTML(document),读取其
+  // 文本后由 rewriteAssets 把相对资源内联为 data: URL,再注入引导页启动应用。
+  const entryName = info?.document || 'index.html';
+  const entryPath = await call<string>('get_webxdc_blob', { msgId, name: entryName }).catch(() => '');
+  let entryHtml = '';
+  if (entryPath) {
+    const entryUrl = await transformBlobURL(entryPath);
+    if (entryUrl) {
+      entryHtml = await fetch(entryUrl).then((r) => r.text()).catch(() => '');
+    }
+  }
+  let appHtml = '';
+  if (entryHtml) {
+    appHtml = await rewriteAssets(entryHtml, msgId);
+  }
+  // 兼容旧「简化方案」:解包失败(entryHtml 为空)时保留 asset URL 供引导页直读尝试,
+  // 仅对可直接读取 HTML 的简化包有效。
   let assetUrl = '';
   if (file) {
     try {
@@ -143,8 +164,9 @@ export async function openWebxdc(msgId: number): Promise<void> {
       assetUrl = '';
     }
   }
-  // 注入 webxdc API:用 srcdoc 引导页定义 window.webxdc(同源,宿主侧桥协议)。
-  frame.srcdoc = buildBridgeHtml(state.self?.name ?? '', state.self?.addr ?? '', assetUrl);
+  // 注入 webxdc API:用 srcdoc 引导页定义 window.webxdc(同源,宿主侧桥协议),
+  // 随后把重写后的入口 HTML 写入文档启动应用。
+  frame.srcdoc = buildBridgeHtml(state.self?.name ?? '', state.self?.addr ?? '', appHtml, assetUrl);
 
   // 事件桥:core WebxdcStatusUpdate → 重新拉取并推给 iframe(动态 import onEvent)。
   const { onEvent } = await import('../api.js');
@@ -288,11 +310,14 @@ async function hydrateCardInfo(msgId: number, card: HTMLElement): Promise<void> 
 
 /**
  * 生成 iframe 引导页 srcdoc:定义 window.webxdc 桥(经 postMessage 与宿主通信),
- * 并保留简化 blob 加载尝试 + 主 Agent TODO。内嵌 selfAddr/selfName/assetUrl。
+ * 然后把重写后的入口 HTML(appHtml,相对资源已内联为 data: URL)经 document.write
+ * 载入应用。兼容分支:appHtml 为空且 assetUrl 非空时退回旧「简化方案」,把 asset
+ * URL 当 HTML 直读(仅对可直读 HTML 的简化包有效)。内嵌 selfAddr/selfName/appHtml/assetUrl。
  */
-function buildBridgeHtml(selfName: string, selfAddr: string, assetUrl: string): string {
+function buildBridgeHtml(selfName: string, selfAddr: string, appHtml: string, assetUrl: string): string {
   const selfNameJson = JSON.stringify(selfName ?? '').replace(/</g, '\\u003c');
   const selfAddrJson = JSON.stringify(selfAddr ?? '').replace(/</g, '\\u003c');
+  const appHtmlJson = JSON.stringify(appHtml ?? '').replace(/</g, '\\u003c');
   const assetUrlJson = JSON.stringify(assetUrl ?? '').replace(/</g, '\\u003c');
   const apiSource = `
     (function () {
@@ -365,12 +390,18 @@ function buildBridgeHtml(selfName: string, selfAddr: string, assetUrl: string): 
           });
         }
       };
-      // TODO(主Agent): xdc 包是 zip,入口 HTML 需主 Agent 经 get_webxdc_blob 解包后
-      // 注入本文档(此时 window.webxdc 桥已就绪,应用可直接使用)。下方为「简化方案」
-      // 占位:尝试把 assetUrl 当 HTML 直读(仅对可直读 HTML 的简化包有效),失败/非
-      // HTML(zip)则静默跳过,等待主 Agent 的真实加载路径。
+      // 真实加载路径:入口 HTML(appHtml)已在宿主侧把相对资源内联为 data: URL,
+      // 直接 document.write 注入文档 —— 此时 window.webxdc 桥已就绪,应用可调用。
+      var appHtml = ${appHtmlJson};
       var appUrl = ${assetUrlJson};
-      if (appUrl) {
+      if (appHtml) {
+        try {
+          document.open();
+          document.write(appHtml);
+          document.close();
+        } catch (e) { /* 注入失败忽略 */ }
+      } else if (appUrl) {
+        // 兼容旧「简化方案」:解包失败时把 asset URL 当 HTML 直读(仅对可直读 HTML 的简化包有效)。
         try {
           fetch(appUrl).then(function (r) { return r.text(); }).then(function (html) {
             if (!html || !/<\\/html>/i.test(html)) { return; }
@@ -383,6 +414,126 @@ function buildBridgeHtml(selfName: string, selfAddr: string, assetUrl: string): 
     })();
   `;
   return '<!doctype html><html><head><meta charset="utf-8"><script>' + apiSource + '</script></head><body></body></html>';
+}
+
+// ── 入口 HTML 资源内联(相对路径 → data: URL) ─────────
+// srcdoc 引导页里,相对引用会按 about:srcdoc 解析、读不到包内文件;而 iframe 是
+// 沙箱 opaque origin,也无法直接 fetch asset:// 协议。因此把入口 HTML 内的相对
+// 资源(src/href/srcset/CSS url())在宿主侧全部内联为 data: URL 后再注入。
+
+/**
+ * 判断引用是否是需要内联的包内相对路径:空值、# 片段、带 scheme(http/https/data/
+ * asset/blob 等)、// 协议相对、/ 根路径均跳过(绝对引用可在 iframe 内正常加载)。
+ */
+function isRelativeAssetRef(ref: string): boolean {
+  const p = ref.trim();
+  if (!p || p.startsWith('#') || p.startsWith('//') || p.startsWith('/')) return false;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(p)) return false;
+  return true;
+}
+
+/**
+ * 把单个相对资源引用解析为内联 data: URL:
+ * get_webxdc_blob 解包出临时文件路径 → transformBlobURL 得 asset URL → fetch 读
+ * Blob → FileReader 转 data URL。失败/空路径返回 ''(调用方保留原引用,不阻塞应用)。
+ * 假定资源与入口 HTML 同目录(扁平包布局,webxdc 常见);子目录入口需在 name 前缀目录。
+ */
+async function resolveAssetDataUrl(msgId: number, ref: string): Promise<string> {
+  const clean = ref.trim().replace(/^\.\//, '').split(/[?#]/)[0];
+  if (!clean) return '';
+  const hit = assetCache.get(clean);
+  if (hit) return hit;
+  try {
+    const tmp = await call<string>('get_webxdc_blob', { msgId, name: clean });
+    if (!tmp) return '';
+    const url = await transformBlobURL(tmp);
+    if (!url) return '';
+    const blob = await fetch(url).then((r) => r.blob());
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result as string);
+      fr.onerror = () => reject(fr.error);
+      fr.readAsDataURL(blob);
+    });
+    assetCache.set(clean, dataUrl);
+    return dataUrl;
+  } catch {
+    return '';
+  }
+}
+
+/** 重写 srcset 值:逗号分隔的「URL + 描述符」中,相对 URL 逐个内联。 */
+async function rewriteSrcsetValue(value: string, msgId: number): Promise<string> {
+  const parts = value.split(',');
+  const out: string[] = [];
+  for (const part of parts) {
+    const sp = part.trim();
+    if (!sp) {
+      out.push(part);
+      continue;
+    }
+    const tokens = sp.split(/\s+/);
+    const url = tokens[0];
+    if (isRelativeAssetRef(url)) {
+      const dataUrl = await resolveAssetDataUrl(msgId, url);
+      if (dataUrl) tokens[0] = dataUrl;
+    }
+    out.push(tokens.join(' '));
+  }
+  return out.join(',');
+}
+
+/**
+ * 对 text 中命中 regex 的所有匹配做异步替换(逐个 await,串行调用后端,避免 IPC 风暴)。
+ * mapper 返回 '' 表示保留原匹配(把原字符串加回去)。
+ */
+async function replaceAsync(
+  text: string,
+  regex: RegExp,
+  mapper: (m: RegExpExecArray) => Promise<string>,
+): Promise<string> {
+  let out = '';
+  let pos = 0;
+  regex.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(text))) {
+    out += text.slice(pos, m.index);
+    const rep = await mapper(m);
+    out += rep;
+    pos = m.index + m[0].length;
+    if (m[0].length === 0) regex.lastIndex += 1; // 防零长匹配死循环
+  }
+  return out + text.slice(pos);
+}
+
+/**
+ * 重写入口 HTML 中的相对资源引用为内联 data: URL,覆盖:
+ *   src/href 属性(img/script/link/video/audio 等)、srcset、CSS url()。
+ * 仅重写包内相对路径;绝对引用(http/https/data:/asset: 等)原样保留;解析失败保留原引用。
+ */
+async function rewriteAssets(html: string, msgId: number): Promise<string> {
+  if (!html) return html;
+  let out = html;
+  out = await replaceAsync(out, /(\s)(src|href|srcset)\s*=\s*(["'])(.*?)\3/gi, async (m) => {
+    const attr = m[2].toLowerCase();
+    const value = m[4];
+    const prefix = m[0].slice(0, m[0].length - value.length);
+    if (attr === 'srcset') {
+      const rewritten = await rewriteSrcsetValue(value, msgId);
+      return prefix + rewritten + m[3];
+    }
+    if (!isRelativeAssetRef(value)) return m[0];
+    const dataUrl = await resolveAssetDataUrl(msgId, value);
+    return dataUrl ? prefix + dataUrl + m[3] : m[0];
+  });
+  out = await replaceAsync(out, /url\(\s*(['"]?)([^'")]*)\1\s*\)/gi, async (m) => {
+    const quote = m[1];
+    const value = m[2];
+    if (!isRelativeAssetRef(value)) return m[0];
+    const dataUrl = await resolveAssetDataUrl(msgId, value);
+    return dataUrl ? `url(${quote}${dataUrl}${quote})` : m[0];
+  });
+  return out;
 }
 
 // ── 样式(首次打开时注入一次,不触碰 styles.css) ────────
@@ -413,8 +564,3 @@ function baseName(file: string | null): string {
   return seg.replace(/\.xdc$/i, '');
 }
 
-function escapeHtml(s: string | null | undefined): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]!));
-}

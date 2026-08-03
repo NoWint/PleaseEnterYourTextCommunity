@@ -1,6 +1,7 @@
 import { call, eventLog, type DcEvent } from '../api.js';
 import { state } from '../state.js';
 import { iconSvg, type IconName } from '../components/icon.js';
+import { escapeHtml } from '../components/escape.js';
 
 const PAGE_SIZE = 20;
 
@@ -345,11 +346,4 @@ function formatTime(ts: number): string {
   const d = new Date(ts * 1000);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
 }

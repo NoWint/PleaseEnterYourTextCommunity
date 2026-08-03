@@ -299,3 +299,12 @@ mod tests {
         assert_eq!(parsed.smtp_password.as_deref(), Some("secret"));
     }
 }
+
+/// 账号信息(切换账号列表用)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountInfoDto {
+    pub id: u32,
+    pub name: String,
+    pub addr: String,
+    pub is_current: bool,
+}

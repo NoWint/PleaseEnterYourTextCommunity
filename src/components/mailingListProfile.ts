@@ -2,6 +2,7 @@ import { call } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { ui } from './ui.js';
+import { escapeHtml } from './escape.js';
 import { renderAvatarHtml } from './avatar.js';
 import type { ChatListItem, MemberDto } from '../types.js';
 
@@ -61,7 +62,7 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
     title: chat.name,
     size: 'lg',
     body: `
-      <div style="display:inline-block;background:var(--capsule);color:var(--text-mute);font-size:13px;padding:2px 10px;border-radius:999px;margin-bottom:12px">${escapeHtml(typeLabel)}</div>
+      <div style="display:inline-block;background:var(--capsule);color:var(--text-mute);font-size:var(--font-scale-body);padding:2px 10px;border-radius:999px;margin-bottom:12px">${escapeHtml(typeLabel)}</div>
       <div id="mlp-members" style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:8px"><div class="ui-spinner"></div></div>
     `,
     actions: [archiveBtn, leaveBtn],
@@ -73,7 +74,7 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
     if (!membersEl) return;
     const members = info.members || [];
     if (members.length === 0) {
-      membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:14px;padding:8px">暂无成员</div>`;
+      membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:var(--font-scale-body);padding:8px">暂无成员</div>`;
       return;
     }
     const rows = await Promise.all(
@@ -83,8 +84,8 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
           <div class="ui-dialog-section" style="flex-direction:row;align-items:center;padding:8px 12px">
             ${avatarHtml}
             <div style="min-width:0">
-              <div style="font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.name)}${m.is_self ? '<span style="font-size:12px;color:var(--text-weak);margin-left:4px">我</span>' : ''}</div>
-              <div style="font-size:12px;color:var(--text-weak);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.addr || '')}</div>
+              <div style="font-size:var(--font-scale-body);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.name)}${m.is_self ? '<span style="font-size:var(--font-scale-secondary);color:var(--text-weak);margin-left:4px">我</span>' : ''}</div>
+              <div style="font-size:var(--font-scale-secondary);color:var(--text-weak);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.addr || '')}</div>
             </div>
           </div>`;
       }),
@@ -92,7 +93,7 @@ export async function openMailingListProfile(chatId: number, chat: ChatListItem)
     membersEl.innerHTML = rows.join('');
   } catch (e) {
     const membersEl = dlg.overlay.querySelector<HTMLElement>('#mlp-members');
-    if (membersEl) membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:14px;padding:8px">加载成员失败</div>`;
+    if (membersEl) membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:var(--font-scale-body);padding:8px">加载成员失败</div>`;
   }
 }
 
@@ -106,6 +107,3 @@ async function refreshMain(): Promise<void> {
   await renderMain();
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

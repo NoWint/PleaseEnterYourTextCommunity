@@ -3,11 +3,12 @@ import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
-import { showDropdown, type DropdownItem } from '../components/dropdown.js';
-import { createInlineInput } from '../components/inlineInput.js';
 import { renderAvatarHtml } from '../components/avatar.js';
+import { escapeHtml, escapeAttr } from '../components/escape.js';
+import { ui, type MenuItem } from '../components/ui.js';
 import { getSpaceType, refreshChannels } from '../shell/navPanel.js';
-import type { ChannelDto } from '../types.js';
+import { refreshWorkspaces } from '../shell/rail.js';
+import type { ChannelDto, WorkspaceDto } from '../types.js';
 
 export async function renderGroupsPage(panel: HTMLElement): Promise<void> {
   const ws = state.workspaces.find((w) => w.id === state.currentWsId);
@@ -127,7 +128,7 @@ function showInlineCreateChannel(category: string): void {
   if (!list) return;
   const catEl = findCategoryElement(list, category);
   if (!catEl) return;
-  const input = createInlineInput({
+  const input = ui.inlineInput({
     placeholder: '输入频道名',
     confirmLabel: '创建',
     extra: `分类:${category}`,
@@ -169,8 +170,26 @@ function bindChannelContextMenus(): void {
   });
 }
 
+async function setChatMuted(chatId: number, muted: boolean): Promise<void> {
+  try {
+    await call('set_chat_muted', { chatId, muted });
+    showToast(muted ? '已静音' : '已取消静音');
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : String(e));
+  }
+}
+
+async function setChatPinned(chatId: number, pinned: boolean): Promise<void> {
+  try {
+    await call('set_chat_pinned', { chatId, pinned });
+    showToast(pinned ? '已置顶' : '已取消置顶');
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : String(e));
+  }
+}
+
 function showChannelContextMenu(anchor: HTMLElement, chatId: number): void {
-  const items: DropdownItem[] = [
+  const items: MenuItem[] = [
     {
       label: '频道信息',
       icon: 'info',
@@ -183,8 +202,8 @@ function showChannelContextMenu(anchor: HTMLElement, chatId: number): void {
         renderRightDrawer();
       },
     },
-    { label: '静音', icon: 'volume-x', action: () => showToast('静音(开发中)') },
-    { label: '置顶', icon: 'pin', action: () => showToast('置顶(开发中)') },
+    { label: '静音', icon: 'volume-x', action: () => void setChatMuted(chatId, true) },
+    { label: '置顶', icon: 'pin', action: () => void setChatPinned(chatId, true) },
     {
       label: '标记已读',
       icon: 'check',
@@ -210,6 +229,79 @@ function showChannelContextMenu(anchor: HTMLElement, chatId: number): void {
       },
     },
     {
+      label: '重命名频道',
+      icon: 'edit',
+      action: async () => {
+        const ch = state.channels.find((c) => c.chat_id === chatId);
+        ui.inputDialog({
+          title: '重命名频道',
+          placeholder: '频道名称',
+          confirmLabel: '保存',
+          value: ch?.name || '',
+          onConfirm: async (name) => {
+            try {
+              await call('update_channel', { chatId, name });
+              await refreshChannels();
+              await renderChannelList();
+              showToast('频道已重命名');
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : String(e));
+            }
+          },
+        });
+      },
+    },
+    {
+      label: '设置话题',
+      icon: 'hash',
+      action: async () => {
+        const ch = state.channels.find((c) => c.chat_id === chatId);
+        ui.inputDialog({
+          title: '设置话题',
+          placeholder: '频道话题',
+          confirmLabel: '保存',
+          value: ch?.topic || '',
+          onConfirm: async (topic) => {
+            try {
+              await call('set_channel_topic', { chatId, topic });
+              await refreshChannels();
+              await renderChannelList();
+              showToast('话题已更新');
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : String(e));
+            }
+          },
+        });
+      },
+    },
+    {
+      label: '删除频道',
+      icon: 'trash',
+      danger: true,
+      action: async () => {
+        ui.confirm({
+          message: '删除该频道？',
+          danger: true,
+          onConfirm: async () => {
+            try {
+              await call('delete_channel', { chatId });
+              await refreshChannels();
+              await renderChannelList();
+              if (state.currentChatId === chatId) {
+                state.currentChatId = null;
+                saveState();
+                const { renderMain } = await import('../shell/navPanel.js');
+                await renderMain();
+              }
+              showToast('频道已删除');
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : String(e));
+            }
+          },
+        });
+      },
+    },
+    {
       label: '离开频道',
       icon: 'log-out',
       danger: true,
@@ -231,7 +323,7 @@ function showChannelContextMenu(anchor: HTMLElement, chatId: number): void {
       },
     },
   ];
-  showDropdown(anchor, items, { position: 'bottom-right' });
+  ui.menu(anchor, items, 'bottom-right', { closeOn: 'hover', toggle: true });
 }
 
 function bindWsSwitcher(): void {
@@ -239,7 +331,7 @@ function bindWsSwitcher(): void {
   if (!header) return;
   header.addEventListener('click', (e) => {
     e.stopPropagation();
-    const items: DropdownItem[] = state.workspaces.map((ws) => ({
+    const items: MenuItem[] = state.workspaces.map((ws) => ({
       label: ws.name,
       icon: 'users',
       action: async () => {
@@ -254,13 +346,82 @@ function bindWsSwitcher(): void {
     items.push({
       label: '创建新团队',
       icon: 'plus',
-      action: () => showToast('创建团队(开发中)'),
+      action: () => {
+        ui.inputDialog({
+          title: '创建新团队',
+          placeholder: '团队名称',
+          confirmLabel: '创建',
+          onConfirm: async (name) => {
+            try {
+              const ws = await call<WorkspaceDto>('create_workspace', { name });
+              await refreshWorkspaces();
+              state.currentWsId = ws.id;
+              state.currentChatId = null;
+              saveState();
+              await refreshChannels();
+              const { renderNavPanel } = await import('../shell/navPanel.js');
+              await renderNavPanel();
+              showToast('团队已创建');
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : String(e));
+            }
+          },
+        });
+      },
     });
-    showDropdown(header, items, { position: 'bottom-left' });
+    const currentWs = state.workspaces.find((w) => w.id === state.currentWsId);
+    if (currentWs) {
+      items.push({
+        label: '重命名团队',
+        icon: 'edit',
+        action: () => {
+          ui.inputDialog({
+            title: '重命名团队',
+            placeholder: '团队名称',
+            confirmLabel: '保存',
+            value: currentWs.name,
+            onConfirm: async (name) => {
+              try {
+                await call('update_workspace', { id: currentWs.id, name });
+                await refreshWorkspaces();
+                const { renderNavPanel } = await import('../shell/navPanel.js');
+                await renderNavPanel();
+                showToast('团队已重命名');
+              } catch (e) {
+                showToast(e instanceof Error ? e.message : String(e));
+              }
+            },
+          });
+        },
+      });
+      items.push({
+        label: '删除团队',
+        icon: 'trash',
+        danger: true,
+        action: () => {
+          ui.confirm({
+            message: '删除团队及其全部频道与数据？',
+            danger: true,
+            onConfirm: async () => {
+              try {
+                await call('delete_workspace', { id: currentWs.id });
+                state.currentWsId = null;
+                state.currentChatId = null;
+                saveState();
+                await refreshWorkspaces();
+                await refreshChannels();
+                const { renderNavPanel } = await import('../shell/navPanel.js');
+                await renderNavPanel();
+                showToast('团队已删除');
+              } catch (e) {
+                showToast(e instanceof Error ? e.message : String(e));
+              }
+            },
+          });
+        },
+      });
+    }
+    ui.menu(header, items, 'bottom-left', { closeOn: 'hover', toggle: true });
   });
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: string): string { return escapeHtml(s); }

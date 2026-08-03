@@ -126,6 +126,10 @@ pub async fn login(
         };
         return Err(mapped);
     }
+    // 根治「Provider requires E2EE」死锁:chatmail core 默认 force_encryption=1,
+    // 新会话无对方公钥时首条明文被禁 → Autocrypt 密钥交换无法启动。
+    // 桌面客户端恢复 Delta 标准流程(首条明文带公钥 → 自动升级加密)。
+    ctx.set_config(Config::ForceEncryption, Some("0")).await?;
     ctx.start_io().await;
 
     {
@@ -172,6 +176,8 @@ pub async fn create_chatmail_account(
 
     ctx.set_config(Config::Displayname, Some(&display_name))
         .await?;
+    // 同上 login:关闭 force_encryption,避免新会话无对方公钥时首条明文被禁的 Autocrypt 死锁
+    ctx.set_config(Config::ForceEncryption, Some("0")).await?;
     dbg("[chatmail] display name set, selecting account...");
 
     {
@@ -267,15 +273,8 @@ fn download_state_str(s: DownloadState) -> &'static str {
     }
 }
 
-#[tauri::command]
-pub async fn get_chatlist(
-    state: State<'_, AppState>,
-    archived_only: Option<bool>,
-) -> AppResult<Vec<ChatDto>> {
-    let ctx = state
-        .current()
-        .await
-        .ok_or_else(|| AppError::Core("no account".into()))?;
+/// 构建聊天列表 DTO（供 get_chatlist 与 bot_get_chatlist 复用）。
+async fn build_chatlist(ctx: &Context, archived_only: Option<bool>) -> AppResult<Vec<ChatDto>> {
     // 归档视图请求 DC_GCL_ARCHIVED_ONLY(仅归档会话);常规视图用 0(仅未归档)。
     // core 文档:flags=0 且存在归档会话时,chatlist 会自动注入 DC_CHAT_ID_ARCHIVED_LINK
     // 虚拟会话(见下循环跳过)。DC_GCL_ARCHIVED_ONLY 时同样可能注入 ALLDONE_HINT。
@@ -284,7 +283,7 @@ pub async fn get_chatlist(
     } else {
         0
     };
-    let list = Chatlist::try_load(&ctx, listflags, None, None).await?;
+    let list = Chatlist::try_load(ctx, listflags, None, None).await?;
     let mut out = Vec::with_capacity(list.len());
     for i in 0..list.len() {
         let chat_id = list.get_chat_id(i)?;
@@ -294,18 +293,18 @@ pub async fn get_chatlist(
         if chat_id.is_archived_link() || chat_id.is_alldone_hint() {
             continue;
         }
-        let chat = Chat::load_from_db(&ctx, chat_id).await?;
+        let chat = Chat::load_from_db(ctx, chat_id).await?;
         let is_group = chat.get_type() == Chattype::Group;
         let is_contact_request = chat.is_contact_request();
         let is_self_talk = chat.is_self_talk();
         let is_archived = chat.get_visibility() == ChatVisibility::Archived;
         let (last_msg, last_ts) = if let Some(msg_id) = list.get_msg_id(i)? {
-            let m = message::Message::load_from_db(&ctx, msg_id).await?;
+            let m = message::Message::load_from_db(ctx, msg_id).await?;
             (Some(m.get_text()), Some(m.get_timestamp()))
         } else {
             (None, None)
         };
-        let unread = chat_id.get_fresh_msg_cnt(&ctx).await? as u32;
+        let unread = chat_id.get_fresh_msg_cnt(ctx).await? as u32;
         out.push(ChatDto {
             chat_id: chat_id.to_u32(),
             name: chat.get_name().to_string(),
@@ -319,6 +318,18 @@ pub async fn get_chatlist(
         });
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub async fn get_chatlist(
+    state: State<'_, AppState>,
+    archived_only: Option<bool>,
+) -> AppResult<Vec<ChatDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    build_chatlist(&ctx, archived_only).await
 }
 
 #[tauri::command]
@@ -391,18 +402,75 @@ pub async fn get_chat_info(
     })
 }
 
-#[tauri::command]
-pub async fn get_chat_msgs(
-    state: State<'_, AppState>,
+/// 将一条消息转为 MsgDto（供 get_chat_msgs 与 bot_send_text 复用）。
+async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
+    let m = message::Message::load_from_db(ctx, msg_id).await?;
+    let from_id = m.get_from_id();
+    let from_name = if from_id == deltachat::contact::ContactId::SELF {
+        "我".to_string()
+    } else {
+        Contact::get_by_id(ctx, from_id)
+            .await?
+            .get_display_name()
+            .to_string()
+    };
+    let (quote_from, quote_text) = match m.quoted_message(ctx).await? {
+        Some(q) => {
+            let q_from_id = q.get_from_id();
+            let q_name = if q_from_id == deltachat::contact::ContactId::SELF {
+                "我".to_string()
+            } else {
+                Contact::get_by_id(ctx, q_from_id)
+                    .await?
+                    .get_display_name()
+                    .to_string()
+            };
+            (Some(q_name), Some(q.get_text()))
+        }
+        None => (None, None),
+    };
+    let file_path = m.get_file(ctx).map(|p| p.to_string_lossy().to_string());
+    let file_name = m.get_filename();
+    let file_mime = m.get_filemime();
+    let file_bytes = m.get_filebytes(ctx).await.unwrap_or(None);
+    let width = m.get_width();
+    let height = m.get_height();
+    let view_type = viewtype_str(m.get_viewtype()).to_string();
+    let download_state = download_state_str(m.download_state()).to_string();
+    let subject = {
+        let s = m.get_subject();
+        if s.is_empty() { None } else { Some(s.to_string()) }
+    };
+    Ok(MsgDto {
+        msg_id: msg_id.to_u32(),
+        from_id: from_id.to_u32(),
+        from_name,
+        text: m.get_text(),
+        ts: m.get_timestamp(),
+        is_out: m.get_state().is_outgoing(),
+        state: state_str(m.get_state()).to_string(),
+        quote_from,
+        quote_text,
+        view_type,
+        file: file_path,
+        file_name,
+        file_mime,
+        file_bytes,
+        width: if width > 0 { Some(width) } else { None },
+        height: if height > 0 { Some(height) } else { None },
+        download_state,
+        subject,
+    })
+}
+
+/// 获取聊天消息分页窗口（供 get_chat_msgs 与 bot_get_chat_msgs 复用）。
+async fn get_chat_msgs_impl(
+    ctx: &Context,
     chat_id: u32,
     before_msg_id: Option<u32>,
 ) -> AppResult<Vec<MsgDto>> {
-    let ctx = state
-        .current()
-        .await
-        .ok_or_else(|| AppError::Core("no account".into()))?;
     let chat_id = deltachat::chat::ChatId::new(chat_id);
-    let items = chat::get_chat_msgs(&ctx, chat_id).await?;
+    let items = chat::get_chat_msgs(ctx, chat_id).await?;
     // core returns items oldest-first (sorted by timestamp ascending).
     // Pick the window of up to 50 items to return.
     let window: Vec<ChatItem> = match before_msg_id {
@@ -428,66 +496,29 @@ pub async fn get_chat_msgs(
     let mut out = Vec::new();
     for item in window {
         if let ChatItem::Message { msg_id } = item {
-            let m = message::Message::load_from_db(&ctx, msg_id).await?;
-            let from_id = m.get_from_id();
-            let from_name = if from_id == deltachat::contact::ContactId::SELF {
-                "我".to_string()
-            } else {
-                Contact::get_by_id(&ctx, from_id)
-                    .await?
-                    .get_display_name()
-                    .to_string()
-            };
-            let (quote_from, quote_text) = match m.quoted_message(&ctx).await? {
-                Some(q) => {
-                    let q_from_id = q.get_from_id();
-                    let q_name = if q_from_id == deltachat::contact::ContactId::SELF {
-                        "我".to_string()
-                    } else {
-                        Contact::get_by_id(&ctx, q_from_id)
-                            .await?
-                            .get_display_name()
-                            .to_string()
-                    };
-                    (Some(q_name), Some(q.get_text()))
-                }
-                None => (None, None),
-            };
-            let file_path = m.get_file(&ctx).map(|p| p.to_string_lossy().to_string());
-            let file_name = m.get_filename();
-            let file_mime = m.get_filemime();
-            let file_bytes = m.get_filebytes(&ctx).await.unwrap_or(None);
-            let width = m.get_width();
-            let height = m.get_height();
-            let view_type = viewtype_str(m.get_viewtype()).to_string();
-            let download_state = download_state_str(m.download_state()).to_string();
-            let subject = {
-                let s = m.get_subject();
-                if s.is_empty() { None } else { Some(s.to_string()) }
-            };
-            out.push(MsgDto {
-                msg_id: msg_id.to_u32(),
-                from_id: from_id.to_u32(),
-                from_name,
-                text: m.get_text(),
-                ts: m.get_timestamp(),
-                is_out: m.get_state().is_outgoing(),
-                state: state_str(m.get_state()).to_string(),
-                quote_from,
-                quote_text,
-                view_type,
-                file: file_path,
-                file_name,
-                file_mime,
-                file_bytes,
-                width: if width > 0 { Some(width) } else { None },
-                height: if height > 0 { Some(height) } else { None },
-                download_state,
-                subject,
-            });
+            out.push(msg_to_dto(ctx, msg_id).await?);
         }
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub async fn get_chat_msgs(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    before_msg_id: Option<u32>,
+) -> AppResult<Vec<MsgDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    get_chat_msgs_impl(&ctx, chat_id, before_msg_id).await
+}
+
+/// 发送文本消息，返回新消息 id（供 send_text 与 bot_send_text 复用）。
+async fn send_text_impl(ctx: &Context, chat_id: u32, text: String) -> AppResult<MsgId> {
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    Ok(chat::send_text_msg(ctx, chat_id, text).await?)
 }
 
 #[tauri::command]
@@ -500,9 +531,7 @@ pub async fn send_text(
         .current()
         .await
         .ok_or_else(|| AppError::Core("no account".into()))?;
-    let chat_id = deltachat::chat::ChatId::new(chat_id);
-    let msg_id = chat::send_text_msg(&ctx, chat_id, text).await?;
-    Ok(msg_id.to_u32())
+    Ok(send_text_impl(&ctx, chat_id, text).await?.to_u32())
 }
 
 #[tauri::command]
@@ -609,13 +638,18 @@ pub async fn leave_group(state: State<'_, AppState>, chat_id: u32) -> AppResult<
     Ok(())
 }
 
+/// 标记聊天已读（供 mark_chat_noticed 与 bot_mark_chat_noticed 复用）。
+async fn mark_chat_noticed_impl(ctx: &Context, chat_id: u32) -> AppResult<()> {
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    chat::marknoticed_chat(ctx, chat_id).await?;
+    Ok(())
+}
+
 /// Mark all messages in a chat as noticed (clears unread badge).
 #[tauri::command]
 pub async fn mark_chat_noticed(state: State<'_, AppState>, chat_id: u32) -> AppResult<()> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
-    let chat_id = deltachat::chat::ChatId::new(chat_id);
-    chat::marknoticed_chat(&ctx, chat_id).await?;
-    Ok(())
+    mark_chat_noticed_impl(&ctx, chat_id).await
 }
 
 /// Returns the user's own SecureJoin QR code (e.g. `OPENPGP4FPR:...`)
@@ -793,6 +827,17 @@ pub async fn set_contact_role(
 ) -> AppResult<()> {
     state.db.set_contact_role(workspace_id, contact_id, role_id).await?;
     Ok(())
+}
+
+/// 在工作区中创建一个角色, 返回角色 id。
+#[tauri::command]
+pub async fn create_role(
+    state: State<'_, AppState>,
+    workspace_id: i64,
+    name: String,
+    color: Option<String>,
+) -> AppResult<i64> {
+    state.db.insert_role(workspace_id, &name, color.as_deref()).await
 }
 
 /// Returns every (contact_id, role_id, role_name, role_color) tuple for a
@@ -1150,6 +1195,19 @@ pub async fn delete_msg(
         .ok_or(AppError::Core("no account".into()))?;
     let ids = vec![MsgId::new(msg_id)];
     message::delete_msgs(&ctx, &ids).await?;
+    Ok(())
+}
+
+/// 转发一条消息到目标会话 (保留原文、附件与引用信息)。
+#[tauri::command]
+pub async fn forward_msg(state: State<'_, AppState>, msg_id: u32, chat_id: u32) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    deltachat::chat::forward_msgs(
+        &ctx,
+        &[deltachat::message::MsgId::new(msg_id)],
+        deltachat::chat::ChatId::new(chat_id),
+    )
+    .await?;
     Ok(())
 }
 
@@ -2057,6 +2115,10 @@ const PEYT_STUDIO_NAME: &str = "PEYT Studio";
 #[tauri::command]
 pub async fn ensure_peyt_studio(state: State<'_, AppState>) -> AppResult<PeytStudioDto> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    // 根治「Provider requires E2EE」死锁(boot 必经,老账号也生效):
+    // chatmail core 默认 force_encryption=1,新会话无对方公钥时首条明文被禁 → Autocrypt 死锁。
+    // 桌面端恢复 Delta 标准流程(首条明文带公钥 → 自动升级加密)。
+    let _ = ctx.set_config(Config::ForceEncryption, Some("0")).await;
     // 1. 检测本地是否已有 PEYT Studio workspace (按 name 匹配)
     let workspaces = state.db.list_workspaces().await?;
     if let Some(ws) = workspaces.into_iter().find(|w| w.name == PEYT_STUDIO_NAME) {
@@ -2352,6 +2414,48 @@ pub async fn archive_chat(
     Ok(())
 }
 
+/// 静音/取消静音会话。muted=true → MuteDuration::Forever;false → NotMuted。
+#[tauri::command]
+pub async fn set_chat_muted(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    muted: bool,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let duration = if muted {
+        deltachat::chat::MuteDuration::Forever
+    } else {
+        deltachat::chat::MuteDuration::NotMuted
+    };
+    chat::set_muted(&ctx, deltachat::chat::ChatId::new(chat_id), duration).await?;
+    Ok(())
+}
+
+/// 置顶/取消置顶会话。pinned=true → ChatVisibility::Pinned;false → Normal。
+#[tauri::command]
+pub async fn set_chat_pinned(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    pinned: bool,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let visibility = if pinned {
+        ChatVisibility::Pinned
+    } else {
+        ChatVisibility::Normal
+    };
+    deltachat::chat::ChatId::new(chat_id)
+        .set_visibility(&ctx, visibility)
+        .await?;
+    Ok(())
+}
+
 /// 保存消息到 "Saved Messages"（self-talk 会话）。
 #[tauri::command]
 pub async fn save_msg(state: State<'_, AppState>, msg_id: u32) -> AppResult<()> {
@@ -2629,6 +2733,42 @@ pub async fn send_webxdc_status_update(
     Ok(())
 }
 
+/// 从 webxdc 消息的 zip 中读取指定文件, 写入临时文件并返回路径,
+/// 供前端 `convertFileSrc` 加载 (与 save_avatar_from_bytes 同理)。
+#[tauri::command]
+pub async fn get_webxdc_blob(
+    state: State<'_, AppState>,
+    msg_id: u32,
+    name: String,
+) -> AppResult<String> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    let m = deltachat::message::Message::load_from_db(&ctx, MsgId::new(msg_id)).await?;
+    let bytes = m
+        .get_webxdc_blob(&ctx, &name)
+        .await
+        .map_err(|e| AppError::Core(format!("webxdc blob: {e}")))?;
+    let dir = std::env::temp_dir().join("peytchat-webxdc");
+    tokio::fs::create_dir_all(&dir).await?;
+    let sanitized: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '_' })
+        .collect();
+    let sanitized = if sanitized.is_empty() {
+        "blob".to_string()
+    } else {
+        sanitized
+    };
+    let filename = format!(
+        "w-{}-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_millis(),
+        sanitized
+    );
+    let path = dir.join(filename);
+    tokio::fs::write(&path, &bytes).await?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 // ==== Delta 对齐批次 4 ====
 
 /// 应用数据目录(供导出路径/备份默认目录)。
@@ -2786,4 +2926,130 @@ pub async fn get_bot_llm(
 ) -> AppResult<Option<crate::dto::LlmConfigInput>> {
     let owner_id = current_owner_id(&state)?;
     state.bots.get_bot_llm(owner_id, bot_id).await
+}
+
+/// 获取当前用户某个 bot 账号的聊天列表。
+#[tauri::command]
+pub async fn bot_get_chatlist(
+    state: State<'_, AppState>,
+    bot_id: i64,
+) -> AppResult<Vec<ChatDto>> {
+    let owner_id = current_owner_id(&state)?;
+    let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    build_chatlist(&ctx, None).await
+}
+
+/// 获取当前用户某个 bot 账号的聊天消息（最近 50 条）。
+#[tauri::command]
+pub async fn bot_get_chat_msgs(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    chat_id: u32,
+) -> AppResult<Vec<MsgDto>> {
+    let owner_id = current_owner_id(&state)?;
+    let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    get_chat_msgs_impl(&ctx, chat_id, None).await
+}
+
+/// 以当前用户某个 bot 账号的身份发送文本消息，返回消息详情。
+#[tauri::command]
+pub async fn bot_send_text(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    chat_id: u32,
+    text: String,
+) -> AppResult<MsgDto> {
+    let owner_id = current_owner_id(&state)?;
+    let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    let msg_id = send_text_impl(&ctx, chat_id, text).await?;
+    msg_to_dto(&ctx, msg_id).await
+}
+
+/// 标记当前用户某个 bot 账号的聊天为已读。
+#[tauri::command]
+pub async fn bot_mark_chat_noticed(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    chat_id: u32,
+) -> AppResult<()> {
+    let owner_id = current_owner_id(&state)?;
+    let ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    mark_chat_noticed_impl(&ctx, chat_id).await
+}
+
+/// 测试 LLM 配置：用固定示例消息调用一次，返回回复文本（用于配置对话框的「测试连接」）。
+#[tauri::command]
+pub async fn test_llm_config(config: crate::dto::LlmConfigInput) -> AppResult<String> {
+    let msg = crate::llm::ChatMessage {
+        role: "user".into(),
+        content: "你好，请用一句话回复。".into(),
+    };
+    crate::llm::complete(&config, vec![msg]).await
+}
+
+/// 把 bot 拉入主账号的某个群聊/频道:主账号生成该会话的邀请 QR,bot 通过 securejoin 加入。
+#[tauri::command]
+pub async fn add_bot_to_chat(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    chat_id: u32,
+) -> AppResult<()> {
+    let owner_id = current_owner_id(&state)?;
+    let main_ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let bot_ctx = state.bots.ctx_for_bot(owner_id, bot_id).await?;
+    // 仅群组/广播可生成邀请 QR;1:1 会话 get_securejoin_qr 会报错
+    let qr = securejoin::get_securejoin_qr(&main_ctx, Some(deltachat::chat::ChatId::new(chat_id)))
+        .await
+        .map_err(|e| {
+            let msg = e.to_string();
+            AppError::Core(format!("无法生成该会话的邀请: {msg}"))
+        })?;
+    securejoin::join_securejoin(&bot_ctx, &qr)
+        .await
+        .map_err(|e| AppError::Core(format!("bot 加入失败: {e}")))?;
+    Ok(())
+}
+
+/// 列出所有账号(含名称/地址),供前端「切换账号」。
+#[tauri::command]
+pub async fn list_accounts(state: State<'_, AppState>) -> AppResult<Vec<crate::dto::AccountInfoDto>> {
+    let accounts = state.accounts.lock().await;
+    let mut out = Vec::new();
+    for id in accounts.get_all() {
+        let Some(ctx) = accounts.get_account(id) else { continue };
+        let name = ctx.get_config(Config::Displayname).await.unwrap_or(None).unwrap_or_default();
+        let addr = ctx.get_config(Config::ConfiguredAddr).await.unwrap_or(None).unwrap_or_default();
+        let is_current = Some(id) == *state.current_id.lock().unwrap();
+        out.push(crate::dto::AccountInfoDto {
+            id,
+            name,
+            addr,
+            is_current,
+        });
+    }
+    Ok(out)
+}
+
+/// 切换到指定账号(选中 + 设 current + 启动 IO)。前端切换后 reload 重建 UI。
+#[tauri::command]
+pub async fn switch_account(state: State<'_, AppState>, id: u32) -> AppResult<crate::dto::AccountInfoDto> {
+    let ctx = {
+        let mut accounts = state.accounts.lock().await;
+        if accounts.get_account(id).is_none() {
+            return Err(AppError::Core("账号不存在".into()));
+        }
+        accounts.select_account(id).await?;
+        accounts.get_account(id)
+    };
+    if let Some(ctx) = ctx {
+        ctx.start_io().await;
+        state.set_current(id);
+        let name = ctx.get_config(Config::Displayname).await.unwrap_or(None).unwrap_or_default();
+        let addr = ctx.get_config(Config::ConfiguredAddr).await.unwrap_or(None).unwrap_or_default();
+        return Ok(crate::dto::AccountInfoDto { id, name, addr, is_current: true });
+    }
+    Err(AppError::Core("账号不可用".into()))
 }

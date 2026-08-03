@@ -30,13 +30,14 @@ pub fn run() {
             // 绑定 bot 账号 id 集合的 Arc，再传给事件转发器(过滤 bot 账号事件)
             let bot_ids = state.bots.bot_ids();
             events::spawn_event_forwarder(handle, state.accounts.clone(), bot_ids);
-            // 启动当前用户名下所有 bot 的 IO；失败只记日志，不中断启动
-            if let Some(current_id) = *state.current_id.lock().unwrap() {
-                if let Err(e) =
-                    tauri::async_runtime::block_on(state.bots.start_all_for_owner(current_id))
-                {
-                    log::warn!("failed to start bots for owner {current_id}: {e}");
-                }
+            // 自愈:若持久化选中的账号是 bot(历史 bug),切回其 owner 并同步内存 current_id
+            if let Ok(Some(owner)) = tauri::async_runtime::block_on(state.bots.ensure_selected_not_bot()) {
+                state.set_current(owner);
+                log::warn!("healed: switched selected account to owner {owner}");
+            }
+            // 启动全部 bot 的 IO(bot 是应用级后台服务,不依赖当前账号);失败只记日志
+            if let Err(e) = tauri::async_runtime::block_on(state.bots.start_all()) {
+                log::warn!("failed to start bots: {e}");
             }
             // 挂载 LLM 自动回复后台运行时(内部 spawn，单次调用)
             state.bots.spawn_runtime();
@@ -71,6 +72,7 @@ pub fn run() {
             commands::get_channel_pins,
             commands::toggle_pin,
             commands::list_roles,
+            commands::create_role,
             commands::set_contact_role,
             commands::list_all_contact_roles,
             commands::send_reaction,
@@ -90,6 +92,7 @@ pub fn run() {
             commands::get_my_qr,
             commands::logout,
             commands::delete_msg,
+            commands::forward_msg,
             commands::create_group_chat,
             commands::create_chat_by_contact,
             commands::get_asset_url,
@@ -125,6 +128,8 @@ pub fn run() {
             commands::get_plugin_js,
             // Delta 对齐批次 1
             commands::archive_chat,
+            commands::set_chat_muted,
+            commands::set_chat_pinned,
             commands::save_msg,
             commands::unsave_msg,
             commands::get_draft,
@@ -138,6 +143,7 @@ pub fn run() {
             // Delta 对齐批次 3
             commands::send_voice,
             commands::get_webxdc_info,
+            commands::get_webxdc_blob,
             commands::get_webxdc_status_updates,
             commands::send_webxdc_status_update,
             // Delta 对齐批次 4
@@ -154,6 +160,14 @@ pub fn run() {
             commands::set_bot_io,
             commands::update_bot_llm,
             commands::get_bot_llm,
+            commands::bot_get_chatlist,
+            commands::bot_get_chat_msgs,
+            commands::bot_send_text,
+            commands::bot_mark_chat_noticed,
+            commands::test_llm_config,
+            commands::list_accounts,
+            commands::switch_account,
+            commands::add_bot_to_chat,
             // Terminal
             terminal::open_terminal,
             terminal::write_terminal,

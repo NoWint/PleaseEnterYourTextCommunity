@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { appendOptimisticMessage } from './chatView.js';
 import { iconSvg } from '../components/icon.js';
+import { escapeHtml, escapeAttr } from '../components/escape.js';
 import type { MsgDto, MemberDto, ChannelDto } from '../types.js';
 
 // 乐观更新临时消息类型 — message.js 读取这些字段渲染发送中状态。
@@ -573,9 +574,3 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
   }
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: string): string {
-  return escapeHtml(s);
-}

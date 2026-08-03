@@ -5,8 +5,11 @@ import { iconSvg, type IconName } from '../components/icon.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { getCurrentTheme, applyTheme, BUILTIN_THEMES } from '../theme.js';
 import { ui } from '../components/ui.js';
-import { createInlineInput } from '../components/inlineInput.js';
+import { escapeHtml } from '../components/escape.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
+// qrcode 包无自带类型声明,也无 @types/qrcode,用 @ts-expect-error 跳过类型检查
+// @ts-expect-error
+import QRCode from 'qrcode';
 
 const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = [
   { id: 'account', icon: 'user', label: '账号' },
@@ -18,23 +21,25 @@ const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = 
 ];
 
 export async function renderSettingsNav(panel: HTMLElement): Promise<void> {
-  const itemsHtml = sections.map((s) => {
-    const active = state.currentSettingsSection === s.id ? 'active' : '';
-    return `<div class="settings-nav-item ${active}" data-section="${s.id}">
-      ${iconSvg(s.icon, { width: 16, height: 16 })}
-      <span>${escapeHtml(s.label)}</span>
-    </div>`;
-  }).join('');
-  panel.innerHTML = `<div class="nav-header"><div class="nav-title">设置</div></div><div class="nav-list">${itemsHtml}</div>`;
-  panel.querySelectorAll<HTMLElement>('.settings-nav-item').forEach((el) => {
-    el.addEventListener('click', async () => {
-      state.currentSettingsSection = el.dataset.section as SettingsSection;
-      saveState();
-      await renderSettingsNav(panel);
-      const { renderMain } = await import('../shell/navPanel.js');
-      await renderMain();
+  panel.innerHTML = `<div class="nav-header"><div class="nav-title">设置</div></div>`;
+  const navList = document.createElement('div');
+  navList.className = 'nav-list';
+  for (const s of sections) {
+    const item = ui.listItem({
+      title: s.label,
+      icon: s.icon,
+      onClick: async () => {
+        state.currentSettingsSection = s.id;
+        saveState();
+        await renderSettingsNav(panel);
+        const { renderMain } = await import('../shell/navPanel.js');
+        await renderMain();
+      },
     });
-  });
+    if (state.currentSettingsSection === s.id) item.classList.add('active');
+    navList.appendChild(item);
+  }
+  panel.appendChild(navList);
 }
 
 export async function renderSettingsMain(main: HTMLElement): Promise<void> {
@@ -119,9 +124,44 @@ async function renderAccount(main: HTMLElement): Promise<void> {
     label: '备份与恢复', icon: 'download', size: 'sm',
     onClick: () => { void import('../components/backupDialog.js').then((m) => m.openBackupDialog()); },
   }));
+  actionsRow.appendChild(ui.button({
+    label: '我的二维码', icon: 'user', size: 'sm',
+    onClick: showMyQr,
+  }));
   section.appendChild(actionsRow);
 
   main.appendChild(section);
+}
+
+async function showMyQr(): Promise<void> {
+  let qr = '';
+  try {
+    qr = await call<string>('get_my_qr');
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  try {
+    const dataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 220 });
+    const body = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+        <img src="${dataUrl}" alt="我的二维码" style="width:220px;height:220px;border-radius:8px;background:#fff;padding:8px;box-sizing:border-box" />
+        <div style="font-size:12px;color:#8e8e93">用于让对方扫码添加你为联系人</div>
+        <div style="width:100%;display:flex;gap:8px;align-items:center">
+          <input class="ui-input" type="text" value="${escapeHtml(qr)}" readonly style="flex:1" />
+          <button class="ui-button ui-button-primary ui-button-sm" id="qr-copy-btn">复制链接</button>
+        </div>
+      </div>`;
+    const dlg = ui.dialog({ title: '我的二维码', body, size: 'sm' });
+    dlg.overlay.querySelector<HTMLButtonElement>('#qr-copy-btn')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(qr);
+        ui.toast('已复制');
+      } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+    });
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e));
+  }
 }
 
 function triggerAvatarUpload(main: HTMLElement): void {
@@ -190,7 +230,7 @@ async function renderTeam(main: HTMLElement): Promise<void> {
   if (!ws) {
     section.appendChild(ui.empty('未加入任何团队'));
     const joinArea = document.createElement('div');
-    const input = createInlineInput({
+    const input = ui.inlineInput({
       placeholder: '粘贴邀请链接 (dcgroup:... 或 OPENPGP4FPR:...)',
       confirmLabel: '加入',
       onConfirm: async (qr) => {
@@ -334,8 +374,4 @@ function renderAbout(main: HTMLElement): void {
   section.appendChild(zone);
 
   main.appendChild(section);
-}
-
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }

@@ -3,10 +3,12 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { ui } from '../components/ui.js';
+import { escapeHtml } from '../components/escape.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
+import { renderMemberDetail } from '../components/memberDetail.js';
 import { isEmail, parseInviteLink } from '../utils/inviteLink.js';
-import type { ChatListItem } from '../types.js';
+import type { ChatListItem, MemberDto } from '../types.js';
 
 let panel: HTMLElement | null = null;
 let showArchived = false;
@@ -53,11 +55,13 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
     <div class="nav-header">
       <div class="nav-title">消息</div>
       <div class="nav-subtitle">私聊与群组</div>
-      <button class="nav-archive-toggle" id="messages-archive-toggle" title="切换已归档会话" style="display:inline-flex;align-items:center;background:none;border:none;color:var(--text-weak);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;margin-top:6px;">${showArchived ? '返回消息' : '已归档'}</button>
-      <button class="nav-archive-toggle" id="messages-blocked-toggle" title="被屏蔽的联系人" style="display:inline-flex;align-items:center;background:none;border:none;color:var(--text-weak);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;margin-top:6px;margin-left:6px;">屏蔽列表</button>
       <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
     </div>
     <div class="nav-list" id="messages-list"></div>
+    <div class="nav-meta-footer">
+      <button class="nav-meta-link" id="messages-archive-toggle" title="${showArchived ? '返回消息列表' : '查看已归档的会话'}">${showArchived ? '返回消息' : '已归档'}</button>
+      <button class="nav-meta-link" id="messages-blocked-toggle" title="被屏蔽的联系人">屏蔽列表</button>
+    </div>
     <div class="nav-user">
       ${avatarHtml}
       <div class="nav-user-info">
@@ -297,13 +301,31 @@ function showInlineGroupInput(): void {
     placeholder: '输入群名称',
     confirmLabel: '创建',
     onConfirm: async (name) => {
-      const chatId = await call<number>('create_group_chat', { name });
+      const emails = await promptMemberEmails();
+      const chatId = emails.length > 0
+        ? await call<number>('create_group', { name, memberEmails: emails })
+        : await call<number>('create_group_chat', { name });
       state.currentChatId = chatId;
       saveState();
       await renderMessagesPage(panel!);
       const { renderMain } = await import('../shell/navPanel.js');
       await renderMain();
     },
+  });
+}
+
+/** 可选:输入群成员邮箱(逗号/空格分隔),为空返回 []。 */
+function promptMemberEmails(): Promise<string[]> {
+  return new Promise((resolve) => {
+    ui.inputDialog({
+      title: '添加成员（可跳过）',
+      placeholder: '邮箱,用逗号或空格分隔',
+      confirmLabel: '创建群',
+      onConfirm: (v) => {
+        const emails = v.split(/[,，\s]+/).map((e) => e.trim()).filter(Boolean);
+        resolve(emails);
+      },
+    });
   });
 }
 
@@ -333,8 +355,11 @@ function showChatContextMenu(anchor: HTMLElement, c: ChatListItem): void {
       label: '查看资料',
       icon: 'user',
       action: () => {
-        if (isMailing) void openMailingListProfile(c.chat_id, c);
-        else ui.toast('查看资料(开发中)');
+        if (isMailing) {
+          void openMailingListProfile(c.chat_id, c);
+          return;
+        }
+        void openChatProfile(c);
       },
     },
     {
@@ -386,6 +411,43 @@ function showChatContextMenu(anchor: HTMLElement, c: ChatListItem): void {
   ], 'bottom-right');
 }
 
+// 查看资料:1:1 会话渲染成员详情弹窗;群聊列出成员姓名/邮箱。
+async function openChatProfile(c: ChatListItem): Promise<void> {
+  try {
+    const info = await call<{ members: MemberDto[] }>('get_chat_info', { chatId: c.chat_id });
+    const members = info.members || [];
+    if (c.is_group) {
+      const rows = members.length
+        ? members.map((m) => `
+            <div class="ui-list-item">
+              <div class="ui-list-meta">
+                <div class="ui-list-title">${escapeHtml(m.name)}</div>
+                ${m.addr ? `<div class="ui-list-sub">${escapeHtml(m.addr)}</div>` : ''}
+              </div>
+            </div>`).join('')
+        : '<div style="padding:16px;color:var(--text-weak)">暂无成员</div>';
+      ui.dialog({ title: c.name, body: `<div>${rows}</div>`, size: 'md' });
+      return;
+    }
+    const other = members.find((m) => !m.is_self);
+    if (!other) {
+      ui.toast('暂无成员资料');
+      return;
+    }
+    const dlg = ui.dialog({ title: '成员资料', body: '<div></div>', size: 'md' });
+    const bodyEl = dlg.overlay.querySelector<HTMLElement>('.ui-dialog-body');
+    if (bodyEl) {
+      // renderMemberDetail 内部按 state.currentChatId 拉取成员,临时切换目标会话
+      const prevChatId = state.currentChatId;
+      state.currentChatId = c.chat_id;
+      await renderMemberDetail(bodyEl, other.contact_id);
+      state.currentChatId = prevChatId;
+    }
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e));
+  }
+}
+
 function bindUserBar(): void {
   const userBar = panel?.querySelector<HTMLElement>('.nav-user');
   if (!userBar) return;
@@ -412,6 +474,3 @@ function formatTime(ts: number): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
