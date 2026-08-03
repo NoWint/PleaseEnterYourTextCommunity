@@ -126,6 +126,10 @@ pub async fn login(
         };
         return Err(mapped);
     }
+    // 根治「Provider requires E2EE」死锁:chatmail core 默认 force_encryption=1,
+    // 新会话无对方公钥时首条明文被禁 → Autocrypt 密钥交换无法启动。
+    // 桌面客户端恢复 Delta 标准流程(首条明文带公钥 → 自动升级加密)。
+    ctx.set_config(Config::ForceEncryption, Some("0")).await?;
     ctx.start_io().await;
 
     {
@@ -172,6 +176,8 @@ pub async fn create_chatmail_account(
 
     ctx.set_config(Config::Displayname, Some(&display_name))
         .await?;
+    // 同上 login:关闭 force_encryption,避免新会话无对方公钥时首条明文被禁的 Autocrypt 死锁
+    ctx.set_config(Config::ForceEncryption, Some("0")).await?;
     dbg("[chatmail] display name set, selecting account...");
 
     {
@@ -2085,6 +2091,10 @@ const PEYT_STUDIO_NAME: &str = "PEYT Studio";
 #[tauri::command]
 pub async fn ensure_peyt_studio(state: State<'_, AppState>) -> AppResult<PeytStudioDto> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    // 根治「Provider requires E2EE」死锁(boot 必经,老账号也生效):
+    // chatmail core 默认 force_encryption=1,新会话无对方公钥时首条明文被禁 → Autocrypt 死锁。
+    // 桌面端恢复 Delta 标准流程(首条明文带公钥 → 自动升级加密)。
+    let _ = ctx.set_config(Config::ForceEncryption, Some("0")).await;
     // 1. 检测本地是否已有 PEYT Studio workspace (按 name 匹配)
     let workspaces = state.db.list_workspaces().await?;
     if let Some(ws) = workspaces.into_iter().find(|w| w.name == PEYT_STUDIO_NAME) {
