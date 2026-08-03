@@ -5565,6 +5565,7 @@ dependencies = [
  "urlencoding",
  "user-notify",
  "uuid",
+ "windows 0.61.3",
  "zip",
 ]
 

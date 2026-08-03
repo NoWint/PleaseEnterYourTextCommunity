@@ -10,6 +10,8 @@ mod llm;
 mod notifications;
 mod plugins;
 mod state;
+#[cfg(target_os = "windows")]
+mod titlebar;
 
 use tauri::Manager;
 
@@ -31,6 +33,16 @@ pub fn run() {
             let notif = notifications::Notifications::new("com.peytchat.app".into());
             notif.initialize(app.handle().clone());
             app.manage(notif);
+            // Windows 无边框窗口:子类化窗口过程,让最大化/还原按钮区域返回 HTMAXBUTTON,
+            // 从而在悬停时显示 Win11 原生 snap layout 分组弹窗(系统处理最大化/还原)。
+            #[cfg(target_os = "windows")]
+            if let Some(win) = app.get_webview_window("main") {
+                if let Ok(hwnd) = win.hwnd() {
+                    if let Err(e) = titlebar::install(hwnd) {
+                        log::warn!("titlebar: failed to install wndproc: {e}");
+                    }
+                }
+            }
             let handle = app.handle().clone();
             // 绑定 bot 账号 id 集合的 Arc，再传给事件转发器(过滤 bot 账号事件)
             let bot_ids = state.bots.bot_ids();
