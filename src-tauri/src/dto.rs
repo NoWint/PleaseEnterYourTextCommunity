@@ -257,6 +257,16 @@ pub struct BotDto {
     pub created_at: i64,
 }
 
+/// Bot LLM 配置 DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmConfigInput {
+    pub system_prompt: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

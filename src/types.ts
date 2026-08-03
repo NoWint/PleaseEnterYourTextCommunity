@@ -1,4 +1,4 @@
-export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'plugins' | 'terminal' | 'settings' | 'debug';
+export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'terminal' | 'settings' | 'debug';
 export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about';
 export type PluginsTab = 'market' | 'installed';
 

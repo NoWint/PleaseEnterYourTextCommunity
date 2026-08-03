@@ -899,6 +899,32 @@ impl Db {
         Ok(())
     }
 
+    /// 按 bot 账号 id 查 bots 行(用于自愈:判断选中账号是否为 bot)。
+    pub async fn get_bot_by_account_id(&self, account_id: u32) -> AppResult<Option<BotRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<BotRow>> {
+            let c = conn.blocking_lock();
+            let row = c
+                .query_row(
+                    "SELECT id, bot_account_id, owner_account_id, display_name, status, created_at FROM bots WHERE bot_account_id = ?1",
+                    params![account_id],
+                    |r| {
+                        Ok(BotRow {
+                            id: r.get(0)?,
+                            bot_account_id: r.get::<_, i64>(1)? as u32,
+                            owner_account_id: r.get::<_, i64>(2)? as u32,
+                            display_name: r.get(3)?,
+                            status: r.get(4)?,
+                            created_at: r.get(5)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(row)
+        })
+        .await?
+    }
+
     pub async fn set_bot_status(&self, owner_account_id: u32, bot_id: i64, status: &str) -> AppResult<()> {
         let conn = self.conn.clone();
         let status = status.to_string();
@@ -909,6 +935,37 @@ impl Db {
         })
         .await??;
         Ok(())
+    }
+
+    /// 写入某个 bot 的 LLM 配置(config_json)，按 (owner, id) 限定归属。
+    pub async fn set_bot_config(&self, owner_account_id: u32, bot_id: i64, config_json: Option<&str>) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let config_json = config_json.map(|s| s.to_string());
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "UPDATE bots SET config_json = ?3 WHERE owner_account_id = ?1 AND id = ?2",
+                params![owner_account_id, bot_id, config_json],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 读取某个 bot 的 LLM 配置(config_json)，未配置时为 None。
+    pub async fn get_bot_config(&self, owner_account_id: u32, bot_id: i64) -> AppResult<Option<String>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
+            let c = conn.blocking_lock();
+            let row = c.query_row(
+                "SELECT config_json FROM bots WHERE owner_account_id = ?1 AND id = ?2",
+                params![owner_account_id, bot_id],
+                |row| row.get(0),
+            ).optional()?;
+            Ok(row)
+        })
+        .await?
     }
 }
 

@@ -22,7 +22,9 @@ export type IconName =
   // 反应: 更多表情面板入口
   | 'smile-plus'
   // 语音: 播放/暂停/录音 (TDesign 缺失, 在 tdesignIcons.ts 补充标准路径)
-  | 'play' | 'pause' | 'mic';
+  | 'play' | 'pause' | 'mic'
+  // Bot 管理页
+  | 'robot';
 
 export interface IconOpts {
   width?: number;

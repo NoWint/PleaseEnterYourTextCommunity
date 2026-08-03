@@ -41,7 +41,7 @@ export function clearSpaceTypeCache(): void {
 }
 
 // 这些页面主区已承载全部内容,中间栏 (nav-panel) 纯占位 → 隐藏,让主区占满。
-const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'terminal']);
+const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'terminal', 'bots']);
 
 export async function renderNavPanel(): Promise<void> {
   const panel = document.getElementById('channel-tree');
@@ -158,6 +158,17 @@ export async function renderMain(): Promise<void> {
       await renderDebugMain(main);
     } catch {
       main.innerHTML = `<div class="empty">调试页加载失败</div>`;
+    }
+    return;
+  }
+
+  // bots 页:机器人管理,全屏主区化 (同 inbox/debug)
+  if (state.currentPage === 'bots') {
+    try {
+      const { renderBots } = await import('../pages/botsPage.js');
+      await renderBots(main);
+    } catch {
+      main.innerHTML = `<div class="empty">机器人页加载失败</div>`;
     }
     return;
   }
