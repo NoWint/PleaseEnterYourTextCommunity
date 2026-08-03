@@ -121,15 +121,16 @@ html { background: var(--bg); }
 #app { height: 100vh; display: flex; overflow: hidden; }
 
 /* ── 无边框窗口标题栏 ─────────────────────────────────────────
-   顶部 40px 为「虚拟标题栏」,固定覆盖全页面(登录页与主界面共用):
+   顶部 34px 为「虚拟标题栏」,固定覆盖全页面(登录页与主界面共用):
    - macOS (window-overlay): titleBarStyle Overlay,原生红绿灯经 trafficLightPosition
      浮在左端,整条是纯拖拽区(#app 内容下移让出)。
    - Windows/Linux (window-frame): decorations:false,自绘标题栏 — 左「PEYT Chat」,
      右最小化/最大化/关闭按钮,整条可拖拽。
-   (window-overlay 时按钮隐藏,不干扰原生红绿灯。) */
+   (window-overlay 时按钮隐藏,不干扰原生红绿灯。)
+   高度取 Windows 原生标题栏 ~34px:比旧 40px 更窄,仍是舒适点击区(≥32px)。 */
 #window-drag-region {
   position: fixed; top: 0; left: 0;
-  width: 100%; height: 40px;
+  width: 100%; height: 34px;
   z-index: 9999;
   display: none;
   align-items: center;
@@ -139,7 +140,7 @@ html { background: var(--bg); }
 html.window-overlay #window-drag-region,
 html.window-frame #window-drag-region { display: flex; }
 html.window-overlay #app,
-html.window-frame #app { padding-top: 40px; }
+html.window-frame #app { padding-top: 34px; }
 
 /* 标题栏 LOGO:圆角小图标,左侧,点击穿透到拖拽区 */
 .wb-logo {
@@ -171,10 +172,10 @@ html.window-frame #app { padding-top: 40px; }
 .wb-controls {
   margin-left: auto;
   display: flex;
-  height: 40px;
+  height: 34px;
 }
 .wb-btn {
-  width: 46px; height: 40px;
+  width: 46px; height: 34px;
   display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; outline: none;
   color: var(--text-mute);
@@ -184,7 +185,7 @@ html.window-frame #app { padding-top: 40px; }
 }
 .wb-btn:hover { background: var(--capsule); color: var(--text); }
 .wb-btn:active { background: var(--active); }
-.wb-btn svg { display: block; }
+.wb-btn svg { display: block; width: 10px; height: 10px; }
 /* 关闭按钮:悬停变红(Windows 惯例) */
 .wb-btn.wb-close:hover { background: var(--danger); color: #fff; }
 
@@ -196,7 +197,7 @@ html.window-overlay .wb-controls { display: none; }
 /* 顶栏工具栏:VSCode 式居中搜索条。容器不拦截拖拽(pointer-events:none),仅搜索按钮可点。
    占满宽度、justify-content:center 保证严格居中;显示与否由 titlebar.ts 控制(有 shell 才显示)。 */
 #titlebar-tools {
-  position: fixed; top: 0; left: 0; right: 0; height: 40px;
+  position: fixed; top: 0; left: 0; right: 0; height: 34px;
   display: none; align-items: center; justify-content: center;
   z-index: 10000;
   pointer-events: none;

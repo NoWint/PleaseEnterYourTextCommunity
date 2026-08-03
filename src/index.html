@@ -13,19 +13,19 @@
     <!-- 无边框窗口标题栏:
          - macOS (window-overlay): 纯拖拽区,原生红绿灯悬浮在左端,隐藏 logo/标题/控制按钮(见 styles.css)
          - Windows/Linux (window-frame): 自绘标题栏 — 左「PEYT Chat」,右最小化/最大化/关闭
-         登录页与主界面共用此条(固定覆盖顶部 40px)。 -->
+         登录页与主界面共用此条(固定覆盖顶部 34px)。 -->
     <div id="window-drag-region" data-tauri-drag-region>
       <img class="wb-logo" src="/logo.jpg" alt="PEYT Chat" draggable="false" />
       <div class="wb-title" data-tauri-drag-region>PEYT Chat</div>
       <div class="wb-controls">
         <button id="wb-min" class="wb-btn" title="最小化" aria-label="最小化">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 5.5H9.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5h6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
         </button>
         <button id="wb-max" class="wb-btn" title="最大化" aria-label="最大化">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1.5" y="1.5" width="8" height="8" stroke="currentColor" stroke-width="1.1"/></svg>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1.5" y="1.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.1"/></svg>
         </button>
         <button id="wb-close" class="wb-btn wb-close" title="关闭" aria-label="关闭">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 2L9 9M9 2L2 9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
         </button>
       </div>
     </div>
