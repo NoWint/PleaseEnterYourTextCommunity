@@ -60,7 +60,7 @@ pub fn open_terminal(
         pixel_width: 0,
         pixel_height: 0,
     })?;
-    let mut writer = pair.master.take_writer()?;
+    let writer = pair.master.take_writer()?;
     let child = pair.slave.spawn_command(cmd)?;
 
     let session_id = NEXT_ID.fetch_add(1, Ordering::Relaxed).to_string();
@@ -150,7 +150,7 @@ pub fn resize_terminal(
     let session = sessions
         .get(&session_id)
         .ok_or_else(|| crate::error::AppError::Core("终端会话不存在".into()))?;
-    let mut master = session.master.lock().unwrap();
+    let master = session.master.lock().unwrap();
     master.resize(PtySize {
         rows: (rows.max(2)) as u16,
         cols: (cols.max(2)) as u16,

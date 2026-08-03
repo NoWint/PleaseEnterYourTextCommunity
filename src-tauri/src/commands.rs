@@ -237,7 +237,7 @@ fn viewtype_str(v: Viewtype) -> &'static str {
     }
 }
 
-fn chat_type_str(chat: &Chat, is_self_talk: bool) -> String {
+fn chat_type_str(chat: &Chat, _is_self_talk: bool) -> String {
     use Chattype::*;
     let t = chat.get_type();
     match t {
@@ -245,13 +245,13 @@ fn chat_type_str(chat: &Chat, is_self_talk: bool) -> String {
         Group => "group".to_string(),
         Mailinglist => "mailinglist".to_string(),
         OutBroadcast | InBroadcast => "broadcast".to_string(),
-        _ => {
-            if is_self_talk {
-                "self_talk".to_string()
-            } else {
-                format!("{:?}", t).to_lowercase()
-            }
-        }
+        //_ => {
+        //    if is_self_talk {
+        //        "self_talk".to_string()
+        //    } else {
+        //       format!("{:?}", t).to_lowercase()
+        //    }
+        //}
     }
 }
 
@@ -263,7 +263,7 @@ fn download_state_str(s: DownloadState) -> &'static str {
         Failure => "Failure",
         Undecipherable => "Undecipherable",
         InProgress => "InProgress",
-        _ => "Unknown",
+        // _ => "Unknown",
     }
 }
 
@@ -687,7 +687,7 @@ pub async fn join_workspace(
     let chat = Chat::load_from_db(&ctx, chat_id).await?;
     let name = chat.get_name().to_string();
     let icon = name.chars().next().map(|c| c.to_uppercase().to_string());
-    let id = state.db.insert_workspace(&name, master_u32, icon.as_deref()).await?;
+    let _id = state.db.insert_workspace(&name, master_u32, icon.as_deref()).await?;
     let ws = state.db.find_workspace_by_master_chat(master_u32).await?
         .ok_or(AppError::Core("workspace not found after insert".into()))?;
     Ok(ws)
