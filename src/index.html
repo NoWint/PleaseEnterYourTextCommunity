@@ -10,20 +10,31 @@
     <div class="theme-mask"></div>
     <div class="theme-effect"></div>
     <div id="app"></div>
-    <!-- macOS Overlay 标题栏:红黄绿三色按钮的拖拽区(仅 macOS 显示,见 styles.css) -->
-    <div id="window-drag-region" data-tauri-drag-region></div>
-    <!-- 顶栏工具栏:VSCode 式居中搜索条(点击打开全局搜索) -->
+    <!-- 无边框窗口标题栏:
+         - macOS (window-overlay): 纯拖拽区,原生红绿灯悬浮在左端,隐藏 logo/标题/控制按钮(见 styles.css)
+         - Windows/Linux (window-frame): 自绘标题栏 — 左「PEYT Chat」,右最小化/最大化/关闭
+         登录页与主界面共用此条(固定覆盖顶部 40px)。 -->
+    <div id="window-drag-region" data-tauri-drag-region>
+      <img class="wb-logo" src="/logo.jpg" alt="PEYT Chat" draggable="false" />
+      <div class="wb-title" data-tauri-drag-region>PEYT Chat</div>
+      <div class="wb-controls">
+        <button id="wb-min" class="wb-btn" title="最小化" aria-label="最小化">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 5.5H9.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        </button>
+        <button id="wb-max" class="wb-btn" title="最大化" aria-label="最大化">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1.5" y="1.5" width="8" height="8" stroke="currentColor" stroke-width="1.1"/></svg>
+        </button>
+        <button id="wb-close" class="wb-btn wb-close" title="关闭" aria-label="关闭">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 2L9 9M9 2L2 9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- 顶栏工具栏:VSCode 式居中搜索条(点击打开全局搜索,macOS 与 Windows 都有) -->
     <div id="titlebar-tools">
       <button id="titlebar-search" title="全局搜索">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         <span>搜索消息、联系人、频道…</span>
       </button>
-    </div>
-    <!-- Windows/Linux 自绘窗口控制(最小化/最大化/关闭);macOS 用原生红绿灯 -->
-    <div id="window-controls">
-      <button class="wc-btn" data-wc="min" title="最小化"><span>─</span></button>
-      <button class="wc-btn" data-wc="max" title="最大化"><span>□</span></button>
-      <button class="wc-btn wc-close" data-wc="close" title="关闭"><span>✕</span></button>
     </div>
     <script type="module" src="/main.ts"></script>
   </body>

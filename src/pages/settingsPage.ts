@@ -47,7 +47,7 @@ export async function renderSettingsMain(main: HTMLElement): Promise<void> {
     case 'account': await renderAccount(main); break;
     case 'appearance': renderAppearance(main); break;
     case 'team': await renderTeam(main); break;
-    case 'notifications': renderNotifications(main); break;
+    case 'notifications': await renderNotifications(main); break;
     case 'plugins': await renderPlugins(main); break;
     case 'about': renderAbout(main); break;
   }
@@ -371,31 +371,37 @@ async function renderTeam(main: HTMLElement): Promise<void> {
 // 偏好持久化:peyt.notificationsEnabled = 应用级总开关(对齐 Delta desktopSettings.notifications),
 // peyt.badgeEnabled = Dock 角标。开关状态读偏好而非 Notification.permission —— 系统权限是
 // 「能否弹」,偏好是「要不要弹」,两者分离(Delta 亦是:总开关 + OS 权限)。
-function renderNotifications(main: HTMLElement): void {
+async function renderNotifications(main: HTMLElement): Promise<void> {
   main.innerHTML = '';
   const notifEnabled = localStorage.getItem('peyt.notificationsEnabled') !== 'false';
   const badgeEnabled = localStorage.getItem('peyt.badgeEnabled') !== 'false';
-  const permissionGranted = 'Notification' in window && Notification.permission === 'granted';
+  // 系统权限:由 Rust 侧(user-notify)查询 —— Windows/Linux 桌面默认授予,macOS 区分授权/拒绝。
+  // 不再用浏览器 Notification.permission(那是 webview 的权限,与系统原生通知无关)。
+  let systemPermitted = true;
+  try {
+    systemPermitted = await call<boolean>('get_notification_permission');
+  } catch { /* 未接 Tauri(纯浏览器 preview)时保持 true */ }
   const section = document.createElement('div');
   section.className = 'settings-section';
   section.innerHTML = '<h2>通知</h2>';
 
   const desktopSwitch = ui.switch_({ checked: notifEnabled, onChange: async (v) => {
     localStorage.setItem('peyt.notificationsEnabled', String(v));
-    if (v && 'Notification' in window && Notification.permission !== 'granted') {
-      await Notification.requestPermission();
+    if (v) {
+      // 开启时触发系统权限请求(仅 macOS 会弹系统询问;Windows/Linux no-op 恒 true)
+      try { await call('request_notification_permission'); } catch {}
     }
   } });
   const desktopRow = document.createElement('div');
   desktopRow.className = 'settings-toggle-row';
   desktopRow.append('桌面通知', desktopSwitch);
   section.appendChild(desktopRow);
-  // 副说明:系统权限与偏好分开显示,让用户知道为什么开了也没弹窗
+  // 副说明:系统权限与偏好分开显示
   const permHint = document.createElement('div');
   permHint.className = 'settings-toggle-hint';
-  permHint.textContent = permissionGranted
+  permHint.textContent = systemPermitted
     ? '系统通知权限已开启'
-    : '系统通知权限未开启,开启开关时浏览器会请求权限';
+    : '系统通知权限未开启,请在系统设置中允许通知';
   section.appendChild(permHint);
 
   const badgeSwitch = ui.switch_({ checked: badgeEnabled, onChange: (v) => {

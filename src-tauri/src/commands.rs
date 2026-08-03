@@ -443,6 +443,25 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
             .get_display_name()
             .to_string()
     };
+    // 发送者头像/颜色随消息下发(对齐 Delta authorProfileImage/authorColor):
+    // 前端不再依赖 state.currentMembers 反查 —— 该反查在成员列表缺失/不匹配时
+    // 会让头像静默回退成首字母,导致「显示用户名却没有头像」。
+    // 注意:对非 key contact,core 的 get_profile_image 返回"未加密信封图标",
+    // 这是 Delta 同款语义(未建立 E2EE 前不展示真实头像)。
+    let from_sender = if from_id == deltachat::contact::ContactId::SELF {
+        None
+    } else {
+        Contact::get_by_id(ctx, from_id).await.ok()
+    };
+    let from_avatar = if let Some(c) = from_sender.as_ref() {
+        match c.get_profile_image(ctx).await {
+            Ok(Some(p)) => Some(p.to_string_lossy().to_string()),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let from_color = from_sender.as_ref().map(|c| c.get_color());
     let (quote_from, quote_text) = match m.quoted_message(ctx).await? {
         Some(q) => {
             let q_from_id = q.get_from_id();
@@ -474,6 +493,8 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
         msg_id: msg_id.to_u32(),
         from_id: from_id.to_u32(),
         from_name,
+        from_avatar,
+        from_color,
         text: m.get_text(),
         ts: m.get_timestamp(),
         is_out: m.get_state().is_outgoing(),
@@ -2617,6 +2638,20 @@ pub async fn get_chat_media(
                     .get_display_name()
                     .to_string()
             };
+            let from_sender = if from_id == deltachat::contact::ContactId::SELF {
+                None
+            } else {
+                Contact::get_by_id(&ctx, from_id).await.ok()
+            };
+            let from_avatar = if let Some(c) = from_sender.as_ref() {
+                match c.get_profile_image(&ctx).await {
+                    Ok(Some(p)) => Some(p.to_string_lossy().to_string()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let from_color = from_sender.as_ref().map(|c| c.get_color());
             let (quote_from, quote_text) = match m.quoted_message(&ctx).await? {
                 Some(q) => {
                     let q_from_id = q.get_from_id();
@@ -2648,6 +2683,8 @@ pub async fn get_chat_media(
                 msg_id: msg_id.to_u32(),
                 from_id: from_id.to_u32(),
                 from_name,
+                from_avatar,
+                from_color,
                 text: m.get_text(),
                 ts: m.get_timestamp(),
                 is_out: m.get_state().is_outgoing(),

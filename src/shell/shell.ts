@@ -20,6 +20,7 @@ interface Reaction {
 
 interface ChatInfo {
   name: string;
+  members?: Array<{ avatar: string | null; is_self: boolean }>;
 }
 
 interface ChatListItem {
@@ -124,6 +125,16 @@ export async function renderShell(): Promise<void> {
   onEvent('MsgsNoticed', () => {
     // 未读分隔线清除,UI 自然刷新
   });
+  // 原生通知点击:Rust 侧(user-notify Activated 回调)emit → 聚焦该聊天
+  onEvent('NotificationClick', (e) => {
+    const chatId = e.chat_id as number;
+    if (!chatId) return;
+    state.currentChatId = chatId;
+    state.currentPage = 'messages';
+    state.currentWsId = null;
+    saveState();
+    void renderRail().then(() => renderNavPanel().then(() => renderMain()));
+  });
   onEvent('ChatDeleted', async (e) => {
     const chatId = e.chat_id as number;
     state.channels = state.channels.filter((c) => c.chat_id !== chatId);
@@ -222,15 +233,8 @@ export async function renderShell(): Promise<void> {
     }
   });
 
-  // 请求通知权限:仅在用户开启通知偏好时(否则一启动就弹权限框很突兀)
-  if (
-    'Notification' in window &&
-    Notification.permission === 'default' &&
-    localStorage.getItem('peyt.notificationsEnabled') !== 'false'
-  ) {
-    Notification.requestPermission();
-  }
-
+  // 原生系统通知由 Rust 侧(user-notify)管理,无需浏览器 Notification API 权限。
+  // 这里不请求浏览器权限 —— Windows 桌面通知权限默认授予,且走系统而非 webview。
   // 初始 Dock 角标
   void updateBadge();
 }
@@ -240,25 +244,25 @@ interface QueuedNotif {
   chatId: number;
   name: string;
   preview: string;
+  icon: string | null;
 }
 let notifQueue: QueuedNotif[] = [];
 let notifTimer: ReturnType<typeof setTimeout> | null = null;
 
-function queueNotification(chatId: number, name: string, preview: string): void {
-  // 应用级总开关(设置页持久化的偏好) + 系统权限都满足才弹
+function queueNotification(chatId: number, name: string, preview: string, icon: string | null): void {
+  // 应用级总开关(设置页持久化的偏好)才决定弹不弹;系统权限由 Rust 侧处理
   if (localStorage.getItem('peyt.notificationsEnabled') === 'false') return;
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  notifQueue.push({ chatId, name, preview });
+  notifQueue.push({ chatId, name, preview, icon });
   if (notifTimer) clearTimeout(notifTimer);
-  notifTimer = setTimeout(() => flushNotifications(), 800);
+  notifTimer = setTimeout(() => void flushNotifications(), 800);
 }
 
-function flushNotifications(): void {
+async function flushNotifications(): Promise<void> {
   notifTimer = null;
   if (notifQueue.length === 0) return;
   const first = notifQueue[0];
   const count = notifQueue.length;
-  const name = count === 1 ? first.name : `${count} 条新消息`;
+  const title = count === 1 ? first.name : `${count} 条新消息`;
   const body =
     count === 1
       ? first.preview
@@ -266,16 +270,13 @@ function flushNotifications(): void {
           .map((n) => n.name)
           .filter((v, i, a) => a.indexOf(v) === i)
           .join(', ');
-  const notif = new Notification(name, { body });
-  notif.onclick = () => {
-    // 聚焦第一条消息的 chat(复用现有聚焦逻辑)
-    state.currentChatId = first.chatId;
-    state.currentPage = 'messages';
-    state.currentWsId = null;
-    saveState();
-    void renderRail().then(() => renderNavPanel().then(() => renderMain()));
-    window.focus();
-  };
+  // 原生通知:invoke 到 Rust → user-notify(WinRT/UNUserNotificationCenter/DBus)。
+  // 点击由 Rust 侧 Activated 回调 emit 'dc-event' { typ: 'NotificationClick' } 处理。
+  try {
+    await call('show_notification', { title, body, chatId: first.chatId, icon: first.icon });
+  } catch (e) {
+    console.error('show_notification failed:', e);
+  }
   notifQueue = [];
 }
 
@@ -358,7 +359,10 @@ async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
       const info = await call<ChatInfo>('get_chat_info', { chatId });
       const name = info.name || '新消息';
       const preview = (text || '').slice(0, 50);
-      queueNotification(chatId, name, preview);
+      // 通知头像:单聊取对方头像;群聊用会话头像。get_chat_info 的成员(含 avatar)。
+      const other = (info.members || []).find((m) => !m.is_self);
+      const icon = other?.avatar || null;
+      queueNotification(chatId, name, preview, icon);
     } catch {}
   }
   void refreshSidebar();

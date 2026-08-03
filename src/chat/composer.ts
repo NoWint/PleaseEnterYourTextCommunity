@@ -13,6 +13,8 @@ interface TmpMsg {
   msg_id: string;
   from_id: number;
   from_name: string;
+  from_avatar: string | null;
+  from_color: number | null;
   text: string;
   ts: number;
   is_out: boolean;
@@ -511,6 +513,8 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
     msg_id: tmpId,
     from_id: state.self?.id || 0,
     from_name: state.self?.name || '我',
+    from_avatar: state.self?.avatar || null,
+    from_color: state.self?.color || null,
     text,
     ts: Math.floor(Date.now() / 1000),
     is_out: true,

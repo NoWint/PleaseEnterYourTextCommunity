@@ -15,13 +15,16 @@ interface EnsurePeytResult {
 async function boot(): Promise<void> {
   initTheme();
   initFontScale();
-  // 无原生标题栏集成:
-  // - macOS:titleBarStyle Overlay,原生三色按钮浮在内容上 → window-overlay 类
-  // - Windows/Linux:decorations:false,自绘最小化/最大化/关闭按钮 → windows 类
-  if (/(Macintosh|Mac OS X|MacIntel)/.test(navigator.userAgent)) {
+  // 无边框窗口平台标记(决定 CSS 显示哪种标题栏):
+  // - macOS: titleBarStyle Overlay → 原生红绿灯悬浮,只留纯拖拽区(window-overlay)
+  // - Windows/Linux: decorations:false → 自绘标题栏(标题 + 最小化/最大化/关闭)(window-frame)
+  const ua = navigator.userAgent;
+  if (/(Macintosh|Mac OS X|MacIntel)/.test(ua)) {
     document.documentElement.classList.add('window-overlay');
-  } else if (/Windows|Linux/.test(navigator.userAgent)) {
-    document.documentElement.classList.add('windows');
+  } else if (/(Win|Windows)/.test(ua) || /(Linux|X11)/.test(ua)) {
+    document.documentElement.classList.add('window-frame');
+    // 自绘标题栏:绑定窗口控制按钮(最小化/最大化/关闭)
+    void import('./shell/windowControls.js').then((m) => m.initWindowControls());
   }
   const configured = await call<boolean>('is_configured');
   if (configured) {

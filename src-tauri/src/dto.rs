@@ -64,6 +64,8 @@ pub struct MsgDto {
     pub msg_id: u32,
     pub from_id: u32,
     pub from_name: String,
+    pub from_avatar: Option<String>, // 发送者头像(blobdir 绝对路径),对齐 Delta authorProfileImage
+    pub from_color: Option<u32>,     // 发送者头像颜色
     pub text: String,
     pub ts: i64,
     pub is_out: bool,
