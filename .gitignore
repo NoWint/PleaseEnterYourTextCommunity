@@ -6,3 +6,6 @@ src-tauri/target
 debug.log
 .idea
 .claude/
+
+# 内部协议讨论文档, 不进版本控制
+docs/superpowers/specs/2026-08-02-peyt-envelope-protocol-design.md
