@@ -130,7 +130,10 @@ export function openCreateGroupDialog(): void {
         dlg.close();
         state.currentChatId = chatId;
         saveState();
-        const { renderMain } = await import('../../shell/navPanel.js');
+        // 刷新侧栏列表(新群出现在消息列表)+ 渲染主区
+        const { renderNavPanel, renderMain, refreshChannels } = await import('../../shell/navPanel.js');
+        await refreshChannels();
+        await renderNavPanel();
         await renderMain();
       } catch (e) {
         ui.toast(e instanceof Error ? e.message : String(e));

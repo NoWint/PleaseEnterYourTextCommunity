@@ -147,14 +147,16 @@ async function renderMessageList(): Promise<void> {
   } catch {
     chats = [];
   }
-  // 按会话类型过滤,而非 chat_id 集合:workspace 主群/频道都是群(排除),
-  // 保留单聊(1:1 会话)。用类型判断避免 chat_id 与 securejoin 会话冲突时误伤。
-  // showArchived 分流:已归档视图只看 is_archived 会话,常规视图隐藏它们。
+  // 过滤:排除 workspace 频道群(在 state.channels 里,由 groupsPage 管理),
+  // 保留单聊 + 用户手动创建的 core 群(不在 channels → 消息列表显示)。
+  // 修复:原来用 !c.is_group 会把 core 群也排除,导致创建群后列表无入口。
+  const wsChannelIds = new Set(state.channels.map((ch) => ch.chat_id));
+  const isWsChannel = (c: ChatListItem): boolean => wsChannelIds.has(c.chat_id);
   const requests = chats.filter((c) => !showArchived && c.is_contact_request);
   const messages = chats.filter((c) =>
     showArchived
-      ? c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
-      : !c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
+      ? c.is_archived && !isWsChannel(c) && !c.is_self_talk && !c.is_contact_request
+      : !c.is_archived && !isWsChannel(c) && !c.is_self_talk && !c.is_contact_request
   );
 
   // 清掉每次刷新都要重建的节点:请求区 / 保存入口 / 空态。
