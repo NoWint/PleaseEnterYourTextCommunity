@@ -7,7 +7,6 @@ use deltachat::accounts::Accounts;
 use deltachat::config::Config;
 use deltachat::context::Context;
 
-use crate::bot_llm;
 use crate::db::Db;
 use crate::dto::{BotConfig, BotDto, LlmConfig, LlmConfigInput};
 use crate::error::{AppError, AppResult};
