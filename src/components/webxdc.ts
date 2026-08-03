@@ -30,6 +30,7 @@
 import { call, transformBlobURL } from '../api.js';
 import { state } from '../state.js';
 import { iconSvg } from './icon.js';
+import { escapeHtml } from './escape.js';
 
 interface WebxdcInfo {
   name: string;
@@ -413,8 +414,3 @@ function baseName(file: string | null): string {
   return seg.replace(/\.xdc$/i, '');
 }
 
-function escapeHtml(s: string | null | undefined): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]!));
-}

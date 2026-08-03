@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { renderChatView } from '../chat/chatView.js';
 import { iconSvg, type IconName } from './icon.js';
 import { saveState } from '../persist.js';
+import { escapeHtml } from './escape.js';
 import type { Page, CurrentView } from '../types.js';
 
 interface SearchResult {
@@ -307,8 +308,4 @@ function bindSearchResults(): void {
       }
     });
   });
-}
-
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }

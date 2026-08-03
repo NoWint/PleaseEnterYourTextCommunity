@@ -1,4 +1,5 @@
 import { iconSvg } from './icon.js';
+import { escapeAttr } from './escape.js';
 
 // 语音消息播放器 — 渲染 + 交互绑定。
 // message.ts 在 Voice 附件处调用 renderVoicePlayer 插入 HTML,
@@ -65,12 +66,4 @@ function formatTime(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, '0')}`;
-}
-
-function escapeAttr(value: string): string {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
