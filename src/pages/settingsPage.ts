@@ -3,7 +3,7 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from '../components/icon.js';
 import { renderAvatarHtml } from '../components/avatar.js';
-import { getCurrentTheme, applyTheme } from '../theme.js';
+import { getCurrentTheme, applyTheme, BUILTIN_THEMES } from '../theme.js';
 import { ui } from '../components/ui.js';
 import { createInlineInput } from '../components/inlineInput.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
@@ -150,16 +150,11 @@ function triggerAvatarUpload(main: HTMLElement): void {
 // ── 外观 ──────────────────────────────────────────────
 function renderAppearance(main: HTMLElement): void {
   const current = getCurrentTheme();
-  const builtin: Array<{ id: string; label: string; cls: string }> = [
-    { id: 'nowint', label: 'Nowint', cls: 'swatch-nowint' },
-    { id: 'violet', label: 'Violet', cls: 'swatch-violet' },
-    { id: 'goldenhour', label: 'GoldenHour', cls: 'swatch-goldenhour' },
-  ];
   const pluginThemes = window.__peytchat_themes || [];
   const themesHtml = [
-    ...builtin.map((t) => `
+    ...BUILTIN_THEMES.map((t) => `
       <div class="settings-theme ${current === t.id ? 'active' : ''}" data-theme="${t.id}">
-        <div class="theme-swatch ${t.cls}"></div>
+        <div class="theme-swatch" style="background:${t.swatch}"></div>
         <span>${escapeHtml(t.label)}</span>
       </div>`),
     ...pluginThemes.map((t) => `

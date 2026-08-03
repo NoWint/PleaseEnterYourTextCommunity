@@ -3,7 +3,6 @@ import { state } from '../state.js';
 import { renderChatView } from '../chat/chatView.js';
 import { iconSvg, type IconName } from './icon.js';
 import { saveState } from '../persist.js';
-import { applyTheme } from '../theme.js';
 import type { Page, CurrentView } from '../types.js';
 
 interface SearchResult {
@@ -46,11 +45,14 @@ function buildCommands(): CommandItem[] {
     { label: '切换列表视图', icon: 'list', action: () => switchView('list') },
     { label: '切换日历视图', icon: 'calendar', action: () => switchView('calendar') },
     { label: '切换时间线视图', icon: 'clock', action: () => switchView('timeline') },
-    { label: '切换主题: Nowint', icon: 'palette', action: () => applyTheme('nowint') },
-    { label: '切换主题: Violet', icon: 'palette', action: () => applyTheme('violet') },
-    { label: '切换主题: GoldenHour', icon: 'palette', action: () => applyTheme('goldenhour') },
+    { label: '外观设置', icon: 'palette', action: () => openAppearance() },
     { label: '标记所有 Inbox 已读', icon: 'check', action: () => markAllInboxRead() },
   ];
+}
+
+function openAppearance(): void {
+  state.currentSettingsSection = 'appearance';
+  navigateToPage('settings').catch((e) => console.error(e));
 }
 
 async function navigateToPage(page: Page): Promise<void> {

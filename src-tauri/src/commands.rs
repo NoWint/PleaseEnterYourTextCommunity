@@ -13,7 +13,7 @@ use deltachat::securejoin;
 use tauri::State;
 
 use crate::dto::{
-    ActivityDto, AdvancedLogin, CardDto, ChannelDto, ChatDto, ChatInfoDto, ContactDto,
+    ActivityDto, AdvancedLogin, BotDto, CardDto, ChannelDto, ChatDto, ChatInfoDto, ContactDto,
     ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PeytStudioDto, PinDto, ProfileDto,
     RawMsgDto, ReactionDto, RoleDto, SearchResultDto, WorkspaceDto,
 };
@@ -2725,4 +2725,44 @@ pub async fn get_contact_encryption_info(
         .ok_or_else(|| AppError::Core("no account".into()))?;
     let info = Contact::get_encrinfo(&ctx, ContactId::new(contact_id)).await?;
     Ok(info)
+}
+
+fn current_owner_id(state: &AppState) -> AppResult<u32> {
+    state
+        .current_id
+        .lock()
+        .unwrap()
+        .ok_or_else(|| AppError::Core("no account".into()))
+}
+
+/// 创建 bot 账号（chatmail 邮箱），归属当前登录用户。
+#[tauri::command]
+pub async fn create_bot(state: State<'_, AppState>, display_name: String) -> AppResult<BotDto> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.create(owner_id, display_name).await
+}
+
+/// 列出当前用户的所有 bot。
+#[tauri::command]
+pub async fn list_bots(state: State<'_, AppState>) -> AppResult<Vec<BotDto>> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.list(owner_id).await
+}
+
+/// 删除当前用户的一个 bot。
+#[tauri::command]
+pub async fn delete_bot(state: State<'_, AppState>, bot_id: i64) -> AppResult<()> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.delete(owner_id, bot_id).await
+}
+
+/// 启/停当前用户某个 bot 的 IO。
+#[tauri::command]
+pub async fn set_bot_io(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    running: bool,
+) -> AppResult<BotDto> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.set_io(owner_id, bot_id, running).await
 }

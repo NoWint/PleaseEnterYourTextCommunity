@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 use deltachat::accounts::Accounts;
 use deltachat::context::Context;
 
+use crate::bots::BotService;
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::plugins::PluginManager;
@@ -16,6 +17,7 @@ pub struct AppState {
     pub accounts: Arc<Mutex<Accounts>>,
     pub current_id: StdMutex<Option<u32>>,
     pub db: Arc<Db>,
+    pub bots: BotService,
     pub plugins: PluginManager,
     pub terminals: TerminalSessions,
     /// 应用数据目录(Tauri app_data_dir),供导出路径/备份默认目录
@@ -35,10 +37,14 @@ impl AppState {
         }
         let db = Db::new(app_data_dir.join("peytchat.db")).await?;
         db.migrate().await?;
+        let accounts = Arc::new(Mutex::new(accounts));
+        let db = Arc::new(db);
+        let bots = BotService::new(accounts.clone(), db.clone());
         Ok(Self {
-            accounts: Arc::new(Mutex::new(accounts)),
+            accounts,
             current_id: StdMutex::new(current_id),
-            db: Arc::new(db),
+            db,
+            bots,
             plugins: PluginManager::new(app_data_dir.clone()),
             terminals: TerminalSessions::default(),
             data_dir: app_data_dir,

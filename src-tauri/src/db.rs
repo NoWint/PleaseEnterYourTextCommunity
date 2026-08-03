@@ -9,6 +9,16 @@ use tokio::sync::Mutex;
 use crate::dto::{ActivityDto, ChannelDto, InboxEventDto, PinDto, RoleDto, WorkspaceDto};
 use crate::error::{AppError, AppResult};
 
+// bots 表行结构，供 Bot 服务模块使用
+pub struct BotRow {
+    pub id: i64,
+    pub bot_account_id: u32,
+    pub owner_account_id: u32,
+    pub display_name: String,
+    pub status: String,
+    pub created_at: i64,
+}
+
 pub struct Db {
     pub conn: Arc<Mutex<Connection>>,
 }
@@ -118,7 +128,17 @@ impl Db {
                     created_at INTEGER NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_activities_workspace ON activities(workspace_id, created_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_activities_channel ON activities(channel_chat_id, created_at DESC);",
+                CREATE INDEX IF NOT EXISTS idx_activities_channel ON activities(channel_chat_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS bots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner_account_id INTEGER NOT NULL,
+                    bot_account_id INTEGER NOT NULL,
+                    display_name TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'running',
+                    config_json TEXT,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(owner_account_id, bot_account_id)
+                );",
             )?;
             Ok(())
         })
@@ -808,6 +828,88 @@ impl Db {
         })
         .await?
     }
+
+    // ── Bot 系统 ───────────────────────────────────────────────────────────
+
+    pub async fn insert_bot(&self, owner_account_id: u32, bot_account_id: u32, display_name: &str, created_at: i64) -> AppResult<i64> {
+        let conn = self.conn.clone();
+        let display_name = display_name.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<i64> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO bots (owner_account_id, bot_account_id, display_name, status, created_at) VALUES (?1, ?2, ?3, 'running', ?4)",
+                params![owner_account_id, bot_account_id, display_name, created_at],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await?
+    }
+
+    pub async fn list_bots(&self, owner_account_id: u32) -> AppResult<Vec<BotRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<BotRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare("SELECT id, bot_account_id, owner_account_id, display_name, status, created_at FROM bots WHERE owner_account_id = ?1 ORDER BY id")?;
+            let rows = stmt.query_map(params![owner_account_id], |r| {
+                Ok(BotRow {
+                    id: r.get(0)?,
+                    bot_account_id: r.get::<_, i64>(1)? as u32,
+                    owner_account_id: r.get::<_, i64>(2)? as u32,
+                    display_name: r.get(3)?,
+                    status: r.get(4)?,
+                    created_at: r.get(5)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    pub async fn get_bot(&self, owner_account_id: u32, bot_id: i64) -> AppResult<Option<BotRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<BotRow>> {
+            let c = conn.blocking_lock();
+            let row = c.query_row(
+                "SELECT id, bot_account_id, owner_account_id, display_name, status, created_at FROM bots WHERE owner_account_id = ?1 AND id = ?2",
+                params![owner_account_id, bot_id],
+                |r| {
+                    Ok(BotRow {
+                        id: r.get(0)?,
+                        bot_account_id: r.get::<_, i64>(1)? as u32,
+                        owner_account_id: r.get::<_, i64>(2)? as u32,
+                        display_name: r.get(3)?,
+                        status: r.get(4)?,
+                        created_at: r.get(5)?,
+                    })
+                },
+            ).optional()?;
+            Ok(row)
+        })
+        .await?
+    }
+
+    pub async fn delete_bot(&self, owner_account_id: u32, bot_id: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM bots WHERE owner_account_id = ?1 AND id = ?2", params![owner_account_id, bot_id])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn set_bot_status(&self, owner_account_id: u32, bot_id: i64, status: &str) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let status = status.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("UPDATE bots SET status = ?3 WHERE owner_account_id = ?1 AND id = ?2", params![owner_account_id, bot_id, status])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -972,5 +1074,75 @@ mod tests {
         db.delete_card(id).await.unwrap();
         let row = db.get_card_row(id).await.unwrap();
         assert!(row.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_insert_and_get() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        let bot_id = db.insert_bot(1, 9001, "助理机器人", 1234567890).await.unwrap();
+        assert!(bot_id > 0);
+        let row = db.get_bot(1, bot_id).await.unwrap().unwrap();
+        assert_eq!(row.id, bot_id);
+        assert_eq!(row.bot_account_id, 9001);
+        assert_eq!(row.owner_account_id, 1);
+        assert_eq!(row.display_name, "助理机器人");
+        assert_eq!(row.status, "running");
+        assert_eq!(row.created_at, 1234567890);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_list_filters_by_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        db.insert_bot(1, 9001, "bot-a", 1000).await.unwrap();
+        db.insert_bot(2, 9002, "bot-b", 2000).await.unwrap();
+        db.insert_bot(1, 9003, "bot-c", 3000).await.unwrap();
+        let bots = db.list_bots(1).await.unwrap();
+        assert_eq!(bots.len(), 2);
+        assert!(bots.iter().all(|b| b.owner_account_id == 1));
+        assert_eq!(bots[0].bot_account_id, 9001);
+        assert_eq!(bots[1].bot_account_id, 9003);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_delete_removes_row() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        let bot_id = db.insert_bot(1, 9001, "bot", 1000).await.unwrap();
+        db.delete_bot(1, bot_id).await.unwrap();
+        assert!(db.get_bot(1, bot_id).await.unwrap().is_none());
+        // 不匹配 owner 时不应删除
+        let bot_id2 = db.insert_bot(2, 9002, "bot2", 2000).await.unwrap();
+        db.delete_bot(1, bot_id2).await.unwrap();
+        assert!(db.get_bot(2, bot_id2).await.unwrap().is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_unique_constraint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        db.insert_bot(1, 9001, "bot", 1000).await.unwrap();
+        let err = db.insert_bot(1, 9001, "bot-dup", 2000).await.unwrap_err();
+        assert!(matches!(err, AppError::Db(_)));
+        // 不同 owner 可复用同一 bot_account_id
+        let ok = db.insert_bot(2, 9001, "bot-other", 3000).await.unwrap();
+        assert!(ok > 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_set_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        let bot_id = db.insert_bot(1, 9001, "bot", 1000).await.unwrap();
+        assert_eq!(db.get_bot(1, bot_id).await.unwrap().unwrap().status, "running");
+        db.set_bot_status(1, bot_id, "stopped").await.unwrap();
+        let row = db.get_bot(1, bot_id).await.unwrap().unwrap();
+        assert_eq!(row.status, "stopped");
     }
 }

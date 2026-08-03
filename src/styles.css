@@ -1574,6 +1574,262 @@ body {
   --bubble-self-text: #fff8f0;
 }
 
+/* Forest 主题:墨绿 */
+[data-theme="forest"] {
+  --bg: rgba(255,255,255,0.10);
+  --panel: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.10);
+  --active: rgba(255,255,255,0.28);
+  --capsule: rgba(255,255,255,0.08);
+  --text: #e6efe9;
+  --text-body: #d3e3da;
+  --text-mute: #86a894;
+  --text-weak: #4f6e5d;
+  --text-faint: #3a5244;
+  --border-dashed: rgba(255,255,255,0.12);
+  --text-action: #86a894;
+  --hover-bright: #f2faf5;
+  --theme-gradient: linear-gradient(135deg, #0a2318 0%, #164a33 40%, #2f9e6e 100%);
+  --theme-mask: rgba(0,0,0,0.85);
+  /* 浮动菜单表面:必须不透明,否则叠在内容上不可读 */
+  --surface: #16271e;
+  --surface-hover: #22382c;
+  --control-bg: rgba(255,255,255,0.14);
+  --control-bg-hover: rgba(255,255,255,0.22);
+  --danger: #ef6a5a;
+  --danger-bg: rgba(239,106,90,0.12);
+  --danger-bg-hover: rgba(239,106,90,0.2);
+  --success: #3f9e72;
+  --on-accent: #10241a;          /* --text 为亮绿白，强调背景上用深色文字 */
+  --bubble-self: #1f6b4d;        /* 自己的消息气泡:深绿,贴近渐变主题 */
+  --bubble-self-text: #e9f5ee;
+}
+
+/* Midnight 主题:深海 */
+[data-theme="midnight"] {
+  --bg: rgba(255,255,255,0.10);
+  --panel: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.10);
+  --active: rgba(255,255,255,0.28);
+  --capsule: rgba(255,255,255,0.08);
+  --text: #e7eef6;
+  --text-body: #d2ddec;
+  --text-mute: #8297b8;
+  --text-weak: #4d5f7c;
+  --text-faint: #38465f;
+  --border-dashed: rgba(255,255,255,0.12);
+  --text-action: #8297b8;
+  --hover-bright: #f0f6ff;
+  --theme-gradient: linear-gradient(135deg, #0a1630 0%, #163a6e 40%, #3f7bd9 100%);
+  --theme-mask: rgba(0,0,0,0.85);
+  /* 浮动菜单表面:必须不透明,否则叠在内容上不可读 */
+  --surface: #141f36;
+  --surface-hover: #1f2f4e;
+  --control-bg: rgba(255,255,255,0.14);
+  --control-bg-hover: rgba(255,255,255,0.22);
+  --danger: #ff6b8a;
+  --danger-bg: rgba(255,107,138,0.12);
+  --danger-bg-hover: rgba(255,107,138,0.2);
+  --success: #46c48a;
+  --on-accent: #0f1a2e;          /* --text 为亮蓝白，强调背景上用深色文字 */
+  --bubble-self: #1f54a8;        /* 自己的消息气泡:深蓝,贴近渐变主题 */
+  --bubble-self-text: #eef4fc;
+}
+
+/* Ember 主题:熔岩 */
+[data-theme="ember"] {
+  --bg: rgba(255,255,255,0.10);
+  --panel: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.10);
+  --active: rgba(255,255,255,0.28);
+  --capsule: rgba(255,255,255,0.08);
+  --text: #f6e7ea;
+  --text-body: #e8cfd4;
+  --text-mute: #b78d96;
+  --text-weak: #7a555d;
+  --text-faint: #5a3c42;
+  --border-dashed: rgba(255,255,255,0.12);
+  --text-action: #b78d96;
+  --hover-bright: #fff0f3;
+  --theme-gradient: linear-gradient(135deg, #230a12 0%, #5e1626 40%, #c23a4d 100%);
+  --theme-mask: rgba(0,0,0,0.85);
+  /* 浮动菜单表面:必须不透明,否则叠在内容上不可读 */
+  --surface: #2a1218;
+  --surface-hover: #3d1b22;
+  --control-bg: rgba(255,255,255,0.14);
+  --control-bg-hover: rgba(255,255,255,0.22);
+  --danger: #ff7a6b;
+  --danger-bg: rgba(255,122,107,0.12);
+  --danger-bg-hover: rgba(255,122,107,0.2);
+  --success: #4cd6a8;
+  --on-accent: #2a0e14;          /* --text 为亮红白，强调背景上用深色文字 */
+  --bubble-self: #8e2235;        /* 自己的消息气泡:暗红,贴近渐变主题 */
+  --bubble-self-text: #faeef1;
+}
+
+/* Graphite 主题:石墨 */
+[data-theme="graphite"] {
+  --bg: rgba(255,255,255,0.10);
+  --panel: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.10);
+  --active: rgba(255,255,255,0.28);
+  --capsule: rgba(255,255,255,0.08);
+  --text: #e8eaee;
+  --text-body: #d3d7de;
+  --text-mute: #8b93a1;
+  --text-weak: #565d6b;
+  --text-faint: #3e444f;
+  --border-dashed: rgba(255,255,255,0.12);
+  --text-action: #8b93a1;
+  --hover-bright: #f2f4f8;
+  --theme-gradient: linear-gradient(135deg, #121419 0%, #1f242e 40%, #3f4a5c 100%);
+  --theme-mask: rgba(0,0,0,0.85);
+  /* 浮动菜单表面:必须不透明,否则叠在内容上不可读 */
+  --surface: #1c2028;
+  --surface-hover: #292e38;
+  --control-bg: rgba(255,255,255,0.14);
+  --control-bg-hover: rgba(255,255,255,0.22);
+  --danger: #f06a6a;
+  --danger-bg: rgba(240,106,106,0.12);
+  --danger-bg-hover: rgba(240,106,106,0.2);
+  --success: #5aa98a;
+  --on-accent: #14161c;          /* --text 为亮灰白，强调背景上用深色文字 */
+  --bubble-self: #2e3b4d;        /* 自己的消息气泡:冷灰蓝,贴近渐变主题 */
+  --bubble-self-text: #eef1f5;
+}
+
+/* Paper 主题:米纸 (浅色,实色表面) */
+[data-theme="paper"] {
+  --bg: #f5efe6;
+  --panel: #fbf7f0;
+  --border: rgba(60,40,20,0.08);
+  --border-strong: rgba(60,40,20,0.14);
+  --active: rgba(60,40,20,0.12);
+  --capsule: #eee7db;
+  --text: #3a332b;
+  --text-body: #4a4038;
+  --text-mute: #7a7068;
+  --text-weak: #aaa090;
+  --text-faint: #c0b8a8;
+  --border-dashed: rgba(60,40,20,0.16);
+  --text-action: #7a7068;
+  --hover-bright: #fffdf9;
+  --theme-gradient: none;
+  --theme-mask: none;
+  /* 浮动菜单表面:不透明浅色 */
+  --surface: #f8f1e7;
+  --surface-hover: #ece3d5;
+  --control-bg: rgba(60,40,20,0.12);
+  --control-bg-hover: rgba(60,40,20,0.2);
+  --danger: #d9464a;
+  --danger-bg: rgba(217,70,74,0.1);
+  --danger-bg-hover: rgba(217,70,74,0.18);
+  --success: #2e9e5b;
+  --on-accent: #fff8f0;          /* --text 为深棕，强调背景上用浅色文字 */
+  --bubble-self: #c05a2e;        /* 自己的消息气泡:陶土橙,贴近暖纸风格 */
+  --bubble-self-text: #fff8f0;
+}
+
+/* Frost 主题:冰雪 (浅色,实色表面) */
+[data-theme="frost"] {
+  --bg: #eef3f8;
+  --panel: #f7fafc;
+  --border: rgba(30,50,80,0.08);
+  --border-strong: rgba(30,50,80,0.14);
+  --active: rgba(30,50,80,0.10);
+  --capsule: #e2eaf2;
+  --text: #2e3a45;
+  --text-body: #3c4a58;
+  --text-mute: #6d7e90;
+  --text-weak: #9aa9b8;
+  --text-faint: #b6c2ce;
+  --border-dashed: rgba(30,50,80,0.16);
+  --text-action: #6d7e90;
+  --hover-bright: #ffffff;
+  --theme-gradient: none;
+  --theme-mask: none;
+  /* 浮动菜单表面:不透明浅色 */
+  --surface: #f0f5fa;
+  --surface-hover: #e2eaf2;
+  --control-bg: rgba(30,50,80,0.10);
+  --control-bg-hover: rgba(30,50,80,0.18);
+  --danger: #d25f5f;
+  --danger-bg: rgba(210,95,95,0.1);
+  --danger-bg-hover: rgba(210,95,95,0.18);
+  --success: #3f8f6e;
+  --on-accent: #f4f9fe;          /* --text 为冷灰蓝，强调背景上用浅色文字 */
+  --bubble-self: #3f7fb5;        /* 自己的消息气泡:冰蓝,贴近冷色风格 */
+  --bubble-self-text: #f4f9fe;
+}
+
+/* Sage 主题:鼠尾草 (浅色,实色表面) */
+[data-theme="sage"] {
+  --bg: #eef3ec;
+  --panel: #f8faf4;
+  --border: rgba(40,70,50,0.08);
+  --border-strong: rgba(40,70,50,0.14);
+  --active: rgba(40,70,50,0.10);
+  --capsule: #e2e9e0;
+  --text: #2f3a31;
+  --text-body: #3d4a41;
+  --text-mute: #6f8075;
+  --text-weak: #9daa9f;
+  --text-faint: #bac5bc;
+  --border-dashed: rgba(40,70,50,0.16);
+  --text-action: #6f8075;
+  --hover-bright: #ffffff;
+  --theme-gradient: none;
+  --theme-mask: none;
+  /* 浮动菜单表面:不透明浅色 */
+  --surface: #f2f6ee;
+  --surface-hover: #e3eadf;
+  --control-bg: rgba(40,70,50,0.10);
+  --control-bg-hover: rgba(40,70,50,0.18);
+  --danger: #c95f55;
+  --danger-bg: rgba(201,95,85,0.1);
+  --danger-bg-hover: rgba(201,95,85,0.18);
+  --success: #3f8f5f;
+  --on-accent: #f2f9f2;          /* --text 为绿灰，强调背景上用浅色文字 */
+  --bubble-self: #3f7a55;        /* 自己的消息气泡:鼠尾草绿,贴近自然风格 */
+  --bubble-self-text: #f2f9f2;
+}
+
+/* Blush 主题:蔷薇 (浅色,实色表面) */
+[data-theme="blush"] {
+  --bg: #f7eef1;
+  --panel: #fcf8f9;
+  --border: rgba(120,60,80,0.08);
+  --border-strong: rgba(120,60,80,0.14);
+  --active: rgba(120,60,80,0.10);
+  --capsule: #f0e4e8;
+  --text: #423039;
+  --text-body: #523e48;
+  --text-mute: #8a727c;
+  --text-weak: #b09ca4;
+  --text-faint: #cbbbc0;
+  --border-dashed: rgba(120,60,80,0.16);
+  --text-action: #8a727c;
+  --hover-bright: #ffffff;
+  --theme-gradient: none;
+  --theme-mask: none;
+  /* 浮动菜单表面:不透明浅色 */
+  --surface: #f7eef1;
+  --surface-hover: #ebdde2;
+  --control-bg: rgba(120,60,80,0.10);
+  --control-bg-hover: rgba(120,60,80,0.18);
+  --danger: #c95f6e;
+  --danger-bg: rgba(201,95,110,0.1);
+  --danger-bg-hover: rgba(201,95,110,0.18);
+  --success: #3f8f74;
+  --on-accent: #fff6f8;          /* --text 为暖紫灰，强调背景上用浅色文字 */
+  --bubble-self: #b55670;        /* 自己的消息气泡:玫瑰色,贴近蔷薇风格 */
+  --bubble-self-text: #fff6f8;
+}
+
 /* === 主题切换 UI === */
 .rd-appearance { margin: 8px 0; padding: 0 16px; }
 .rd-appearance-title {
@@ -2013,14 +2269,10 @@ body {
 .settings-field input, .settings-readonly { width: 100%; background: var(--capsule); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text); font-size: var(--font-scale-body); font-family: inherit; }
 .settings-field input:focus { outline: none; border-color: var(--text-weak); }
 .settings-readonly { color: var(--text-mute); }
-.settings-themes { display: flex; gap: 16px; }
+.settings-themes { display: flex; gap: 16px; flex-wrap: wrap; }
 .settings-theme { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border: 2px solid transparent; border-radius: 8px; cursor: pointer; }
 .settings-theme.active { border-color: var(--text); }
 .theme-swatch { width: 48px; height: 48px; border-radius: 8px; }
-/* swatch-* 保留固定主题预览色 (展示用,不跟随主题切换) */
-.swatch-nowint { background: linear-gradient(135deg, #0d0d0d, #1a1a1a); }
-.swatch-violet { background: linear-gradient(135deg, #1a0d2e, #6b3fa0); }
-.swatch-goldenhour { background: linear-gradient(135deg, #2e1a0d, #d4a043); }
 .settings-invite-row { display: flex; gap: 8px; }
 .settings-invite-row input { flex: 1; }
 .settings-btn { display: flex; align-items: center; gap: 6px; background: var(--control-bg); color: var(--text); border: none; padding: 6px 12px; border-radius: var(--radius-sm); font-size: 14px; cursor: pointer; font-family: inherit; }
