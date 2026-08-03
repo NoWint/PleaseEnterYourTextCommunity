@@ -272,6 +272,157 @@ pub struct LlmConfigInput {
     pub provider: Option<String>,
 }
 
+/// 活动类型常量(见 bot_activities.kind)。
+pub mod bot_activity_kind {
+    pub const REPLY_SENT: &str = "reply_sent";
+    pub const REPLY_SKIPPED: &str = "reply_skipped";
+    pub const REPLY_RATE_LIMITED: &str = "reply_rate_limited";
+    pub const LLM_ERROR: &str = "llm_error";
+    pub const NO_CONFIG: &str = "no_config";
+    pub const DRIVER_DISABLED: &str = "driver_disabled";
+}
+
+/// Bot 活动日志 DTO(时间线页/统计用)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BotActivityDto {
+    pub id: i64,
+    pub bot_id: i64,
+    pub kind: String,
+    pub chat_id: Option<u32>,
+    pub msg_id: Option<u32>,
+    pub summary: String,
+    pub detail_json: Option<String>,
+    pub created_at: i64,
+}
+
+fn default_temperature() -> f64 {
+    0.7
+}
+fn default_timeout_secs() -> u64 {
+    120
+}
+fn default_max_retries() -> u32 {
+    2
+}
+fn default_max_concurrent() -> u32 {
+    2
+}
+fn default_reply_interval() -> u64 {
+    3
+}
+
+/// 结构化 LLM 驱动配置(旧 LlmConfigInput 的超集)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmConfig {
+    pub system_prompt: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    #[serde(default = "default_temperature")]
+    pub temperature: f64,
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub top_p: Option<f64>,
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u64,
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+}
+
+impl LlmConfig {
+    /// base_url + api_key + model 三者非空即视为可自动回复。
+    pub fn is_complete(&self) -> bool {
+        let non_empty = |s: &Option<String>| s.as_deref().map_or(false, |s| !s.trim().is_empty());
+        non_empty(&self.base_url) && non_empty(&self.api_key) && non_empty(&self.model)
+    }
+}
+
+impl From<LlmConfigInput> for LlmConfig {
+    fn from(i: LlmConfigInput) -> Self {
+        Self {
+            system_prompt: i.system_prompt,
+            base_url: i.base_url,
+            api_key: i.api_key,
+            model: i.model,
+            provider: i.provider,
+            temperature: default_temperature(),
+            max_tokens: None,
+            top_p: None,
+            timeout_secs: default_timeout_secs(),
+            max_retries: default_max_retries(),
+        }
+    }
+}
+
+/// Bot 运行时限额。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct BotLimits {
+    #[serde(default = "default_max_concurrent")]
+    pub max_concurrent: u32,
+    #[serde(default = "default_reply_interval")]
+    pub reply_min_interval_secs: u64,
+}
+
+impl Default for BotLimits {
+    fn default() -> Self {
+        Self {
+            max_concurrent: default_max_concurrent(),
+            reply_min_interval_secs: default_reply_interval(),
+        }
+    }
+}
+
+/// Bot 完整配置(存于 bots.config_json)。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BotConfig {
+    #[serde(default)]
+    pub llm: Option<LlmConfig>,
+    #[serde(default)]
+    pub limits: BotLimits,
+}
+
+impl BotConfig {
+    /// 解析 config_json:优先新格式;新格式 llm 为空时回退旧格式(顶层 LLM 字段)。
+    pub fn parse(raw: Option<&str>) -> Option<BotConfig> {
+        let s = raw?;
+        if let Ok(cfg) = serde_json::from_str::<BotConfig>(s) {
+            if cfg.llm.is_some() {
+                return Some(cfg);
+            }
+        }
+        Self::from_legacy(s)
+    }
+
+    fn from_legacy(s: &str) -> Option<BotConfig> {
+        #[derive(serde::Deserialize)]
+        struct Legacy {
+            system_prompt: Option<String>,
+            base_url: Option<String>,
+            api_key: Option<String>,
+            model: Option<String>,
+            provider: Option<String>,
+        }
+        let legacy: Legacy = serde_json::from_str(s).ok()?;
+        Some(BotConfig {
+            llm: Some(LlmConfig {
+                system_prompt: legacy.system_prompt,
+                base_url: legacy.base_url,
+                api_key: legacy.api_key,
+                model: legacy.model,
+                provider: legacy.provider,
+                temperature: default_temperature(),
+                max_tokens: None,
+                top_p: None,
+                timeout_secs: default_timeout_secs(),
+                max_retries: default_max_retries(),
+            }),
+            limits: BotLimits::default(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,6 +453,103 @@ mod tests {
         assert_eq!(parsed.smtp_security.as_deref(), Some("tls"));
         assert_eq!(parsed.smtp_user.as_deref(), Some("alice"));
         assert_eq!(parsed.smtp_password.as_deref(), Some("secret"));
+    }
+
+    fn default_llm_config() -> LlmConfig {
+        LlmConfig {
+            system_prompt: Some("你是助手".into()),
+            base_url: Some("https://api.openai.com/v1".into()),
+            api_key: Some("sk-test".into()),
+            model: Some("gpt-4o-mini".into()),
+            provider: Some("openai".into()),
+            temperature: 0.7,
+            max_tokens: Some(256),
+            top_p: Some(1.0),
+            timeout_secs: 120,
+            max_retries: 2,
+        }
+    }
+
+    #[test]
+    fn test_bot_limits_defaults() {
+        let l = BotLimits::default();
+        assert_eq!(l.max_concurrent, 2);
+        assert_eq!(l.reply_min_interval_secs, 3);
+    }
+
+    #[test]
+    fn test_llm_config_is_complete() {
+        assert!(default_llm_config().is_complete());
+        let mut no_model = default_llm_config();
+        no_model.model = None;
+        assert!(!no_model.is_complete());
+        let mut blank_key = default_llm_config();
+        blank_key.api_key = Some("   ".into());
+        assert!(!blank_key.is_complete());
+    }
+
+    #[test]
+    fn test_bot_config_parse_new_format() {
+        let json = r#"{"llm":{"base_url":"https://x/v1","api_key":"k","model":"m","temperature":0.3,"max_tokens":100},"limits":{"max_concurrent":5,"reply_min_interval_secs":7}}"#;
+        let cfg = BotConfig::parse(Some(json)).expect("parse new format");
+        let llm = cfg.llm.expect("llm present");
+        assert_eq!(llm.temperature, 0.3);
+        assert_eq!(llm.max_tokens, Some(100));
+        assert_eq!(llm.timeout_secs, 120);      // 缺省取默认
+        assert_eq!(llm.max_retries, 2);          // 缺省取默认
+        assert_eq!(cfg.limits.max_concurrent, 5);
+        assert_eq!(cfg.limits.reply_min_interval_secs, 7);
+    }
+
+    #[test]
+    fn test_bot_config_parse_legacy_format() {
+        // 旧格式:顶层字段,无 llm 包裹
+        let json = r#"{"system_prompt":"旧提示","base_url":"https://old/v1","api_key":"old-key","model":"old-model","provider":"openai"}"#;
+        let cfg = BotConfig::parse(Some(json)).expect("parse legacy");
+        let llm = cfg.llm.expect("llm migrated");
+        assert_eq!(llm.base_url.as_deref(), Some("https://old/v1"));
+        assert_eq!(llm.model.as_deref(), Some("old-model"));
+        assert_eq!(llm.temperature, 0.7);        // 迁移补默认
+        assert_eq!(llm.timeout_secs, 120);
+        assert_eq!(cfg.limits.max_concurrent, 2); // 迁移补默认
+    }
+
+    #[test]
+    fn test_bot_config_parse_none_or_invalid() {
+        assert!(BotConfig::parse(None).is_none());
+        assert!(BotConfig::parse(Some("not json".into())).is_none());
+        // 新格式 llm 显式 null 且不是旧格式 → None
+        assert!(BotConfig::parse(Some(r#"{"llm":null,"limits":{"max_concurrent":4}}"#.into())).is_none());
+    }
+
+    #[test]
+    fn test_llm_config_from_input() {
+        let input = LlmConfigInput {
+            system_prompt: Some("p".into()),
+            base_url: Some("https://b/v1".into()),
+            api_key: Some("k".into()),
+            model: Some("m".into()),
+            provider: Some("openai".into()),
+        };
+        let cfg = LlmConfig::from(input);
+        assert_eq!(cfg.base_url.as_deref(), Some("https://b/v1"));
+        assert_eq!(cfg.temperature, 0.7);
+        assert_eq!(cfg.max_tokens, None);
+        assert!(cfg.is_complete());
+    }
+
+    #[test]
+    fn test_bot_activity_dto_round_trip() {
+        let dto = BotActivityDto {
+            id: 1, bot_id: 9, kind: "reply_sent".into(),
+            chat_id: Some(3), msg_id: Some(7),
+            summary: "回复 alice".into(), detail_json: None, created_at: 1,
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        let back: BotActivityDto = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.kind, "reply_sent");
+        assert_eq!(back.bot_id, 9);
+        assert_eq!(back.chat_id, Some(3));
     }
 }
 
