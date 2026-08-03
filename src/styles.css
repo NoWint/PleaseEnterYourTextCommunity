@@ -1230,12 +1230,7 @@ html { background: var(--bg); }
   .search-overlay.closing { animation: fade-out 190ms var(--ease-out) forwards; }
   .img-fullscreen-overlay.closing { animation: fade-out 210ms var(--ease-out) forwards; }
 
-  /* 页面切换转场:主内容淡入(排除启动空占位,避免启动闪屏;消息刷新不重放) */
-  @keyframes page-in {
-    from { opacity: 0; transform: translateY(3px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  #chat-main > *:not(.empty) { animation: page-in 250ms var(--ease-out); }
+  /* 页面切换即时出现:整屏主内容不带动画(WKWebView 下整屏透明度动画会闪,见 conventions) */
 
   /* 全局微交互:按压反馈 + 列表悬停 + 统一过渡 */
   button:not(:disabled):active, [role="button"]:active, .clickable:active {
