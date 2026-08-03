@@ -384,8 +384,7 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
   // 则本次(过时)直接放弃写入,避免 stale 数据覆盖 DOM。
   const token = ++renderToken;
   const visible = state.messages.slice(start, end);
-  // 渲染前记录 scrollHeight/scrollTop:spacer 用估算高度,渲染后总高会变化,
-  // 若不补偿,scrollTop 被钳位 → 触发 scroll → 递归渲染 → 闪烁循环。
+  // 渲染前记录 scrollHeight/scrollTop,用于贴底场景的滚动位置修正(见函数末尾)。
   const prevScrollTop = box.scrollTop;
   const prevScrollHeight = box.scrollHeight;
 
@@ -466,12 +465,19 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
   if (spacerTop) spacerTop.style.height = (start * ITEM_HEIGHT) + 'px';
   if (spacerBottom) spacerBottom.style.height = ((state.messages.length - end) * ITEM_HEIGHT) + 'px';
 
-  // scrollHeight 补偿:spacer 用估算高度,渲染后总高变化,导致 scrollTop 被浏览器钳位
-  // → 触发 scroll → 递归渲染 → 最后一条消失又出现,闪烁循环。
-  // 补偿 = 渲染前后 scrollHeight 差,让视口内容保持稳定(底部场景自动保持贴底)。
-  const heightDelta = box.scrollHeight - prevScrollHeight;
-  if (heightDelta !== 0) {
-    box.scrollTop = prevScrollTop + heightDelta;
+  // 滚动位置修正:
+  //  1. 渲染前用户已在底部(贴底)→ 渲染后 scrollHeight 变化(spacer 估算 vs 真实高度),
+  //     scrollTop 需跟随新 scrollHeight 保持贴底,否则被钳位 → 触发 scroll → 递归渲染
+  //     → 最后一条消失又出现,闪烁循环。贴底补偿自收敛。
+  //  2. 非底部(纯滚动):不补偿。spacer 估算误差会让 scrollHeight 微变,但用户没贴底,
+  //     scrollTop 不会被钳位;主动补偿反而让视口内容微动(块内元素上下微动)。
+  const atBottom = box.clientHeight > 0 &&
+    prevScrollTop + box.clientHeight >= prevScrollHeight - 50;
+  if (atBottom) {
+    const target = box.scrollHeight - box.clientHeight;
+    if (Math.abs(target - box.scrollTop) > 0.5) {
+      box.scrollTop = target;
+    }
   }
 }
 
