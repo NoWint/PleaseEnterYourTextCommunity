@@ -23,6 +23,8 @@ export async function renderRail(): Promise<void> {
     { page: 'groups', icon: 'users', label: '群组' },
     { page: 'work', icon: 'layout-grid', label: '协作' },
     { page: 'inbox', icon: 'inbox', label: '通知', badge: state.inboxUnread },
+    // 机器人入口 — 位于通知下方
+    { page: 'bots', icon: 'robot', label: '机器人' },
   ];
 
   const pageIconsHtml = pages.map((p) => {
