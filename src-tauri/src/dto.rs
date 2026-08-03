@@ -314,6 +314,9 @@ fn default_max_concurrent() -> u32 {
 fn default_reply_interval() -> u64 {
     3
 }
+fn default_interaction_max_rounds() -> u32 {
+    3
+}
 
 /// 结构化 LLM 驱动配置(旧 LlmConfigInput 的超集)。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -360,6 +363,38 @@ impl From<LlmConfigInput> for LlmConfig {
     }
 }
 
+/// 规则驱动:单条规则定义。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct RuleDef {
+    pub id: i64,
+    pub pattern: String, // 关键词子串 或 正则
+    pub is_regex: bool,
+    pub replies: Vec<String>, // 随机取一条
+    pub enabled: bool,
+}
+
+/// 规则驱动:完整规则配置。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct RuleConfig {
+    pub rules: Vec<RuleDef>,
+    pub welcome: Option<String>,
+    pub fallback: Option<String>,
+}
+
+/// 定时驱动:一条定时任务。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleDto {
+    pub id: i64,
+    pub bot_id: i64,
+    pub chat_id: u32,
+    pub minute: i32,
+    pub hour: i32,
+    pub day_of_week: i32,
+    pub message: String,
+    pub enabled: bool,
+    pub next_run_at: i64,
+}
+
 /// Bot 运行时限额。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BotLimits {
@@ -367,6 +402,12 @@ pub struct BotLimits {
     pub max_concurrent: u32,
     #[serde(default = "default_reply_interval")]
     pub reply_min_interval_secs: u64,
+    /// 是否允许 Bot 与 Bot 对话;默认 false
+    #[serde(default)]
+    pub allow_bot_interaction: bool,
+    /// 互动最大轮数;默认 3
+    #[serde(default = "default_interaction_max_rounds")]
+    pub interaction_max_rounds: u32,
 }
 
 impl Default for BotLimits {
@@ -374,6 +415,8 @@ impl Default for BotLimits {
         Self {
             max_concurrent: default_max_concurrent(),
             reply_min_interval_secs: default_reply_interval(),
+            allow_bot_interaction: false,
+            interaction_max_rounds: default_interaction_max_rounds(),
         }
     }
 }
@@ -388,6 +431,10 @@ pub struct BotConfig {
     /// 显式启用的工具名集合;None = 使用默认安全工具集
     #[serde(default)]
     pub tools: Option<Vec<String>>,
+    #[serde(default)]
+    pub rule: Option<RuleConfig>,
+    #[serde(default)]
+    pub persona: Option<String>,
 }
 
 impl BotConfig {
@@ -434,6 +481,8 @@ impl BotConfig {
             }),
             limits: BotLimits::default(),
             tools: None,
+            rule: None,
+            persona: None,
         })
     }
 }
@@ -490,6 +539,8 @@ mod tests {
         let l = BotLimits::default();
         assert_eq!(l.max_concurrent, 2);
         assert_eq!(l.reply_min_interval_secs, 3);
+        assert!(!l.allow_bot_interaction);
+        assert_eq!(l.interaction_max_rounds, 3);
     }
 
     #[test]
@@ -510,8 +561,8 @@ mod tests {
         let llm = cfg.llm.expect("llm present");
         assert_eq!(llm.temperature, 0.3);
         assert_eq!(llm.max_tokens, Some(100));
-        assert_eq!(llm.timeout_secs, 120);      // 缺省取默认
-        assert_eq!(llm.max_retries, 2);          // 缺省取默认
+        assert_eq!(llm.timeout_secs, 120); // 缺省取默认
+        assert_eq!(llm.max_retries, 2); // 缺省取默认
         assert_eq!(cfg.limits.max_concurrent, 5);
         assert_eq!(cfg.limits.reply_min_interval_secs, 7);
     }
@@ -524,7 +575,7 @@ mod tests {
         let llm = cfg.llm.expect("llm migrated");
         assert_eq!(llm.base_url.as_deref(), Some("https://old/v1"));
         assert_eq!(llm.model.as_deref(), Some("old-model"));
-        assert_eq!(llm.temperature, 0.7);        // 迁移补默认
+        assert_eq!(llm.temperature, 0.7); // 迁移补默认
         assert_eq!(llm.timeout_secs, 120);
         assert_eq!(cfg.limits.max_concurrent, 2); // 迁移补默认
     }
@@ -557,11 +608,67 @@ mod tests {
     }
 
     #[test]
+    fn test_bot_config_rule_defaults() {
+        let cfg = BotConfig::default();
+        assert!(cfg.rule.is_none());
+        assert!(cfg.persona.is_none());
+    }
+
+    #[test]
+    fn test_rule_config_round_trip() {
+        let cfg = RuleConfig {
+            rules: vec![RuleDef {
+                id: 1,
+                pattern: "hello".into(),
+                is_regex: false,
+                replies: vec!["hi".into(), "hey".into()],
+                enabled: true,
+            }],
+            welcome: Some("欢迎".into()),
+            fallback: None,
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: RuleConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn test_schedule_dto_round_trip() {
+        let dto = ScheduleDto {
+            id: 1,
+            bot_id: 9,
+            chat_id: 42,
+            minute: 30,
+            hour: 8,
+            day_of_week: 1,
+            message: "早报".into(),
+            enabled: true,
+            next_run_at: 1700000000,
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        let back: ScheduleDto = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, 1);
+        assert_eq!(back.bot_id, 9);
+        assert_eq!(back.chat_id, 42);
+        assert_eq!(back.minute, 30);
+        assert_eq!(back.hour, 8);
+        assert_eq!(back.day_of_week, 1);
+        assert_eq!(back.message, "早报");
+        assert!(back.enabled);
+        assert_eq!(back.next_run_at, 1700000000);
+    }
+
+    #[test]
     fn test_bot_activity_dto_round_trip() {
         let dto = BotActivityDto {
-            id: 1, bot_id: 9, kind: "reply_sent".into(),
-            chat_id: Some(3), msg_id: Some(7),
-            summary: "回复 alice".into(), detail_json: None, created_at: 1,
+            id: 1,
+            bot_id: 9,
+            kind: "reply_sent".into(),
+            chat_id: Some(3),
+            msg_id: Some(7),
+            summary: "回复 alice".into(),
+            detail_json: None,
+            created_at: 1,
         };
         let json = serde_json::to_string(&dto).unwrap();
         let back: BotActivityDto = serde_json::from_str(&json).unwrap();
