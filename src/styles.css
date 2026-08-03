@@ -65,9 +65,9 @@
   --shadow-lg: 0 20px 48px rgba(0,0,0,0.28);
   --shadow-dropdown: var(--shadow-md); /* 兼容别名 */
 
-  /* 动效 token — 苹果式自定义曲线(替代内置 ease) */
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  /* 动效 token — 柔和曲线(慢起缓收,不突兀) */
+  --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   --font: -apple-system, 'SF Pro Display', 'Segoe UI Variable', 'Segoe UI', 'Inter', sans-serif;
@@ -312,7 +312,7 @@ html { background: var(--bg); }
 .msg[data-is-out="1"] .msg-bubble .msg-quote-name { color: var(--bubble-self-text); }
 .msg .msg-code { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 10px 12px; font-family: var(--font-mono); font-size: var(--font-scale-secondary); line-height: 1.6; margin-top: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
 /* 消息入场动画:新消息 pop-in(spring 手感,damping 1.0 无过冲)。滚动复用的节点不带此类,不重复动画。 */
-.msg-enter { animation: msg-pop-in 320ms cubic-bezier(0.22, 1, 0.36, 1); }
+.msg-enter { animation: msg-pop-in 300ms var(--ease-out); }
 @keyframes msg-pop-in {
   from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -327,7 +327,7 @@ html { background: var(--bg); }
   padding: 2px 8px; font-size: var(--font-scale-title); line-height: 1.2; color: var(--text-weak); cursor: pointer;
   font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
   transition: background 100ms, border-color 100ms, transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
-  animation: reaction-pop-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: reaction-pop-in 250ms var(--ease-out);
 }
 @keyframes reaction-pop-in {
   from { opacity: 0; transform: scale(0.85); }
@@ -449,7 +449,7 @@ html { background: var(--bg); }
   position: fixed; inset: 0; background: rgba(0,0,0,0.45);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   display: flex; align-items: center; justify-content: center; z-index: 100;
-  animation: ui-fade-in 150ms var(--ease-out);
+  animation: ui-fade-in 220ms var(--ease-out);
 }
 /* 弹窗 — 柔和玻璃:不糊背景色、低饱和、轻边缘光 */
 .ui-dialog {
@@ -458,7 +458,7 @@ html { background: var(--bg); }
   border-radius: 18px; padding: 22px; min-width: 320px; max-width: 420px;
   display: flex; flex-direction: column; gap: 16px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.12), 0 24px 48px rgba(0,0,0,0.30);
-  animation: ui-pop-in 180ms var(--ease-out);
+  animation: ui-pop-in 250ms var(--ease-out);
   max-height: min(720px, calc(100vh - 48px));
 }
 .ui-dialog-sm { max-width: 320px; }
@@ -601,7 +601,7 @@ html { background: var(--bg); }
 .ui-badge {
   display: inline-block; padding: 1px 7px; border-radius: 999px;
   background: var(--text); color: var(--panel); font-size: var(--font-scale-micro); font-weight: 600;
-  animation: ui-pop-in 180ms ease-out;
+  animation: ui-pop-in 250ms var(--ease-out);
 }
 .ui-badge-success { background: var(--success); color: var(--bg); }
 .ui-badge-danger { background: var(--danger); color: var(--hover-bright); }
@@ -653,7 +653,7 @@ html { background: var(--bg); }
 .ui-menu {
   position: fixed; background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%);
   border-radius: var(--radius-md); padding: 4px; min-width: 160px;
-  box-shadow: var(--shadow-lg); animation: ui-pop-in 130ms ease-out;
+  box-shadow: var(--shadow-lg); animation: ui-pop-in 200ms var(--ease-out);
 }
 .ui-menu.closing { animation: ui-pop-out 120ms var(--ease-out) forwards; }
 .ui-menu-item {
@@ -850,7 +850,7 @@ html { background: var(--bg); }
   border-radius: var(--radius-md);
   font-size: var(--font-scale-secondary);
   color: var(--text-mute);
-  animation: reply-preview-in 160ms ease-out;
+  animation: reply-preview-in 220ms var(--ease-out);
 }
 @keyframes reply-preview-in {
   from { opacity: 0; transform: translateY(4px); }
@@ -957,7 +957,7 @@ html { background: var(--bg); }
   box-shadow: var(--shadow-lg);
   padding: 8px;
   z-index: 20;
-  animation: pop-in 140ms ease-out;
+  animation: pop-in 210ms var(--ease-out);
 }
 .msg-reaction-panel .msg-reaction-pick {
   cursor: pointer;
@@ -1167,12 +1167,12 @@ html { background: var(--bg); }
    出场 = 同路径收束 (JS 加 .closing 后延时移除,见 dropdown/search/plugin-confirm/message)。 */
 @media (prefers-reduced-motion: no-preference) {
   /* 只让最新一条消息淡入;整列表重渲染时不重放,避免闪烁 */
-  .msg:last-child { animation: msg-fade-in 150ms ease-out; }
+  .msg:last-child { animation: msg-fade-in 220ms var(--ease-out); }
   @keyframes msg-fade-in {
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
   }
-  .right-drawer { transition: width 200ms ease-out; }
+  .right-drawer { transition: width 280ms var(--ease-in-out); }
 
   @keyframes pop-in {
     from { opacity: 0; transform: scale(0.96); }
@@ -1183,13 +1183,13 @@ html { background: var(--bg); }
     to { opacity: 1; }
   }
   /* 入场 (dropdown transform-origin 由 JS 按 position 覆盖) */
-  .dropdown-menu { animation: pop-in 130ms ease-out; transform-origin: top left; }
-  .plugin-confirm { animation: pop-in 140ms ease-out; transform-origin: top right; }
-  .search-overlay { animation: fade-in 150ms ease-out; }
-  .search-dialog { animation: pop-in 160ms ease-out; transform-origin: top center; }
-  .img-fullscreen-overlay { animation: fade-in 180ms ease-out; }
-  .nav-banner { animation: pop-in 140ms ease-out; transform-origin: top left; }
-  .inline-confirm-active { animation: fade-in 130ms ease-out; }
+  .dropdown-menu { animation: pop-in 200ms var(--ease-out); transform-origin: top left; }
+  .plugin-confirm { animation: pop-in 210ms var(--ease-out); transform-origin: top right; }
+  .search-overlay { animation: fade-in 220ms var(--ease-out); }
+  .search-dialog { animation: pop-in 220ms var(--ease-out); transform-origin: top center; }
+  .img-fullscreen-overlay { animation: fade-in 250ms var(--ease-out); }
+  .nav-banner { animation: pop-in 210ms var(--ease-out); transform-origin: top left; }
+  .inline-confirm-active { animation: fade-in 190ms var(--ease-out); }
 
   /* 出场:同路径收束 */
   @keyframes pop-out {
@@ -1198,17 +1198,17 @@ html { background: var(--bg); }
   @keyframes fade-out {
     to { opacity: 0; }
   }
-  .dropdown-menu.closing { animation: pop-out 110ms ease-in forwards; }
-  .plugin-confirm.closing { animation: pop-out 110ms ease-in forwards; }
-  .search-overlay.closing { animation: fade-out 140ms ease-in forwards; }
-  .img-fullscreen-overlay.closing { animation: fade-out 160ms ease-in forwards; }
+  .dropdown-menu.closing { animation: pop-out 150ms var(--ease-out) forwards; }
+  .plugin-confirm.closing { animation: pop-out 150ms var(--ease-out) forwards; }
+  .search-overlay.closing { animation: fade-out 190ms var(--ease-out) forwards; }
+  .img-fullscreen-overlay.closing { animation: fade-out 210ms var(--ease-out) forwards; }
 
   /* 页面切换转场:主内容淡入(排除启动空占位,避免启动闪屏;消息刷新不重放) */
   @keyframes page-in {
     from { opacity: 0; transform: translateY(3px); }
     to   { opacity: 1; transform: translateY(0); }
   }
-  #chat-main > *:not(.empty) { animation: page-in 180ms ease-out; }
+  #chat-main > *:not(.empty) { animation: page-in 250ms var(--ease-out); }
 
   /* 全局微交互:按压反馈 + 列表悬停 + 统一过渡 */
   button:not(:disabled):active, [role="button"]:active, .clickable:active {
@@ -1225,7 +1225,7 @@ html { background: var(--bg); }
 
   /* === 细节动画:遮罩 / 按钮 / 输入 / 标签 / 头像 / 徽章 === */
   /* 通用遮罩淡入 */
-  .overlay { animation: fade-in 150ms ease-out; }
+  .overlay { animation: fade-in 220ms var(--ease-out); }
 
   /* 输入框/文本域/下拉:聚焦过渡 */
   input, textarea, select {
@@ -1253,7 +1253,7 @@ html { background: var(--bg); }
   .avatar:hover { transform: scale(1.06); }
 
   /* 未读徽章出现时弹入 */
-  .unread, .ws-badge, .ct-unread { animation: pop-in 180ms ease-out; }
+  .unread, .ws-badge, .ct-unread { animation: pop-in 250ms var(--ease-out); }
 }
 
 /* 减少动效:关闭全部入场/出场动画,保留静态呈现 */

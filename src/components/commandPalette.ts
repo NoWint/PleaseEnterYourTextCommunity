@@ -137,7 +137,7 @@ function ensureStyles(): void {
   style.id = 'command-palette-css';
   style.textContent = `
 .command-palette-overlay { align-items: flex-start; padding-top: 60px; }
-.command-palette-overlay.closing { animation: fade-out 120ms ease-in forwards; }
+.command-palette-overlay.closing { animation: fade-out 150ms var(--ease-out) forwards; }
 `;
   document.head.appendChild(style);
 }
@@ -198,7 +198,7 @@ export function closeCommandPalette(): void {
   const overlay = document.getElementById('command-palette-overlay');
   if (overlay) {
     overlay.classList.add('closing');
-    setTimeout(() => overlay.remove(), 120);
+    setTimeout(() => overlay.remove(), 150);
   }
 }
 

@@ -494,7 +494,7 @@ export function bindMessageActions(container: HTMLElement): void {
       overlay.innerHTML = `<img src="${escapeAttr(full)}" class="img-fullscreen-img" />`;
       overlay.addEventListener('click', () => {
         overlay.classList.add('closing');
-        setTimeout(() => overlay.remove(), 160);
+        setTimeout(() => overlay.remove(), 210);
       });
       document.body.appendChild(overlay);
     });

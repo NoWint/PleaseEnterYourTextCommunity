@@ -17,7 +17,7 @@ export function showPluginConfirm(
   const existing = document.querySelector<HTMLElement>('.plugin-confirm');
   if (existing && openCardAnchor === anchor) {
     existing.classList.add('closing');
-    setTimeout(() => existing.remove(), 120);
+    setTimeout(() => existing.remove(), 150);
     openCardAnchor = null;
     return;
   }
@@ -45,7 +45,7 @@ export function showPluginConfirm(
   const close = (): void => {
     if (openCardAnchor === anchor) openCardAnchor = null;
     card.classList.add('closing');
-    setTimeout(() => card.remove(), 120);
+    setTimeout(() => card.remove(), 150);
     document.removeEventListener('click', outside);
   };
   const outside = (e: MouseEvent): void => {
