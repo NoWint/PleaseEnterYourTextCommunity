@@ -19,18 +19,7 @@
         "minWidth": 800,
         "minHeight": 600,
         "titleBarStyle": "Overlay",
-        "trafficLightPosition": { "x": 12, "y": 18 },
-        "platforms": ["macOS"]
-      },
-      {
-        "label": "main",
-        "title": "",
-        "width": 1000,
-        "height": 700,
-        "minWidth": 800,
-        "minHeight": 600,
-        "decorations": false,
-        "platforms": ["windows", "linux"]
+        "trafficLightPosition": { "x": 12, "y": 18 }
       }
     ],
     "security": {
