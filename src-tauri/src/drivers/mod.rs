@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -37,13 +38,18 @@ pub struct BotRuntime<'a> {
     pub config: &'a BotConfig,
     pub db: &'a Db,
     pub activity: &'a ActivityLog,
+    pub data_dir: &'a PathBuf, // 工具执行所需的本地数据目录
 }
 
 /// 驱动接口:一种「大脑」。返回要发送的回复文本列表;发送/限流/日志由调度器处理。
 #[async_trait]
 pub trait BotDriver: Send + Sync {
     fn kind(&self) -> DriverKind;
-    async fn on_message(&self, bot: &BotRuntime<'_>, msg: &IncomingMsg<'_>) -> AppResult<Vec<String>>;
+    async fn on_message(
+        &self,
+        bot: &BotRuntime<'_>,
+        msg: &IncomingMsg<'_>,
+    ) -> AppResult<Vec<String>>;
     /// 定时 tick(规则/定时驱动用);默认不处理。
     async fn on_tick(&self, bot: &BotRuntime<'_>) -> AppResult<Vec<String>> {
         let _ = bot;
