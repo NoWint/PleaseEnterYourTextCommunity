@@ -11,6 +11,7 @@ mod llm;
 mod plugins;
 mod runtime;
 mod state;
+mod tools;
 
 use tauri::Manager;
 
@@ -48,10 +49,22 @@ pub fn run() {
                     let _ = handle.emit("bot-activity", &a);
                 })
             };
+            use std::sync::Arc;
+            // 工具桥:emit 到前端 bot-tool-request(B5 前端监听;现仅记日志)
+            let bridge = Arc::new(crate::tools::ToolBridge::new().with_emitter(|v| {
+                log::debug!("[tools] tool request: {v}");
+            }));
+            let mut tool_registry = crate::tools::ToolRegistry::new(bridge);
+            tool_registry.register(Arc::new(crate::tools::builtins::GetTimeTool));
+            tool_registry.register(Arc::new(crate::tools::builtins::CalculateTool));
+            tool_registry.register(Arc::new(crate::tools::builtins::ConvertUnitsTool));
+            let tool_registry = Arc::new(tool_registry);
+
             // 驱动注册:B1 只有 LLM 驱动(后续 B3 加规则/定时)
             let mut registry = crate::drivers::DriverRegistry::new();
-            registry.register(std::sync::Arc::new(crate::drivers::llm::LlmDriver::new(
+            registry.register(Arc::new(crate::drivers::llm::LlmDriver::new(
                 crate::llm::LlmClient::new(),
+                tool_registry.clone(),
             )));
             // 挂载事件调度器(常驻后台)
             tauri::async_runtime::spawn(crate::runtime::spawn(
@@ -60,6 +73,7 @@ pub fn run() {
                 state.bots.bot_ids(),
                 activity,
                 registry,
+                state.data_dir.clone(),
             ));
             app.manage(state);
             Ok(())

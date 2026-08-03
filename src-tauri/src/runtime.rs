@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
@@ -31,6 +32,7 @@ pub async fn spawn(
     bot_ids: Arc<Mutex<HashSet<u32>>>,
     activity: ActivityLog,
     registry: DriverRegistry,
+    data_dir: PathBuf,
 ) {
     let emitter = {
         let accounts = accounts.lock().await;
@@ -57,6 +59,7 @@ pub async fn spawn(
         let bot_ids = bot_ids.clone();
         let activity = activity.clone();
         let registry = registry.clone();
+        let data_dir = data_dir.clone();
         let global = global.clone();
         let per_bot = per_bot.clone();
         let rate = rate.clone();
@@ -68,7 +71,7 @@ pub async fn spawn(
             };
             handle_bot_message(
                 &accounts, &db, &bot_ids, &activity, &registry, &per_bot, &rate,
-                account_id, chat_id, msg_id,
+                &data_dir, account_id, chat_id, msg_id,
             )
             .await;
         });
@@ -84,6 +87,7 @@ async fn handle_bot_message(
     registry: &DriverRegistry,
     per_bot: &Arc<Mutex<HashMap<u32, (u32, Arc<Semaphore>)>>>,
     rate: &Arc<RateLimiter>,
+    data_dir: &PathBuf,
     account_id: u32,
     chat_id: ChatId,
     msg_id: MsgId,
@@ -240,6 +244,7 @@ async fn handle_bot_message(
         config: &config,
         db,
         activity,
+        data_dir,
     };
     let msg_text = m.get_text();
     let incoming = IncomingMsg {
