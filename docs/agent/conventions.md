@@ -83,7 +83,7 @@ GitHub Pages 市场 → Rust PluginManager（安装/卸载/启停，文件系统
 
 ### 检查清单（改样式时）
 - 新按钮：`border-radius: var(--radius-sm)`（8px）圆角矩形，有可见背景填充（+ 发丝描边），不写 `999px`，不写 `background: transparent`。
-- 弹窗：圆角 `var(--radius-md)`（12px）；`.ui-dialog` 填充 ≥80% 不透出背景色。
+- **弹窗（苹果式）**：`.ui-overlay` 用轻量毛玻璃遮罩（`rgba(0,0,0,0.32)` + `blur(18px)`，**不要厚重黑幕**）；`.ui-dialog` 表面 `var(--surface)` 94% 实心 + `blur(24px)`、顶部边缘高光（`border-top-color` 提亮）+ `inset 0 1px 0` 顶部内高光、圆角 `var(--radius-md)`（12px）、标题 15px semibold。
 - 主题颜色优先保留，只调结构性 token（圆角/阴影/动效/间距/背景填充）。
 
 ## 7. styles.css 结构与「重复选择器陷阱」
