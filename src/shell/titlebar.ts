@@ -1,8 +1,8 @@
 import { state } from '../state.js';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
-// macOS 顶栏(Overlay 标题栏条内)工具栏:上下文面包屑 + 全局搜索入口。
-// 仅 html.window-overlay 生效;非 macOS 下 #titlebar-tools 隐藏,此模块为 no-op。
-// 容器 pointer-events:none,除搜索按钮外不拦截窗口拖拽。
+// 顶栏工具栏(上下文面包屑 + VSCode 式居中搜索条):macOS / Windows 都有。
+// Windows/Linux 另有自绘窗口控制按钮(独立固定右上角,见 index.html / styles.css)。
 
 const PAGE_LABELS: Record<string, string> = {
   messages: '消息',
@@ -16,10 +16,15 @@ const PAGE_LABELS: Record<string, string> = {
 };
 
 let searchBound = false;
+let wcBound = false;
 let resizeBound = false;
 
 export function updateTitlebar(): void {
-  if (!document.documentElement.classList.contains('window-overlay')) return;
+  const root = document.documentElement;
+  const isMac = root.classList.contains('window-overlay');
+  const isWin = root.classList.contains('windows');
+  if (!isMac && !isWin) return;
+
   const tools = document.getElementById('titlebar-tools');
   if (!tools) return;
 
@@ -41,16 +46,23 @@ export function updateTitlebar(): void {
     ctx.title = text;
   }
 
-  // 定位:有聊天区则锚定到聊天区(跟随抽屉开合);无聊天区(登录页等)隐藏工具栏
+  // 定位:
+  // - macOS:锚定到聊天区(跟随抽屉开合),给红绿灯留位
+  // - Windows:占满宽度(窗口控制按钮独立固定右上角)
   const main = document.getElementById('chat-main');
   const rect = main?.getBoundingClientRect();
   if (!main || !rect || rect.width <= 0) {
     tools.style.display = 'none';
-    return;
+  } else {
+    tools.style.display = 'flex';
+    if (isMac) {
+      tools.style.left = `${Math.max(70, rect.left)}px`;
+      tools.style.right = `${window.innerWidth - rect.right}px`;
+    } else {
+      tools.style.left = '0px';
+      tools.style.right = '0px';
+    }
   }
-  tools.style.display = 'flex';
-  tools.style.left = `${Math.max(70, rect.left)}px`;
-  tools.style.right = `${window.innerWidth - rect.right}px`;
 
   if (!resizeBound) {
     resizeBound = true;
@@ -63,6 +75,16 @@ export function updateTitlebar(): void {
       search.addEventListener('click', () => {
         void import('../components/search.js').then(({ openSearch }) => openSearch());
       });
+    }
+  }
+  if (!wcBound) {
+    const wc = document.getElementById('window-controls');
+    if (wc) {
+      wcBound = true;
+      const win = getCurrentWindow();
+      wc.querySelector('[data-wc="min"]')?.addEventListener('click', () => void win.minimize());
+      wc.querySelector('[data-wc="max"]')?.addEventListener('click', () => void win.toggleMaximize());
+      wc.querySelector('[data-wc="close"]')?.addEventListener('click', () => void win.close());
     }
   }
 }

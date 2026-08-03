@@ -15,9 +15,13 @@ interface EnsurePeytResult {
 async function boot(): Promise<void> {
   initTheme();
   initFontScale();
-  // macOS Overlay 标题栏:原生三色按钮浮在内容上,标记 <html> 以便 CSS 预留拖拽区与顶部间距
+  // 无原生标题栏集成:
+  // - macOS:titleBarStyle Overlay,原生三色按钮浮在内容上 → window-overlay 类
+  // - Windows/Linux:decorations:false,自绘最小化/最大化/关闭按钮 → windows 类
   if (/(Macintosh|Mac OS X|MacIntel)/.test(navigator.userAgent)) {
     document.documentElement.classList.add('window-overlay');
+  } else if (/Windows|Linux/.test(navigator.userAgent)) {
+    document.documentElement.classList.add('windows');
   }
   const configured = await call<boolean>('is_configured');
   if (configured) {

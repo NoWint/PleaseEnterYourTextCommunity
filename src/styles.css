@@ -130,35 +130,59 @@ html { background: var(--bg); }
   z-index: 9999;
   display: none;
 }
-html.window-overlay #window-drag-region { display: block; }
-html.window-overlay #app { padding-top: 40px; }
+html.window-overlay #window-drag-region, html.windows #window-drag-region { display: block; }
+html.window-overlay #app, html.windows #app { padding-top: 40px; }
 
-/* 顶栏工具栏(上下文面包屑 + 全局搜索):容器不拦截拖拽(pointer-events:none),
-   仅搜索按钮可点;位置由 titlebar.ts 锚定到聊天区。 */
+/* 顶栏工具栏(面包屑 + 居中搜索条 + 窗口控制):容器不拦截拖拽(pointer-events:none),
+   仅搜索按钮/窗口按钮可点;位置由 titlebar.ts 锚定到聊天区。 */
 #titlebar-tools {
   position: fixed; top: 0; height: 40px;
-  display: none; align-items: center; justify-content: space-between; gap: 12px;
+  display: none; align-items: center; gap: 12px;
   padding: 0 12px;
   z-index: 10000;
   pointer-events: none;
   /* 显示与否由 titlebar.ts 控制:仅在 shell 渲染后(有聊天区)置 flex,登录页保持隐藏 */
 }
+#titlebar-left { flex: 1; min-width: 0; }
+#titlebar-center { flex: 0 0 auto; }
+#titlebar-right { flex: 1; display: flex; justify-content: flex-end; min-width: 0; }
 #titlebar-context {
   pointer-events: none;
   font-size: var(--font-scale-micro); color: var(--text-weak);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   min-width: 0;
 }
+/* VSCode 式居中长条搜索框 */
 #titlebar-search {
   pointer-events: auto;
-  display: flex; align-items: center; gap: 6px;
-  height: 26px; padding: 0 12px; border-radius: var(--radius-sm);
-  background: var(--capsule); border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
-  color: var(--text-mute); font-size: var(--font-scale-micro); cursor: pointer; font-family: inherit;
-  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+  display: flex; align-items: center; gap: 8px;
+  width: 300px; height: 28px; padding: 0 14px;
+  border-radius: 8px;
+  background: var(--capsule);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  color: var(--text-mute); font-size: var(--font-scale-secondary); cursor: pointer; font-family: inherit;
+  transition: background 120ms var(--ease-out), border-color 120ms var(--ease-out), color 120ms var(--ease-out);
 }
 #titlebar-search:hover { background: var(--border-strong); color: var(--text); }
-#titlebar-search:active { transform: scale(0.96); }
+#titlebar-search:active { transform: scale(0.98); }
+
+/* Windows/Linux 自绘窗口控制按钮:固定右上角,始终显示(含登录页),z-index 高于拖拽区 */
+#window-controls {
+  position: fixed; top: 0; right: 0;
+  height: 40px; display: none; align-items: stretch;
+  z-index: 10001;
+}
+html.windows #window-controls { display: flex; }
+.wc-btn {
+  width: 46px; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--text-mute);
+  cursor: pointer; font-family: inherit; font-size: 12px; line-height: 1;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.wc-btn:hover { background: var(--active); color: var(--text); }
+.wc-close:hover { background: var(--danger); color: #fff; }
+.wc-btn:active { background: var(--border-strong); }
 
 /* 登录页上下布局：品牌区在上，表单在下 */
 .login-wrap {
