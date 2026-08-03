@@ -2,6 +2,7 @@ import { call } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from '../components/icon.js';
+import { escapeHtml } from '../components/escape.js';
 import type { ActivityDto } from '../types.js';
 
 // SP6: 协作页"活动"tab 的 nav 面板内容。展示当前 workspace 的活动流。
@@ -137,11 +138,4 @@ function formatTime(ts: number): string {
   if (diff < 604800) return `${Math.floor(diff / 86400)} 天前`;
   const d = new Date(ts * 1000);
   return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
-}
-
-function escapeHtml(s: string | null | undefined): string {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
 }

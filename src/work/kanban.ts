@@ -3,7 +3,8 @@ import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
-import { createInlineInput } from '../components/inlineInput.js';
+import { escapeHtml } from '../components/escape.js';
+import { ui } from '../components/ui.js';
 import { renderViewToggle, bindViewToggle } from '../components/viewToggle.js';
 import type { CardDto, CardStatus } from '../types.js';
 
@@ -39,9 +40,8 @@ export async function renderKanban(chatId: number): Promise<void> {
         <div class="main-title">协作看板</div>
         <div class="main-subtitle">${cards.length} 个卡片</div>
       </div>
-      <div class="main-actions">
+      <div class="main-actions" id="kanban-actions">
         ${renderViewToggle(chatId)}
-        <button class="btn btn-primary" onclick="window.__newCard(${chatId})">${iconSvg('plus', { width: 14, height: 14 })} 新建</button>
       </div>
     </div>
     <div class="main-body">
@@ -52,6 +52,13 @@ export async function renderKanban(chatId: number): Promise<void> {
       </div>
     </div>
   `;
+  // 顶部「新建」按钮 (ui.button,点击复用全局 __newCard)
+  const actions = main.querySelector('#kanban-actions');
+  if (actions) {
+    const newBtn = ui.button({ label: '新建', icon: 'plus', variant: 'primary', onClick: () => window.__newCard?.(chatId) });
+    actions.appendChild(newBtn);
+  }
+
   // 绑定 ViewToggle (4 视图切换:看板/列表/日历/时间线)
   bindViewToggle(chatId);
   // 绑定卡片点击 → 打开右侧详情抽屉
@@ -115,7 +122,7 @@ function showInlineCreateCard(
   defaultStatus: CardStatus
 ): void {
   addEl.style.display = 'none';
-  const input = createInlineInput({
+  const input = ui.inlineInput({
     placeholder: '输入卡片标题',
     confirmLabel: '创建',
     onConfirm: async (title) => {
@@ -187,9 +194,3 @@ function renderCard(c: CardDto, currentStatus: CardStatus): string {
   `;
 }
 
-function escapeHtml(s: string | null | undefined): string {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
-}

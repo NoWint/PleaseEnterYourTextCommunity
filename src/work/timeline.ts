@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { renderViewToggle, bindViewToggle } from '../components/viewToggle.js';
+import { escapeHtml } from '../components/escape.js';
 import type { CardDto, CardStatus } from '../types.js';
 
 // SP7: 协作时间线视图。按 created_at DESC 排列卡片, 左侧时间轴 + 右侧卡片摘要。
@@ -143,11 +144,4 @@ function dateKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-function escapeHtml(s: string | null | undefined): string {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
 }

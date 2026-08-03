@@ -2,7 +2,8 @@ import { call } from '../api.js';
 import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { iconSvg } from '../components/icon.js';
-import { createInlineInput } from '../components/inlineInput.js';
+import { escapeHtml } from '../components/escape.js';
+import { ui } from '../components/ui.js';
 import { renderViewToggle, bindViewToggle } from '../components/viewToggle.js';
 import { renderCardDetail } from './cardDetail.js';
 import type { CardDto } from '../types.js';
@@ -57,7 +58,6 @@ export async function renderList(chatId: number): Promise<void> {
       </div>
       <div class="main-actions" id="list-actions">
         ${renderViewToggle(chatId)}
-        <button class="btn btn-primary" id="list-new-card">${iconSvg('plus', { width: 14, height: 14 })} 新建</button>
       </div>
     </div>
     <div class="main-body">
@@ -92,14 +92,11 @@ export async function renderList(chatId: number): Promise<void> {
       void renderCardDetail(cardId);
     };
   });
-  // 绑定 "+ 新建" 按钮 → 内联创建 (替代 prompt)
-  const newCardBtn = main.querySelector<HTMLElement>('#list-new-card');
+  // "+ 新建" 按钮 → 内联创建 (替代 prompt)
   const actionsEl = main.querySelector<HTMLElement>('#list-actions');
-  if (newCardBtn && actionsEl) {
-    newCardBtn.onclick = () => {
-      showInlineCreateCard(actionsEl, newCardBtn, chatId);
-    };
-  }
+  let newCardBtn: HTMLButtonElement;
+  newCardBtn = ui.button({ label: '新建', icon: 'plus', variant: 'primary', onClick: () => { if (actionsEl) showInlineCreateCard(actionsEl, newCardBtn, chatId); } });
+  if (actionsEl) actionsEl.appendChild(newCardBtn);
   // 列头排序:记忆字段后重新调用 renderList(chatId) 刷新 (按 brief 要求)
   window.__sortList = (field: SortField): void => {
     currentSortField = field;
@@ -115,7 +112,7 @@ function showInlineCreateCard(
   chatId: number
 ): void {
   newCardBtn.style.display = 'none';
-  const input = createInlineInput({
+  const input = ui.inlineInput({
     placeholder: '输入卡片标题',
     confirmLabel: '创建',
     onConfirm: async (title) => {
@@ -162,11 +159,4 @@ function renderRow(c: CardDto): string {
 
 function statusLabel(s: string): string {
   return ({ todo: 'Todo', in_progress: 'In Progress', done: 'Done' } as Record<string, string>)[s] || s;
-}
-
-function escapeHtml(s: string | null | undefined): string {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
 }
