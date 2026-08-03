@@ -381,24 +381,11 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
     const existingEl = existing.get(m.msg_id);
     if (existingEl) {
       // 已在 DOM:只修正分组角色,位置不动(浏览器按文档流天然对)。
-      applyGroupRole(m, visible, i, absIdx, dividerIndex, dateStr, existingEl);
+      applyGroupRole(m, absIdx, dividerIndex, dateStr, existingEl);
       anchor = existingEl.nextElementSibling as HTMLElement | null;
     } else {
       // 不在 DOM:新建并插入到 anchor 之前。
-      const isPending = m.state === 'pending' || m.state === 'failed';
-      const prevIsSame = (visible[i - 1]?.from_id === m.from_id) && !isPending
-        && (visible[i - 1]?.state !== 'pending' && visible[i - 1]?.state !== 'failed')
-        && formatDate(new Date((visible[i - 1]?.ts ?? 0) * 1000)) === dateStr
-        && (absIdx - 1) !== dividerIndex;
-      const nextIsSame = (visible[i + 1]?.from_id === m.from_id) && !isPending
-        && (visible[i + 1]?.state !== 'pending' && visible[i + 1]?.state !== 'failed')
-        && formatDate(new Date((visible[i + 1]?.ts ?? 0) * 1000)) === dateStr
-        && (absIdx + 1) !== dividerIndex;
-      const role: GroupRole =
-        !prevIsSame && !nextIsSame ? 'solo'
-        : !prevIsSame && nextIsSame ? 'first'
-        : prevIsSame && !nextIsSame ? 'last'
-        : 'middle';
+      const role = computeGroupRole(m, absIdx, dividerIndex, dateStr);
       const frag = document.createElement('div');
       frag.innerHTML = await renderMessage(m, role);
       const node = frag.firstElementChild as HTMLElement;
@@ -462,31 +449,39 @@ function ensureDivider(
   return div.nextElementSibling as HTMLElement | null;
 }
 
+// 计算消息的全局分组角色。
+// 【关键】必须用全局 state.messages[absIdx±1] 判断邻居,不能看 visible 切片——
+// 切片只含窗口内消息,窗口边界消息的切片邻居是 undefined,导致 role 在
+// middle/first/last 间横跳 → 气泡 collapsed 切换、padding-left 变化、meta 行距
+// 变化 → 滚动时消息体左右异动 + 内部文字上下异动。
+function computeGroupRole(m: MsgDto, absIdx: number, dividerIndex: number, dateStr: string): GroupRole {
+  const isPending = m.state === 'pending' || m.state === 'failed';
+  const prev = state.messages[absIdx - 1];
+  const next = state.messages[absIdx + 1];
+  const prevIsSame = !!prev && prev.from_id === m.from_id && !isPending
+    && prev.state !== 'pending' && prev.state !== 'failed'
+    && formatDate(new Date(prev.ts * 1000)) === dateStr
+    && (absIdx - 1) !== dividerIndex;
+  const nextIsSame = !!next && next.from_id === m.from_id && !isPending
+    && next.state !== 'pending' && next.state !== 'failed'
+    && formatDate(new Date(next.ts * 1000)) === dateStr
+    && (absIdx + 1) !== dividerIndex;
+  return !prevIsSame && !nextIsSame ? 'solo'
+    : !prevIsSame && nextIsSame ? 'first'
+    : prevIsSame && !nextIsSame ? 'last'
+    : 'middle';
+}
+
 // 修正复用节点的分组角色:邻居变化后(追加/前插/分隔线移入),边界气泡的
 // msg-group-* / collapsed 状态会过期。只在角色不同时重写类,避免抖动。
 function applyGroupRole(
   m: MsgDto,
-  visible: MsgDto[],
-  i: number,
   absIdx: number,
   dividerIndex: number,
   dateStr: string,
   el: HTMLElement,
 ): void {
-  const isPending = m.state === 'pending' || m.state === 'failed';
-  const prevIsSame = (visible[i - 1]?.from_id === m.from_id) && !isPending
-    && (visible[i - 1]?.state !== 'pending' && visible[i - 1]?.state !== 'failed')
-    && formatDate(new Date((visible[i - 1]?.ts ?? 0) * 1000)) === dateStr
-    && (absIdx - 1) !== dividerIndex;
-  const nextIsSame = (visible[i + 1]?.from_id === m.from_id) && !isPending
-    && (visible[i + 1]?.state !== 'pending' && visible[i + 1]?.state !== 'failed')
-    && formatDate(new Date((visible[i + 1]?.ts ?? 0) * 1000)) === dateStr
-    && (absIdx + 1) !== dividerIndex;
-  const role: GroupRole =
-    !prevIsSame && !nextIsSame ? 'solo'
-    : !prevIsSame && nextIsSame ? 'first'
-    : prevIsSame && !nextIsSame ? 'last'
-    : 'middle';
+  const role = computeGroupRole(m, absIdx, dividerIndex, dateStr);
 
   for (const r of ['solo', 'first', 'middle', 'last'] as const) {
     el.classList.remove(`msg-group-${r}`, 'collapsed');
