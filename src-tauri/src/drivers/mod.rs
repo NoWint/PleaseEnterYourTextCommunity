@@ -30,6 +30,13 @@ pub struct IncomingMsg<'a> {
     pub viewtype: Viewtype,
 }
 
+/// 定时驱动产出的待发送消息(指定目标会话)。
+#[derive(Debug, Clone)]
+pub struct ScheduledSend {
+    pub chat_id: u32,
+    pub text: String,
+}
+
 /// 驱动可用的 Bot 运行上下文。
 pub struct BotRuntime<'a> {
     pub bot_id: i64,
@@ -51,7 +58,7 @@ pub trait BotDriver: Send + Sync {
         msg: &IncomingMsg<'_>,
     ) -> AppResult<Vec<String>>;
     /// 定时 tick(规则/定时驱动用);默认不处理。
-    async fn on_tick(&self, bot: &BotRuntime<'_>) -> AppResult<Vec<String>> {
+    async fn on_tick(&self, bot: &BotRuntime<'_>) -> AppResult<Vec<ScheduledSend>> {
         let _ = bot;
         Ok(vec![])
     }
