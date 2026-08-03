@@ -11,7 +11,7 @@
     <div class="theme-effect"></div>
     <div id="app"></div>
     <!-- 无边框窗口标题栏:
-         - macOS (window-overlay): 纯拖拽区,原生红绿灯悬浮在左端(见 styles.css)
+         - macOS (window-overlay): 纯拖拽区,原生红绿灯悬浮在左端,隐藏 logo/标题/控制按钮(见 styles.css)
          - Windows/Linux (window-frame): 自绘标题栏 — 左「PEYT Chat」,右最小化/最大化/关闭
          登录页与主界面共用此条(固定覆盖顶部 40px)。 -->
     <div id="window-drag-region" data-tauri-drag-region>
@@ -28,6 +28,13 @@
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 2L9 9M9 2L2 9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
         </button>
       </div>
+    </div>
+    <!-- 顶栏工具栏:VSCode 式居中搜索条(点击打开全局搜索,macOS 与 Windows 都有) -->
+    <div id="titlebar-tools">
+      <button id="titlebar-search" title="全局搜索">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span>搜索消息、联系人、频道…</span>
+      </button>
     </div>
     <script type="module" src="/main.ts"></script>
   </body>
