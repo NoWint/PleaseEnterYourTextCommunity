@@ -5,6 +5,7 @@ import { ui } from '../ui.js';
 import { iconSvg } from '../icon.js';
 import { escapeHtml } from '../escape.js';
 import { openMemberPicker, type MemberPick } from './memberPicker.js';
+import type { ChatListItem } from '../../types.js';
 
 // 群创建对话框(仿 Delta CreateGroup):
 // 群名 + 群描述 + 群头像(原图直设,显示时 CSS 圆形裁剪)+ 成员选择器。
@@ -118,6 +119,21 @@ export function openCreateGroupDialog(): void {
       }
       createBtn.disabled = true;
       try {
+        // 同名群查重:core 不合并同名群,重复创建会堆积多个相同入口。
+        // 已存在同名群 → 提示并复用,而非再建一个。
+        const chats = await call<ChatListItem[]>('get_chatlist');
+        const dup = chats.find((c) => c.name === name && !c.is_self_talk && !c.is_contact_request);
+        if (dup) {
+          ui.toast(`已存在同名群「${name}」,直接进入`);
+          dlg.close();
+          state.currentChatId = dup.chat_id;
+          saveState();
+          const { renderNavPanel, renderMain, refreshChannels } = await import('../../shell/navPanel.js');
+          await refreshChannels();
+          await renderNavPanel();
+          await renderMain();
+          return;
+        }
         // 参数用 camelCase:tauri #[tauri::command] 默认把 Rust 参数名 camelCase 化,
         // 后端 member_emails/member_contact_ids/avatar_path → 前端传 memberEmails/memberContactIds/avatarPath。
         const chatId = await call<number>('create_group', {

@@ -78,6 +78,7 @@ async function render(body: HTMLElement, info: ChatInfoDto, close: () => void, r
   actions.push(`<button class="ui-button ui-button-ghost ui-button-sm" data-vg="qr">群二维码</button>`);
   actions.push(`<button class="ui-button ui-button-ghost ui-button-sm" data-vg="shield">保护状态</button>`);
   actions.push(`<button class="ui-button ui-button-danger ui-button-sm" data-vg="leave">退群</button>`);
+  actions.push(`<button class="ui-button ui-button-danger ui-button-sm" data-vg="delete">删除群</button>`);
 
   body.innerHTML = `
     <div class="vg-head">
@@ -105,6 +106,7 @@ async function render(body: HTMLElement, info: ChatInfoDto, close: () => void, r
     void import('../protectionDialog.js').then(({ openProtectionDialog }) => openProtectionDialog(info.chat_id));
   });
   body.querySelector<HTMLElement>('[data-vg="leave"]')?.addEventListener('click', () => openLeaveDialog(info, close));
+  body.querySelector<HTMLElement>('[data-vg="delete"]')?.addEventListener('click', () => openDeleteDialog(info, close));
 
   // 移除成员按钮
   body.querySelectorAll<HTMLElement>('[data-remove-member]').forEach((btn) => {
@@ -322,6 +324,33 @@ function openLeaveDialog(info: ChatInfoDto, close: () => void): void {
           await renderMain();
         }
         ui.toast('已退出群聊');
+      } catch (e) {
+        ui.toast(e instanceof Error ? e.message : String(e));
+      }
+    },
+  });
+}
+
+// 删除群(本地删除,不清历史重复群外的对端)。确认后 delete_chat,退出当前会话。
+function openDeleteDialog(info: ChatInfoDto, close: () => void): void {
+  ui.confirm({
+    title: '删除群聊',
+    message: `确定删除「${info.name}」?此操作仅在本端移除该会话。`,
+    danger: true,
+    confirmLabel: '删除',
+    onConfirm: async () => {
+      try {
+        await call('delete_chat', { chatId: info.chat_id });
+        close();
+        if (state.currentChatId === info.chat_id) {
+          state.currentChatId = null;
+          saveState();
+          const { renderNavPanel, renderMain, refreshChannels } = await import('../../shell/navPanel.js');
+          await refreshChannels();
+          await renderNavPanel();
+          await renderMain();
+        }
+        ui.toast('群已删除');
       } catch (e) {
         ui.toast(e instanceof Error ? e.message : String(e));
       }
