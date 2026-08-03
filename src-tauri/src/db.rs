@@ -13,6 +13,7 @@ use crate::error::{AppError, AppResult};
 pub struct BotRow {
     pub id: i64,
     pub bot_account_id: u32,
+    #[allow(dead_code)]
     pub owner_account_id: u32,
     pub display_name: String,
     pub status: String,
@@ -303,6 +304,7 @@ impl Db {
         .await?
     }
 
+    #[allow(dead_code)]
     pub async fn list_contact_roles(&self, workspace_id: i64, contact_id: u32) -> AppResult<Vec<i64>> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || -> AppResult<Vec<i64>> {
