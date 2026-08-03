@@ -5,6 +5,7 @@ import { renderComposer } from './composer.js';
 import { renderRightDrawer } from '../shell/rightDrawer.js';
 import { saveState } from '../persist.js';
 import { ui } from '../components/ui.js';
+import { escapeHtml } from '../components/escape.js';
 import type { MsgDto, RoleDto, MemberDto, ChannelDto, ChatListItem, AppState } from '../types.js';
 
 interface ChatInfo {
@@ -537,6 +538,3 @@ function channelName(chatId: number): string {
   return ch ? ch.name : `#${chatId}`;
 }
 
-function escapeHtml(s: string): string {
-  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
