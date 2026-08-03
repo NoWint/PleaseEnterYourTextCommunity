@@ -105,6 +105,19 @@ html, body { height: 100%; color: var(--text); font-family: var(--font); font-si
 html { background: var(--bg); }
 #app { height: 100vh; display: flex; }
 
+/* ── macOS 无标题栏集成(titleBarStyle: Overlay)──────────────────
+   顶部 40px 为「虚拟标题栏」:红黄绿按钮(经 trafficLightPosition 下移)浮在其左端,
+   整条是窗口拖拽区(data-tauri-drag-region);#app 内容整体下移让出此条。
+   仅 html.window-overlay(macOS)生效,其余平台保留原生标题栏。 */
+#window-drag-region {
+  position: fixed; top: 0; left: 0;
+  width: 100%; height: 40px;
+  z-index: 9999;
+  display: none;
+}
+html.window-overlay #window-drag-region { display: block; }
+html.window-overlay #app { padding-top: 40px; }
+
 /* 登录页上下布局：品牌区在上，表单在下 */
 .login-wrap {
   display: flex; flex-direction: column; width: 100%; height: 100%;
@@ -1230,12 +1243,7 @@ html { background: var(--bg); }
   .search-overlay.closing { animation: fade-out 190ms var(--ease-out) forwards; }
   .img-fullscreen-overlay.closing { animation: fade-out 210ms var(--ease-out) forwards; }
 
-  /* 页面切换转场:主内容淡入(排除启动空占位,避免启动闪屏;消息刷新不重放) */
-  @keyframes page-in {
-    from { opacity: 0; transform: translateY(3px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  #chat-main > *:not(.empty) { animation: page-in 250ms var(--ease-out); }
+  /* 页面切换即时出现:整屏主内容不带动画(WKWebView 下整屏透明度动画会闪,见 conventions) */
 
   /* 全局微交互:按压反馈 + 列表悬停 + 统一过渡 */
   button:not(:disabled):active, [role="button"]:active, .clickable:active {
@@ -2204,11 +2212,6 @@ body {
   transition: color 120ms var(--ease-out), background 120ms var(--ease-out);
 }
 .nav-meta-link:hover { color: var(--text-mute); background: var(--active); }
-.nav-user { display: flex; align-items: center; gap: 8px; padding: 12px 16px; cursor: pointer; }
-.nav-user:hover { background: var(--capsule); }
-.nav-user .avatar { width: 28px; height: 28px; border-radius: 50%; }
-.nav-user-name { font-size: var(--font-scale-body); color: var(--text); font-weight: 500; }
-.nav-user-role { font-size: var(--font-scale-micro); color: var(--text-weak); }
 
 /* 陌生人来信「新请求」分区 */
 .nav-request-section { padding-bottom: 6px; }
@@ -2784,48 +2787,6 @@ body {
 .activity-item-time { font-size: var(--font-scale-secondary); color: var(--text-weak); }
 
 
-/* === Terminal Page === */
-.term-quick-row {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 6px 12px;
-  background: var(--panel); flex-shrink: 0;
-}
-.term-quick-btn {
-  background: var(--capsule); border: 1px solid var(--border-strong);
-  color: var(--text); border-radius: var(--radius-xs); padding: 3px 10px;
-  font-size: var(--font-scale-secondary); font-family: inherit; cursor: pointer;
-}
-.term-quick-btn:hover { background: var(--active); }
-
-.term-toolbar {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px;
-  background: var(--panel); flex-shrink: 0;
-}
-.term-cwd-label { font-size: var(--font-scale-body); color: var(--text-mute); }
-.term-cwd {
-  flex: 1; max-width: 280px;
-  background: var(--capsule); border: 1px solid var(--border-strong);
-  border-radius: var(--radius-xs); padding: 5px 10px; color: var(--text);
-  font-size: var(--font-scale-body); font-family: inherit;
-}
-.term-cwd:focus { outline: none; border-color: var(--text-weak); }
-.term-btn {
-  background: var(--border-strong); color: var(--text);
-  border: none; border-radius: var(--radius-xs); padding: 5px 12px;
-  font-size: var(--font-scale-body); cursor: pointer; font-family: inherit;
-}
-.term-btn:hover { background: var(--border-hover); }
-.term-expert {
-  display: flex; align-items: center; gap: 5px;
-  font-size: var(--font-scale-body); color: var(--text-mute); cursor: pointer;
-  margin-left: auto;
-}
-.term-expert input { accent-color: var(--text); }
-
-.term-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.term-holder { flex: 1; min-height: 0; padding: 6px 8px; }
-.term-holder .xterm { height: 100%; }
 
 /* ── Debug 页: 消息原文列表 ─────────────────────────────── */
 .dbg-toolbar {

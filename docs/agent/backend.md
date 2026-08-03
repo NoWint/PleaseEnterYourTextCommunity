@@ -1,6 +1,6 @@
 # 后端地图（src-tauri/，Rust + Tauri v2）
 
-14 个 Rust 文件（新增 `bots.rs` / `bot_llm.rs` / `llm.rs`）。全部业务在 `commands.rs`（~2900 行），应用数据在 `db.rs`（SQLite），与 deltachat 核心（submodule `core/`）对接。
+13 个 Rust 文件（`bots.rs` / `bot_llm.rs` / `llm.rs` 为 bot 系统新增；终端 `terminal.rs` 已移除）。全部业务在 `commands.rs`（~2900 行），应用数据在 `db.rs`（SQLite），与 deltachat 核心（submodule `core/`）对接。
 
 ---
 
@@ -8,7 +8,7 @@
 
 - `env_logger` 默认 `debug`。**无任何 tauri-plugin**，全手写 `#[tauri::command]`。
 - setup：取 `app_data_dir` → `AppState::new(dir)`（block_on）→ `spawn_event_forwarder` → `app.manage(state)`。
-- `invoke_handler` 注册 **119 个命令**（主要来自 commands.rs + bots.rs + 4 个 terminal.rs）。**新增命令必须在这里登记**。
+- `invoke_handler` 注册 **115 个命令**（主要来自 commands.rs + bots.rs）。**新增命令必须在这里登记**。
 
 ## 2. AppState（`src-tauri/src/state.rs`）
 
@@ -19,14 +19,13 @@ pub struct AppState {
     pub db: Arc<Db>,                                   // 应用 SQLite
     pub bots: BotService,                              // bot 账号 + LLM 运行时（bots.rs）
     pub plugins: PluginManager,
-    pub terminals: TerminalSessions,                   // PTY 会话 map
 }
 ```
 
 - `current()` async：取当前 Context；`set_current(id)` 同步设。
 - **锁注意**：`accounts` 是 tokio Mutex（`.lock().await`）；`current_id` 是 std Mutex（同步，纳秒级持锁）。
 
-## 3. 命令清单（119 个，按功能分组）
+## 3. 命令清单（115 个，按功能分组）
 
 **Auth/Account**：`is_configured` `login` `create_chatmail_account` `get_self_profile` `update_profile` `save_avatar_from_bytes` `get_my_qr` `logout` `list_accounts` `switch_account`（账号切换）
 
@@ -67,8 +66,6 @@ pub struct AppState {
 **Inbox/Activity**：`list_inbox_events` `mark_inbox_read` `mark_all_inbox_read` `get_inbox_unread_count` `list_activities` `record_inbox_event`
 
 **Plugins**：`fetch_registry` `install_plugin` `install_plugin_from_zip` `uninstall_plugin` `list_plugins` `toggle_plugin` `get_plugin_js`
-
-**Terminal**（terminal.rs）：`open_terminal` `write_terminal` `resize_terminal` `close_terminal`
 
 ### 3.1 卡片命令详解
 
@@ -111,13 +108,7 @@ pub struct AppState {
 - `install_plugin_from_zip` 是**同步**的（std::fs），小 zip 会短暂阻塞命令线程。
 - `toggle_plugin` 删 enabled 文件时静默忽略错误。
 
-## 7. 终端（`src-tauri/src/terminal.rs`）
-
-- `TerminalSessions(Mutex<HashMap<String, TerminalSession>>)`；session id 用 `static AtomicU64` 自增。
-- `open_terminal(workdir?)`：native_pty_system() → 默认 shell（`$SHELL` 或 /bin/sh，Windows 是 cmd.exe）→ 80x24 → **std::thread**（非 tokio）读输出，按 UTF-8 边界切分（`from_utf8_lossy` 补偿），emit `terminal-output` 事件；EOF 时发 `"[terminal session ended]"`。
-- **后端无命令白名单/expert 模式**——白名单在终端前端实现。PTY 是真 shell，可跑任意命令（安全注意）。
-
-## 8. 错误处理（`src-tauri/src/error.rs`）
+## 7. 错误处理（`src-tauri/src/error.rs`）
 
 ```rust
 #[serde(tag = "kind", content = "message")]
@@ -126,7 +117,7 @@ pub enum AppError { AuthFailed, Network(String), AutoconfigNotFound, Core(String
 
 JSON 形如 `{ "kind": "AuthFailed", "message": null }`。前端可 switch `kind`。Tauri v2 自动序列化错误，无需显式 InvokeError impl。
 
-## 9. 配置
+## 8. 配置
 
 - `tauri.conf.json`：**CSP 为 null**（插件要注入任意 JS）；`assetProtocol.enable=true` scope `$APPDATA/**`、`$HOME/**`（加载头像/附件，需 `protocol-asset` feature）；单窗口 1000x700（min 800x600）。
 - `Cargo.toml` 关键依赖：`deltachat = { path = "../core" }`（submodule）、tauri `protocol-asset`、`socket2`（`all` feature，netwatch 需要）、`chrono`（`clock`）、`uuid`（envelope 协议）。**零 tauri-plugin-***。

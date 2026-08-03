@@ -32,10 +32,6 @@
 - `refreshCurrentChat()`：当前聊天实时增量（chatView.appendNewMessages）。
 - `updateBadge()`：chatlist 未读求和 → `window.__TAURI__.app.setBadgeCount`（Dock 徽标）。
 
-## 终端输出事件（单独，不经 dc-event）
-
-`open_terminal` 启动 PTY 后，后端 reader 线程直接 `app.emit("terminal-output", { session_id, data })`；前端 `terminalPage.ts` 用 `listen('terminal-output', ...)` 直连（非 onEvent）。
-
 ## 修改事件处理时的注意
 
 - **新增事件订阅**：加在 `shell/shell.ts` 的订阅区（保持集中），`onEvent(typ, cb)` 返回 unlisten 函数。

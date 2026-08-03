@@ -11,7 +11,6 @@ use crate::bots::BotService;
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::plugins::PluginManager;
-use crate::terminal::TerminalSessions;
 
 pub struct AppState {
     pub accounts: Arc<Mutex<Accounts>>,
@@ -19,7 +18,6 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub bots: BotService,
     pub plugins: PluginManager,
-    pub terminals: TerminalSessions,
     /// 应用数据目录(Tauri app_data_dir),供导出路径/备份默认目录
     pub data_dir: PathBuf,
 }
@@ -46,7 +44,6 @@ impl AppState {
             db,
             bots,
             plugins: PluginManager::new(app_data_dir.clone()),
-            terminals: TerminalSessions::default(),
             data_dir: app_data_dir,
         })
     }

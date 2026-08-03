@@ -2,7 +2,6 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { getSpaceType } from '../shell/navPanel.js';
-import { renderAvatarHtml } from '../components/avatar.js';
 import { escapeHtml } from '../components/escape.js';
 import type { ChannelDto, WorkTab } from '../types.js';
 
@@ -10,7 +9,6 @@ export async function renderWorkPage(panel: HTMLElement): Promise<void> {
   const ws = state.workspaces.find((w) => w.id === state.currentWsId);
   const multiWs = state.workspaces.length > 1;
   const headerClickable = multiWs ? 'clickable' : '';
-  const avatarHtml = state.self ? await renderAvatarHtml(state.self) : '';
 
   const tabsHtml = `
     <div class="nav-tabs">
@@ -26,12 +24,6 @@ export async function renderWorkPage(panel: HTMLElement): Promise<void> {
     </div>
     ${tabsHtml}
     <div class="nav-list" id="work-list"></div>
-    <div class="nav-user">
-      ${avatarHtml}
-      <div class="nav-user-info">
-        <div class="nav-user-name">${escapeHtml(state.self?.name || 'me')}</div>
-      </div>
-    </div>
   `;
 
   // 绑定 tab 切换

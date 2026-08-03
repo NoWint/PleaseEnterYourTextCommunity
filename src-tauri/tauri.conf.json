@@ -12,11 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "PEYT Chat",
+        "title": "",
         "width": 1000,
         "height": 700,
         "minWidth": 800,
-        "minHeight": 600
+        "minHeight": 600,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 12, "y": 18 }
       }
     ],
     "security": {

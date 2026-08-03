@@ -41,7 +41,7 @@ export function clearSpaceTypeCache(): void {
 }
 
 // 这些页面主区已承载全部内容,中间栏 (nav-panel) 纯占位 → 隐藏,让主区占满。
-const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'terminal', 'bots']);
+const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'bots']);
 
 export async function renderNavPanel(): Promise<void> {
   const panel = document.getElementById('channel-tree');
@@ -80,12 +80,6 @@ export async function renderNavPanel(): Promise<void> {
         await renderPluginsNav(panel);
         break;
       }
-      case 'terminal': {
-        const { renderTerminalPage } = await import('../pages/terminalPage.js');
-        const main = document.getElementById('chat-main');
-        if (main) await renderTerminalPage(main);
-        break;
-      }
       case 'settings': {
         const { renderSettingsNav } = await import('../pages/settingsPage.js');
         await renderSettingsNav(panel);
@@ -106,19 +100,9 @@ export async function renderMain(): Promise<void> {
   const main = document.getElementById('chat-main');
   if (!main) return;
 
-  // 离开终端页时关闭会话,避免 PTY 泄漏
-  if (state.currentPage !== 'terminal') {
-    void import('../pages/terminalPage.js')
-      .then((m) => m.cleanupTerminalPage())
-      .catch(() => {});
-  }
   // 离开消息/群聊页时释放麦克风(录音中切到 settings/work 等会持续占用)
   if (state.currentPage !== 'messages' && state.currentPage !== 'groups') {
     void import('../chat/composer.js').then((m) => m.cleanupVoiceRecorder()).catch(() => {});
-  }
-
-  if (state.currentPage === 'terminal') {
-    return;
   }
 
   if (state.currentPage === 'plugins') {

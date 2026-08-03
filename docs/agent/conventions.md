@@ -152,16 +152,15 @@ CSS 入场（animation）+ `.closing` 出场（JS 加类 + 延时 remove）。re
 4. **`Clearable<T>`**：Tauri 无法区分「缺键」和「null」，卡片 update 用三态封装。
 5. **两把锁**：`accounts` 是 tokio Mutex（await），`current_id` 是 std Mutex（同步）。
 6. **card 16 元组**：list_cards/get_card_row 第 15 列是占位 0。
-7. **terminal 无后端白名单**：expert/whitelist 只在终端前端，PTY 是真 shell。
-8. **CSP null + 无沙箱插件**：`new Function` 直执行第三方 JS，有安全风险。
-9. **reactions/pins 缓存**：message.ts 模块级 Map/Set，改消息渲染时注意缓存同步（`clearReactionsCache`/`clearPinnedCache`）。
-10. **`socket2` 需 `all` feature**，`chrono` 需 `clock`——删依赖会编译失败。
-11. **首次编译 10–30 分钟**；`core/` submodule 必须 `--recursive` 克隆。
-12. **`get_asset_url` / `transformBlobURL`**：附件/头像走 `asset://localhost/`（受 assetProtocol scope 限制）。
-13. **下拉/浮层关闭**：外部点击用 `setTimeout(0)` 注册监听避免同次点击误关；`.closing` 类出场。
-14. **PEYT_STUDIO_NAME = "PEYT Studio"**；`current_workspace_id()` 优先 PEYT Studio，否则第一个 workspace。
-15. **登录/登出**：`logout` 不真正取消核心的选中账号（核心无公开 unselect），仅清内存 `current_id`。
-16. **TDesign 图标**：lucide 已整体替换，别再用 lucide 包；缺的图标在 `tdesignIcons.ts` 补标准路径 + `IconName` 联合。
-17. **Bot 是独立 deltachat 账号**：`bots` 表用 `bot_account_id` 指核心账号；bot 命令与普通命令同 `invoke_handler` 登记（lib.rs）。
-18. **字体缩放 `data-font-scale`**：改 `--font-scale-*` 变量时同步看 styles.css 的 `html[data-font-scale="..."]` 覆盖块，否则某些缩放档位下字号不生效。
-19. **弹窗玻璃 `--surface` 透明度**：`.ui-dialog` 填充透明度影响背景是否透出聊天内容，调太透会糊出彩色（保持 ≥80%）。
+7. **CSP null + 无沙箱插件**：`new Function` 直执行第三方 JS，有安全风险。
+8. **reactions/pins 缓存**：message.ts 模块级 Map/Set，改消息渲染时注意缓存同步（`clearReactionsCache`/`clearPinnedCache`）。
+9. **`socket2` 需 `all` feature**，`chrono` 需 `clock`——删依赖会编译失败。
+10. **首次编译 10–30 分钟**；`core/` submodule 必须 `--recursive` 克隆。
+11. **`get_asset_url` / `transformBlobURL`**：附件/头像走 `asset://localhost/`（受 assetProtocol scope 限制）。
+12. **下拉/浮层关闭**：外部点击用 `setTimeout(0)` 注册监听避免同次点击误关；`.closing` 类出场。
+13. **PEYT_STUDIO_NAME = "PEYT Studio"**；`current_workspace_id()` 优先 PEYT Studio，否则第一个 workspace。
+14. **登录/登出**：`logout` 不真正取消核心的选中账号（核心无公开 unselect），仅清内存 `current_id`。
+15. **TDesign 图标**：lucide 已整体替换，别再用 lucide 包；缺的图标在 `tdesignIcons.ts` 补标准路径 + `IconName` 联合。
+16. **Bot 是独立 deltachat 账号**：`bots` 表用 `bot_account_id` 指核心账号；bot 命令与普通命令同 `invoke_handler` 登记（lib.rs）。
+17. **字体缩放 `data-font-scale`**：改 `--font-scale-*` 变量时同步看 styles.css 的 `html[data-font-scale="..."]` 覆盖块，否则某些缩放档位下字号不生效。
+18. **弹窗玻璃 `--surface` 透明度**：`.ui-dialog` 填充透明度影响背景是否透出聊天内容，调太透会糊出彩色（保持 ≥80%）。
