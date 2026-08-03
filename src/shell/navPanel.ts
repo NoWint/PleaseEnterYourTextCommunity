@@ -1,8 +1,7 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
-import { ui } from '../components/ui.js';
-import type { ChannelDto, SpaceType, ChatListItem } from '../types.js';
+import type { ChannelDto, SpaceType } from '../types.js';
 
 export async function refreshChannels(): Promise<void> {
   if (state.currentWsId == null) {
@@ -50,7 +49,6 @@ export async function renderNavPanel(): Promise<void> {
       case 'messages': {
         const { renderMessagesPage } = await import('../pages/messagesPage.js');
         await renderMessagesPage(panel);
-        await renderSavedMessagesEntry(panel);
         break;
       }
       case 'groups': {
@@ -194,38 +192,6 @@ export async function renderMain(): Promise<void> {
   } catch {
     main.innerHTML = `<div class="empty">聊天视图加载失败</div>`;
   }
-}
-
-// 「保存的消息」入口:Delta self-talk 会话(消息收藏夹)置顶在消息列表顶部。
-// 点击时在 chatlist 中查找 is_self_talk 会话并复用打开 chat 流程;
-// 首次使用前 self-talk 会话不存在(尚未保存过任何消息),给出提示。
-async function renderSavedMessagesEntry(panel: HTMLElement): Promise<void> {
-  const list = panel.querySelector('#messages-list');
-  if (!list) return;
-  // 确保唯一:若已存在「保存的消息」入口则跳过(防御并发/重复渲染)
-  if (list.querySelector('.saved-messages-entry')) return;
-  const item = ui.listItem({
-    title: '保存的消息',
-    icon: 'bookmark',
-    onClick: async () => {
-      try {
-        const chats = await call<ChatListItem[]>('get_chatlist');
-        const selfTalk = chats.find((c) => c.is_self_talk);
-        if (!selfTalk) {
-          ui.toast('还没有保存的消息');
-          return;
-        }
-        state.currentChatId = selfTalk.chat_id;
-        saveState();
-        await renderNavPanel();
-        await renderMain();
-      } catch (e) {
-        ui.toast(e instanceof Error ? e.message : String(e));
-      }
-    },
-  });
-  item.classList.add('saved-messages-entry');
-  list.prepend(item);
 }
 
 function esc(s: string): string {

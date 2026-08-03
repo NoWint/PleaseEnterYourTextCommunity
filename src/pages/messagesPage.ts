@@ -9,8 +9,43 @@ import type { ChatListItem } from '../types.js';
 let panel: HTMLElement | null = null;
 let showArchived = false;
 
+// 「保存的消息」入口逻辑。
+// 注意:必须由 renderMessageList 每次重建时调用,不能依赖 renderNavPanel 单独 prepend——
+// 因为切换聊天走 renderMessagesPage(panel) 重建列表,若入口只在 renderNavPanel 加,切聊天后入口就丢了。
+let savedEntryRendered = false;
+
+async function renderSavedMessagesEntry(list: HTMLElement): Promise<void> {
+  if (savedEntryRendered) return;
+  savedEntryRendered = true;
+  const item = ui.listItem({
+    title: '保存的消息',
+    icon: 'bookmark',
+    onClick: async () => {
+      try {
+        const chats = await call<ChatListItem[]>('get_chatlist');
+        const selfTalk = chats.find((c) => c.is_self_talk);
+        if (!selfTalk) {
+          ui.toast('还没有保存的消息');
+          return;
+        }
+        state.currentChatId = selfTalk.chat_id;
+        saveState();
+        await renderMessagesPage(panel!);
+        const { renderMain } = await import('../shell/navPanel.js');
+        await renderMain();
+      } catch (e) {
+        ui.toast(e instanceof Error ? e.message : String(e));
+      }
+    },
+  });
+  item.classList.add('saved-messages-entry');
+  list.prepend(item);
+}
+
 export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
   panel = panelEl;
+  // 每次重建 panel 都重置入口标记,确保「保存的消息」入口总是渲染
+  savedEntryRendered = false;
   const avatarHtml = state.self ? await renderAvatarHtml(state.self) : '';
   panelEl.innerHTML = `
     <div class="nav-header">
@@ -63,6 +98,9 @@ async function renderMessageList(): Promise<void> {
       ? c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
       : !c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
   );
+
+  // 「保存的消息」入口置顶渲染(仅常规视图;归档视图里保存的消息不是归档会话)
+  if (!showArchived) await renderSavedMessagesEntry(list);
 
   if (messages.length === 0) {
     list.appendChild(ui.empty('暂无会话,点击 + 开始'));
