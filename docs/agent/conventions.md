@@ -64,7 +64,29 @@ GitHub Pages 市场 → Rust PluginManager（安装/卸载/启停，文件系统
 - reduced-motion：`@media (prefers-reduced-motion: reduce)` 全部 `animation: none !important`。
 - **别给整屏大区块加透明度动画**（页面容器/消息列表），WKWebView 下会闪。
 
-## 6. styles.css 结构与「重复选择器陷阱」
+## 6. 设计标准（视觉规范）
+
+整体取向：**macOS 原生质感**，不做 Material/Google 味。这是硬性标准，改样式时必须遵守。
+
+### 圆角
+- **弹窗 / 卡片用 macOS 弧度**：`var(--radius-md)`（12px）。**禁用 18px+ 的大圆角**（曾在 `.ui-dialog` 用过 18px，观感怪异，已回退 12px）。
+- 按钮：**`var(--radius-sm)`（8px）圆角矩形**（macOS 按钮弧度）。
+
+### 按钮（macOS 式）
+- **动作按钮一律圆角矩形**：`border-radius: var(--radius-sm)`（8px），**禁用 999px 胶囊**。覆盖：`.ui-button`、`.ui-dialog-close`、`.cp-add`、`.rd-add-friend`、`.view-btn`、`.dbg-more` 等。
+- **关闭按钮圆角矩形**，不用圆形。
+- **按钮必须有质感（可见填充 + 发丝描边），不透明**：`.ui-button` = `background: var(--control-bg)` + `border: 1px solid color-mix(in srgb, var(--text) 14%, transparent)`；`.ui-button-primary` 纯强调填充无描边；`.ui-button-ghost` / `.ui-dialog-close` / `.chat-header-btn` / `.nav-add-btn` 带 `var(--capsule)` 底。**不要 `background: transparent` / `background: none`**。
+- 例外（工具栏惯例，可透明-悬停显示）：rail 图标（`.rail-icon`）、分段控件内部段（`.ui-segment`）、文本链接式小按钮（`.nav-meta-link`）。
+
+### 保留胶囊/圆形的元素（非动作按钮）
+- chip / badge / 未读角标 / 状态点 / 语音播放圆键 / 标签——语义上是「标记/标签」，保持胶囊/圆形是常规做法。
+
+### 检查清单（改样式时）
+- 新按钮：`border-radius: var(--radius-sm)`（8px）圆角矩形，有可见背景填充（+ 发丝描边），不写 `999px`，不写 `background: transparent`。
+- **弹窗（苹果式）**：`.ui-overlay` 用轻量毛玻璃遮罩（`rgba(0,0,0,0.20)` + `blur(10px)`，**不要厚重黑幕**）；`.ui-dialog` 表面 `var(--surface)` 94% 实心 + `blur(24px)`、顶部边缘高光（`border-top-color` 提亮）+ `inset 0 1px 0` 顶部内高光、圆角 `var(--radius-md)`（12px）、标题 15px semibold、内距 18px/20px、gap 12px。**布局无标题栏 ✕**（`ui.dialog` 的 `closeable` 默认关闭，opt-in；靠动作按钮 / 点外部关闭）——苹果弹窗不是「窗口 + ✕」。
+- 主题颜色优先保留，只调结构性 token（圆角/阴影/动效/间距/背景填充）。
+
+## 7. styles.css 结构与「重复选择器陷阱」
 
 styles.css ~2959 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 2150 行往后是 Task 17 区；**行号会随改动漂移，以 `grep` 最后一次出现为准**）：
 
@@ -79,7 +101,7 @@ styles.css ~2959 行。**很多选择器定义了两次：前面的旧规则是�
 
 **另一个坑**：`shell.ts` 骨架里 `#channel-tree` 的 class 是 `nav-panel`，但 renderNavPanel 会 `panel.className = 'nav-panel'` 覆盖；rail 同理 renderRail 覆盖 `ws-rail`。别给旧 class 加样式。
 
-## 7. 开发约定
+## 8. 开发约定
 
 - **import 一律 `.js` 扩展名**（Vite 解析 .ts）。新增/移动文件别写成 `.ts`。
 - **`npx tsc --noEmit` 是唯一静态校验**（strict 模式）。没有测试套件，没有 linter。
@@ -117,7 +139,7 @@ styles.css ~2959 行。**很多选择器定义了两次：前面的旧规则是�
 | `2026-08-03-bot-management-ui-design.md` | Bot 系统 C：管理 UI（botsPage） |
 | `2026-08-03-bot-chat-ux-design.md` | Bot 系统 D：bot 聊天 UX（bot 会话命令） |
 
-## 8. 常见任务指南
+## 9. 常见任务指南
 
 ### 加一个前端页面
 1. `state.currentPage` 联合类型加值（types.ts）。
@@ -144,7 +166,7 @@ styles.css ~2959 行。**很多选择器定义了两次：前面的旧规则是�
 ### 动效
 CSS 入场（animation）+ `.closing` 出场（JS 加类 + 延时 remove）。reduced-motion 块兜底。别给整屏大区块加透明度动画（会闪）。
 
-## 9. 注意事项 / 坑
+## 10. 注意事项 / 坑
 
 1. **大区块透明度动画会闪**：页面容器/消息列表整屏 `opacity` 动画在 WKWebView 表现差。动效集中在小组件。
 2. **styles.css 重复选择器**：改样式永远改后面的活规则（第 6 节）。
