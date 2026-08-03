@@ -1,5 +1,5 @@
 import { call } from './api.js';
-import { initTheme } from './theme.js';
+import { initTheme, initFontScale } from './theme.js';
 import { renderShell } from './shell/shell.js';
 import { state } from './state.js';
 import { saveState } from './persist.js';
@@ -14,6 +14,7 @@ interface EnsurePeytResult {
 
 async function boot(): Promise<void> {
   initTheme();
+  initFontScale();
   const configured = await call<boolean>('is_configured');
   if (configured) {
     await renderShell();

@@ -38,40 +38,44 @@ GitHub Pages 市场 → Rust PluginManager（安装/卸载/启停，文件系统
 - **全局扩展点**：`window.__peytchat_themes` / `__peytchat_commands` / `__peytchat_llms` / `__peytchat_settings`。
 - manifest 类型：`{ name, version, title, description, author, type: "theme"|"chatbot"|"llm"|"general", entry }`。
 
-## 3. 图标系统（`src/components/icon.ts`）——三处同步
+## 3. 图标系统（`src/components/icon.ts`）——TDesign 两处同步
 
-新增图标**必须三处同步**（历史上有重复 import/类型块导致构建失败的冲突）：
-1. **lucide import**（文件顶部，如 `Compass` from 'lucide'）
-2. **`IconName` 类型联合**（`| 'compass'`；联合里允许重复条目）
-3. **`iconMap` 记录**（`'compass': Compass`）
+**已从 lucide 换成 TDesign**（`tdesignIcons.ts` vendored paths，stroke 模式 24 viewBox）。`iconMap = TDESIGN_PATHS as Record<IconName, TDesignPath[]>`。
 
-`iconSvg(name, opts)` 把 lucide IconNode 手写序列化成内联 SVG 字符串；`iconElement` 包一层 span。
+新增图标**必须两处同步**（历史上有重复 import/类型块导致构建失败的冲突）：
+1. **`tdesignIcons.ts` 的 `TDESIGN_PATHS`** 加路径（TDesign 缺的图标如 play/pause/mic 在此补充标准路径）
+2. **`icon.ts` 的 `IconName` 类型联合**（`| 'play'`；联合里允许重复条目）
+
+`iconMap` 是 TDESIGN_PATHS 的 cast，不用手动改。`iconSvg(name, opts)` 手写序列化成内联 SVG 字符串；`iconElement` 包一层 span。
 
 ## 4. 主题系统
 
 - 机制：`<html data-theme>` 属性切 CSS 变量。nowint = 无属性。
-- CSS 结构：`:root` 全部 token（颜色/字体缩放 `--font-scale-*`/间距 `--space-*`/圆角 `--radius-*`/阴影）；`[data-theme="violet"]`、`[data-theme="goldenhour"]` 全覆盖。
+- **11 套内置主题**（`BUILTIN_THEMES`：nowint/violet/goldenhour/forest/midnight/ember/graphite/paper/frost/sage/blush），CSS 在各 `[data-theme="..."]` 块。
+- **全局字体缩放**：`FontScale`（sm/md/lg/xl，`theme.ts`），`<html data-font-scale>` 覆盖 `--font-scale-*`（styles.css 的 `html[data-font-scale="..."]` 块，md 不设属性）。设置页「外观」用 `ui.segmented` 调，localStorage `peyt.fontScale`。
+- CSS 结构：`:root` 全部 token（颜色/字体缩放 `--font-scale-*`/间距 `--space-*`/圆角 `--radius-*`/阴影/动效 `--ease-*`）。
 - 渐变主题：`body { background: var(--theme-gradient, var(--bg)) }`，`.theme-mask`（fixed, z-index:0）叠在 `#app`（z-index:1）后面，`--theme-gradient`/`--theme-mask` 控制。
 
 ## 5. 动效（`.closing` 模式）
 
 - 入场：CSS `animation`（挂在元素上，`.dropdown-menu`/`.search-dialog` 等有 `pop-in`/`fade-in`）。
-- 出场：JS 加 `.closing` → CSS `pop-out`/`fade-out`（forwards）→ 延时 `remove()`。
+- 出场：JS 加 `.closing` → CSS `pop-out`/`fade-out`（forwards）→ 延时 `remove()`。**改出场动画时长时必须同步 JS 的 `setTimeout` 移除延时**（dropdown/search/commandPalette/plugin-confirm/message 等），否则动画被截断。
+- **动效 token**（styles.css `:root`）：`--ease-out` / `--ease-in-out` / `--ease-drawer`。入场统一 `var(--ease-out)`，时长 200-300ms；出场保持 120-210ms 快速收束。
 - reduced-motion：`@media (prefers-reduced-motion: reduce)` 全部 `animation: none !important`。
 - **别给整屏大区块加透明度动画**（页面容器/消息列表），WKWebView 下会闪。
 
 ## 6. styles.css 结构与「重复选择器陷阱」
 
-styles.css ~2438 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 1334 行往后是 Task 17 区）：
+styles.css ~2959 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 2150 行往后是 Task 17 区；**行号会随改动漂移，以 `grep` 最后一次出现为准**）：
 
 | 选择器 | 旧（死）行 | 新（活）行 |
 |---|---|---|
-| `.nav-header` | ~197 | ~1350 |
-| `.detail-expand` | ~365 | ~1635 |
-| `.chat-header-actions` | ~462 | ~1629 |
-| `.dropdown-menu` | ~715 | ~1388 |
-| `.rail`（旧 `.ws-rail` 已死） | ~136 | ~1339 |
-| `.channel-tree`/`.nav-tree` | ~182-238 | `.nav-panel` ~1349+ |
+| `.nav-header` | ~197 | ~2150+ |
+| `.detail-expand` | ~365 | ~2525 |
+| `.chat-header-actions` | ~462 | ~2519 |
+| `.dropdown-menu` | ~715 | ~2261 |
+| `.rail`（旧 `.ws-rail` 已死） | ~136 | ~2153 |
+| `.channel-tree`/`.nav-tree` | ~182-238 | `.nav-panel` ~2164+ |
 
 **另一个坑**：`shell.ts` 骨架里 `#channel-tree` 的 class 是 `nav-panel`，但 renderNavPanel 会 `panel.className = 'nav-panel'` 覆盖；rail 同理 renderRail 覆盖 `ws-rail`。别给旧 class 加样式。
 
@@ -105,6 +109,13 @@ styles.css ~2438 行。**很多选择器定义了两次：前面的旧规则是�
 | `2026-08-03-delta-batch2-search-gallery-palette-mailing.md` | 批次 2 实施计划（已完成） |
 | `2026-08-03-delta-batch3-voice-webxdc.md` | 批次 3 实施计划（已完成） |
 | `2026-08-03-delta-batch4-notifications-encryption-backup.md` | 批次 4 实施计划（已完成） |
+| `2026-08-03-eight-new-themes-design.md` | 8 套新主题（共 11 套） |
+| `2026-08-03-peyt-friend-invite-design.md` | 好友邀请系统（选择联系人/邮箱/peyt:// 链接） |
+| `2026-08-03-peyt-friend-invite-plan.md` | 好友邀请实施计划 |
+| `2026-08-03-bot-account-management-design.md` | Bot 系统 A：账号管理（BotService/bots 表） |
+| `2026-08-03-bot-llm-runtime-design.md` | Bot 系统 B：LLM 运行时（llm.rs/bot_llm.rs） |
+| `2026-08-03-bot-management-ui-design.md` | Bot 系统 C：管理 UI（botsPage） |
+| `2026-08-03-bot-chat-ux-design.md` | Bot 系统 D：bot 聊天 UX（bot 会话命令） |
 
 ## 8. 常见任务指南
 
@@ -122,7 +133,7 @@ styles.css ~2438 行。**很多选择器定义了两次：前面的旧规则是�
 4. DTO 放 `dto.rs`；DB 方法放 `db.rs`（经 `spawn_blocking`）。
 
 ### 加一个图标
-按第 3 节三处同步：lucide import → `IconName` → `iconMap`。
+按第 3 节两处同步：`tdesignIcons.ts` 路径 → `IconName`（iconMap 是 cast，不用改）。
 
 ### 加一张 DB 表
 `db.rs::migrate()` 里 `CREATE TABLE IF NOT EXISTS`；`Db` 加方法（spawn_blocking + rusqlite）。
@@ -150,3 +161,7 @@ CSS 入场（animation）+ `.closing` 出场（JS 加类 + 延时 remove）。re
 13. **下拉/浮层关闭**：外部点击用 `setTimeout(0)` 注册监听避免同次点击误关；`.closing` 类出场。
 14. **PEYT_STUDIO_NAME = "PEYT Studio"**；`current_workspace_id()` 优先 PEYT Studio，否则第一个 workspace。
 15. **登录/登出**：`logout` 不真正取消核心的选中账号（核心无公开 unselect），仅清内存 `current_id`。
+16. **TDesign 图标**：lucide 已整体替换，别再用 lucide 包；缺的图标在 `tdesignIcons.ts` 补标准路径 + `IconName` 联合。
+17. **Bot 是独立 deltachat 账号**：`bots` 表用 `bot_account_id` 指核心账号；bot 命令与普通命令同 `invoke_handler` 登记（lib.rs）。
+18. **字体缩放 `data-font-scale`**：改 `--font-scale-*` 变量时同步看 styles.css 的 `html[data-font-scale="..."]` 覆盖块，否则某些缩放档位下字号不生效。
+19. **弹窗玻璃 `--surface` 透明度**：`.ui-dialog` 填充透明度影响背景是否透出聊天内容，调太透会糊出彩色（保持 ≥80%）。

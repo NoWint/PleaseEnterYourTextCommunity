@@ -51,3 +51,40 @@ export function applyTheme(theme: AnyTheme): void {
 export function initTheme(): void {
   applyTheme(getCurrentTheme());
 }
+
+// ── 全局字体缩放 ──────────────────────────────────────
+// 通过 <html data-font-scale="sm|md|lg|xl"> 覆盖 :root 的 --font-scale-* 变量。
+// md 为默认(不设属性),其余级别在 styles.css 的 html[data-font-scale] 块中定义。
+
+export type FontScale = 'sm' | 'md' | 'lg' | 'xl';
+
+export interface FontScaleOption {
+  id: FontScale;
+  label: string;
+}
+
+export const FONT_SCALES: FontScaleOption[] = [
+  { id: 'sm', label: '紧凑' },
+  { id: 'md', label: '默认' },
+  { id: 'lg', label: '大' },
+  { id: 'xl', label: '特大' },
+];
+
+export function getCurrentFontScale(): FontScale {
+  const v = localStorage.getItem('peyt.fontScale');
+  return v === 'sm' || v === 'lg' || v === 'xl' ? v : 'md';
+}
+
+export function applyFontScale(scale: FontScale): void {
+  localStorage.setItem('peyt.fontScale', scale);
+  const el = document.documentElement;
+  if (scale === 'md') {
+    el.removeAttribute('data-font-scale');
+  } else {
+    el.setAttribute('data-font-scale', scale);
+  }
+}
+
+export function initFontScale(): void {
+  applyFontScale(getCurrentFontScale());
+}

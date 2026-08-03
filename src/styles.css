@@ -73,6 +73,33 @@
   --font: -apple-system, 'SF Pro Display', 'Segoe UI Variable', 'Segoe UI', 'Inter', sans-serif;
   --font-mono: 'SF Mono', Menlo, monospace;
 }
+
+/* 全局字体缩放 — html[data-font-scale] 覆盖 :root 字体变量(md 默认不设属性) */
+html[data-font-scale="sm"] {
+  --font-scale-display: 32px;
+  --font-scale-page: 15px;
+  --font-scale-title: 12px;
+  --font-scale-body: 11px;
+  --font-scale-secondary: 10px;
+  --font-scale-micro: 9px;
+}
+html[data-font-scale="lg"] {
+  --font-scale-display: 44px;
+  --font-scale-page: 20px;
+  --font-scale-title: 16px;
+  --font-scale-body: 15px;
+  --font-scale-secondary: 13px;
+  --font-scale-micro: 11px;
+}
+html[data-font-scale="xl"] {
+  --font-scale-display: 50px;
+  --font-scale-page: 22px;
+  --font-scale-title: 18px;
+  --font-scale-body: 17px;
+  --font-scale-secondary: 15px;
+  --font-scale-micro: 13px;
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; color: var(--text); font-family: var(--font); font-size: var(--font-scale-body); }
 html { background: var(--bg); }
@@ -2286,6 +2313,8 @@ body {
 .settings-theme { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border: 2px solid transparent; border-radius: 8px; cursor: pointer; }
 .settings-theme.active { border-color: var(--text); }
 .theme-swatch { width: 48px; height: 48px; border-radius: 8px; }
+.settings-font-row { margin-top: 24px; }
+.settings-font-label { font-size: var(--font-scale-body); color: var(--text-mute); margin-bottom: 8px; }
 .settings-invite-row { display: flex; gap: 8px; }
 .settings-invite-row input { flex: 1; }
 .settings-btn { display: flex; align-items: center; gap: 6px; background: var(--control-bg); color: var(--text); border: none; padding: 6px 12px; border-radius: var(--radius-sm); font-size: var(--font-scale-body); cursor: pointer; font-family: inherit; }
