@@ -220,6 +220,18 @@ async fn handle_bot_message(
         return;
     }
 
+    // 记录 thinking 活动(驱动调度开始前)
+    activity
+        .record(
+            bot_id,
+            act::THINKING,
+            Some(chat_id.to_u32()),
+            Some(msg_id.to_u32()),
+            "正在处理…",
+            None,
+        )
+        .await;
+
     // 组装运行时上下文,逐个驱动调度
     let runtime = BotRuntime {
         bot_id,

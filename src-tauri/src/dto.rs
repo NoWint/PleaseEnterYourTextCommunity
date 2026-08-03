@@ -280,6 +280,10 @@ pub mod bot_activity_kind {
     pub const LLM_ERROR: &str = "llm_error";
     pub const NO_CONFIG: &str = "no_config";
     pub const DRIVER_DISABLED: &str = "driver_disabled";
+    pub const THINKING: &str = "thinking";
+    pub const TOOL_CALLED: &str = "tool_called";
+    pub const SCHEDULE_SENT: &str = "schedule_sent";
+    pub const RULE_REPLY: &str = "rule_reply";
 }
 
 /// Bot 活动日志 DTO(时间线页/统计用)。

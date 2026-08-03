@@ -3117,6 +3117,7 @@ pub async fn test_llm_config(config: crate::dto::LlmConfigInput) -> AppResult<St
     let msg = crate::llm::ChatMessage {
         role: "user".into(),
         content: "你好，请用一句话回复。".into(),
+        ..Default::default()
     };
     client.complete(&crate::dto::LlmConfig::from(config), vec![msg]).await
 }
