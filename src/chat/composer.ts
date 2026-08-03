@@ -46,6 +46,13 @@ let mentionQueryStart = -1;
 // 草稿:输入防抖保存计时器(500ms 后写入后端)
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
+// 输入框两种模式(微信):
+// - 收起:单行自动增高,Enter 发送,Ctrl+Enter 换行
+// - 展开:大 textarea(顶部可拖拽调高),Enter 换行,Ctrl+Enter 发送
+let expanded = false;
+const PLACEHOLDER_COLLAPSED = '发消息到频道... (@提及 / #频道)';
+const PLACEHOLDER_EXPANDED = 'Enter 换行,Ctrl+Enter 发送';
+
 // 表情面板常用 emoji(微信风格常用集,零依赖内嵌)
 const EMOJI_PANEL: string[] = [
   '😀', '😄', '😁', '😂', '🤣', '😊', '😍', '🥰',
@@ -97,10 +104,11 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     <div class="composer">
       ${replyPreview}
       <div class="composer-main">
-        <textarea id="composer-input" placeholder="发消息到频道... (@提及 / #频道)" rows="1"></textarea>
+        <div class="composer-resize" id="composer-resize" title="拖拽调整高度" aria-hidden="true"></div>
+        <textarea id="composer-input" placeholder="${PLACEHOLDER_COLLAPSED}" rows="1"></textarea>
         <button type="button" class="composer-expand" id="composer-expand" aria-label="展开输入框">
           ${iconSvg('chevrons-up-down', { width: 14, height: 14 })}
-          <span class="composer-tooltip">展开输入框,Ctrl+Enter 换行</span>
+          <span class="composer-tooltip">展开输入框,Enter 换行,Ctrl+Enter 发送</span>
         </button>
       </div>
       <div class="composer-toolbar">
@@ -130,14 +138,41 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     await send(chatId, input, area, onSent);
     updateSendState();
   });
-  // 展开按钮:切换大/小输入框模式(微信「展开输入框」),CSS 类驱动高度
+  // 展开按钮:切换两种模式(收起=单行 Enter 发送;展开=大 textarea Enter 换行)。
+  // CSS 类 .expanded 驱动高度/指示器显隐/placeholder/键盘语义。
+  const composerEl = area.querySelector('.composer') as HTMLElement | null;
   const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
-  expandBtn?.addEventListener('click', () => {
-    area.querySelector('.composer')?.classList.toggle('expanded');
-    // 展开/收起后刷新 textarea 高度 + 聚焦
+  const applyExpanded = (): void => {
+    composerEl?.classList.toggle('expanded', expanded);
+    input.placeholder = expanded ? PLACEHOLDER_EXPANDED : PLACEHOLDER_COLLAPSED;
+    // 模式切换:收起 → 单行;展开 → 重置为默认大高度(用户可用顶部指示器再拖)
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     input.focus();
+  };
+  expandBtn?.addEventListener('click', () => {
+    expanded = !expanded;
+    applyExpanded();
+  });
+  // 顶部 resize 指示器:仅展开模式显示。pointerdown → 拖拽纵向调高 textarea
+  // (拖动区间 [40, 320]px),Apple §2 直接操作:1:1 跟随,pointer capture 不丢。
+  const resizeHandle = document.getElementById('composer-resize') as HTMLElement | null;
+  resizeHandle?.addEventListener('pointerdown', (e) => {
+    if (!expanded) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = input.getBoundingClientRect().height;
+    const onMove = (ev: PointerEvent): void => {
+      const delta = ev.clientY - startY; // 向上拖 = 负增量 = 增高
+      const h = Math.min(320, Math.max(40, startH - delta));
+      input.style.height = h + 'px';
+    };
+    const onUp = (): void => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   });
   // 表情按钮:弹出表情面板,点击插入 emoji 到光标处
   const emojiBtn = document.getElementById('composer-emoji') as HTMLButtonElement | null;
@@ -220,14 +255,23 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         return;
       }
     }
-    // 发送(微信/QQ 语义):普通 Enter 发送;Ctrl/Cmd+Enter 换行(不含 Shift —— Shift+Enter 留给
-    // @/# 建议面板的 Tab 插入,且浏览器默认也可换行)。建议面板打开时 Enter 已被上方分支拦截。
+    // 键盘语义随模式切换(建议面板打开时 Enter 已被上方分支拦截):
+    // - 收起:Enter 发送,Ctrl/Cmd+Enter 换行
+    // - 展开:Enter 换行,Ctrl/Cmd+Enter 发送
     if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
-      await send(chatId, input, area, onSent);
+      if (expanded) {
+        insertNewline(input);
+      } else {
+        await send(chatId, input, area, onSent);
+      }
     } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      insertNewline(input);
+      if (expanded) {
+        await send(chatId, input, area, onSent);
+      } else {
+        insertNewline(input);
+      }
     } else if (e.key === 'Escape') {
       if (area.dataset.replyTo) {
         delete area.dataset.replyTo;

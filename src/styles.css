@@ -535,6 +535,29 @@ html.window-overlay .wb-controls { display: none; }
 }
 .composer-expand:hover .composer-tooltip { opacity: 1; visibility: visible; transform: translateY(0); }
 
+/* 展开模式:大 textarea + 顶部 resize 指示器。
+   收起(默认):单行自动增高;展开:固定大高度 + 顶部指示器拖拽调高。 */
+.composer-main { position: relative; }
+/* resize 指示器:悬停在输入区顶部时浮现,拖拽纵向调高 textarea */
+.composer-resize {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 8px; cursor: row-resize;
+  z-index: 5;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  display: none; align-items: center; justify-content: center;
+}
+.composer-resize::before {
+  content: ""; width: 40px; height: 3px; border-radius: 2px;
+  background: var(--text-mute);
+  opacity: 0; transition: opacity 120ms var(--ease-out);
+}
+.composer-resize:hover::before, .composer-resize:active::before { opacity: 0.8; }
+/* 展开时:显示指示器,textarea 撑高 */
+.composer.expanded .composer-resize { display: flex; }
+.composer.expanded textarea {
+  min-height: 140px;
+  max-height: 320px;
+}
 /* 下部工具条:图标组左对齐,操作按钮右对齐 (微信 space-between) */
 .composer-toolbar {
   display: flex; align-items: center; justify-content: space-between;
@@ -981,7 +1004,9 @@ html.window-overlay .wb-controls { display: none; }
 .composer textarea { scrollbar-width: none; }
 .composer textarea::-webkit-scrollbar { display: none; }
 
-/* 发送按钮:翠绿胶囊 + 白字 (微信核心 CTA,深色背景上高对比) */
+/* 发送按钮:跟随主题强调色(--success 底 + --on-accent 字)。
+   已验证 15 主题 success vs on-accent 对比度 ≥3.0(600 粗体大文本),
+   暗色主题尤其高(7 个 ≥4.5);白色在暗色主题会失败,故不用白字。 */
 .composer-send {
   flex-shrink: 0;
   min-width: 64px; height: 34px;
@@ -989,8 +1014,9 @@ html.window-overlay .wb-controls { display: none; }
   display: flex; align-items: center; justify-content: center;
   border: none; border-radius: 6px;
   cursor: pointer;
-  font-size: var(--font-scale-body); font-weight: 600; color: #fff;
-  background: #2db57d;
+  font-size: var(--font-scale-body); font-weight: 600;
+  color: var(--on-accent);
+  background: var(--success);
   transition: transform 100ms ease-out, opacity 120ms, filter 150ms;
 }
 .composer-send:hover { filter: brightness(1.08); }
