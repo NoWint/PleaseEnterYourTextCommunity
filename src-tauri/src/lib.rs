@@ -1,3 +1,4 @@
+mod bot_llm;
 mod bots;
 mod commands;
 mod db;
@@ -5,6 +6,7 @@ mod dto;
 mod envelope;
 mod error;
 mod events;
+mod llm;
 mod plugins;
 mod state;
 mod terminal;
@@ -25,7 +27,9 @@ pub fn run() {
                 AppState::new(dir).await
             })?;
             let handle = app.handle().clone();
-            events::spawn_event_forwarder(handle, state.accounts.clone());
+            // 绑定 bot 账号 id 集合的 Arc，再传给事件转发器(过滤 bot 账号事件)
+            let bot_ids = state.bots.bot_ids();
+            events::spawn_event_forwarder(handle, state.accounts.clone(), bot_ids);
             // 启动当前用户名下所有 bot 的 IO；失败只记日志，不中断启动
             if let Some(current_id) = *state.current_id.lock().unwrap() {
                 if let Err(e) =
@@ -34,6 +38,8 @@ pub fn run() {
                     log::warn!("failed to start bots for owner {current_id}: {e}");
                 }
             }
+            // 挂载 LLM 自动回复后台运行时(内部 spawn，单次调用)
+            state.bots.spawn_runtime();
             app.manage(state);
             Ok(())
         })
@@ -146,6 +152,8 @@ pub fn run() {
             commands::list_bots,
             commands::delete_bot,
             commands::set_bot_io,
+            commands::update_bot_llm,
+            commands::get_bot_llm,
             // Terminal
             terminal::open_terminal,
             terminal::write_terminal,

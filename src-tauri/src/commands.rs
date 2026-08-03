@@ -2766,3 +2766,24 @@ pub async fn set_bot_io(
     let owner_id = current_owner_id(&state)?;
     state.bots.set_io(owner_id, bot_id, running).await
 }
+
+/// 更新当前用户某个 bot 的 LLM 配置。
+#[tauri::command]
+pub async fn update_bot_llm(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    config: crate::dto::LlmConfigInput,
+) -> AppResult<BotDto> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.update_bot_llm(owner_id, bot_id, config).await
+}
+
+/// 读取当前用户某个 bot 的 LLM 配置（未配置时为 None）。
+#[tauri::command]
+pub async fn get_bot_llm(
+    state: State<'_, AppState>,
+    bot_id: i64,
+) -> AppResult<Option<crate::dto::LlmConfigInput>> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_bot_llm(owner_id, bot_id).await
+}

@@ -16,13 +16,25 @@ use crate::dto::EventPayload;
 /// ReactionsChanged/IncomingReaction/IncomingMsgBunch/MsgDeleted/
 /// ChatEphemeralTimerModified/ChatDeleted/Webxdc* 等关键事件,
 /// 之前 `_ => continue` 会丢弃这些事件导致前端无法更新已读/失败/反应状态。
-pub fn spawn_event_forwarder(app: AppHandle, accounts: Arc<Mutex<Accounts>>) {
+///
+/// `bot_ids` 是要过滤的 Bot 账号集合:Bot 账号产生的事件不转发给前端
+/// (主界面只关心当前主账号,Bot 收信由 bot_llm 运行时处理)。
+pub fn spawn_event_forwarder(
+    app: AppHandle,
+    accounts: Arc<Mutex<Accounts>>,
+    bot_ids: Arc<Mutex<std::collections::HashSet<u32>>>,
+) {
     async_runtime::spawn(async move {
         let emitter = {
             let accounts = accounts.lock().await;
             accounts.get_event_emitter()
         };
         while let Some(event) = emitter.recv().await {
+            // Bot 账号的事件不转发前端(主界面只关心当前主账号;Bot 收信由 bot_llm 运行时处理)
+            let is_bot_event = { let ids = bot_ids.lock().await; ids.contains(&event.id) };
+            if is_bot_event {
+                continue;
+            }
             let payload = match event.typ {
                 EventType::IncomingMsg { chat_id, msg_id } => {
                     // 拉取消息摘要给前端做通知(避免前端再发一次 get_chat_msgs)

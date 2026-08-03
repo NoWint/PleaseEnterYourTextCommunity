@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -5,8 +6,9 @@ use tokio::sync::Mutex;
 use deltachat::accounts::Accounts;
 use deltachat::config::Config;
 
+use crate::bot_llm;
 use crate::db::Db;
-use crate::dto::BotDto;
+use crate::dto::{BotDto, LlmConfigInput};
 use crate::error::{AppError, AppResult};
 
 /// Bot 系统服务：管理"机器人"账号的创建/查询/删除/IO 启停。
@@ -16,11 +18,22 @@ use crate::error::{AppError, AppResult};
 pub struct BotService {
     accounts: Arc<Mutex<Accounts>>,
     db: Arc<Db>,
+    /// 所有 bot 账号 id 集合，供事件转发过滤与 LLM 自动回复运行时使用
+    pub bot_ids: Arc<Mutex<HashSet<u32>>>,
 }
 
 impl BotService {
     pub fn new(accounts: Arc<Mutex<Accounts>>, db: Arc<Db>) -> Self {
-        Self { accounts, db }
+        Self {
+            accounts,
+            db,
+            bot_ids: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
+    /// 返回 bot 账号 id 集合的 Arc 克隆，供事件转发器 / LLM 运行时共享。
+    pub fn bot_ids(&self) -> Arc<Mutex<HashSet<u32>>> {
+        self.bot_ids.clone()
     }
 
     /// 为指定用户创建一个 bot 账号：chatmail 邮箱 provisioning → 落库 → 启动 IO。
@@ -63,6 +76,7 @@ impl BotService {
                 .insert_bot(owner_id, id, &display_name, now_ts)
                 .await?;
             inserted_bot_id = Some(bot_id);
+            self.bot_ids.lock().await.insert(id);
 
             ctx.start_io().await;
             let addr = ctx.get_config(Config::ConfiguredAddr).await?;
@@ -129,6 +143,7 @@ impl BotService {
             .remove_account(row.bot_account_id)
             .await?;
         self.db.delete_bot(owner_id, bot_id).await?;
+        self.bot_ids.lock().await.remove(&row.bot_account_id);
         Ok(())
     }
 
@@ -166,6 +181,14 @@ impl BotService {
     /// 启动某个用户名下所有 bot 的 IO。单个 bot 失败只记日志，不向外传播。
     pub async fn start_all_for_owner(&self, owner_id: u32) -> AppResult<()> {
         let rows = self.db.list_bots(owner_id).await?;
+        // 重建 bot 账号 id 集合(清空后重新插入该 owner 的全部 bot)
+        {
+            let mut ids = self.bot_ids.lock().await;
+            ids.clear();
+            for row in &rows {
+                ids.insert(row.bot_account_id);
+            }
+        }
         for row in rows {
             if let Some(ctx) = self.accounts.lock().await.get_account(row.bot_account_id) {
                 ctx.start_io().await;
@@ -178,6 +201,68 @@ impl BotService {
             }
         }
         Ok(())
+    }
+
+    /// 更新某个 bot 的 LLM 配置，并返回最新 DTO。
+    pub async fn update_bot_llm(
+        &self,
+        owner_id: u32,
+        bot_id: i64,
+        config: LlmConfigInput,
+    ) -> AppResult<BotDto> {
+        let row = self
+            .db
+            .get_bot(owner_id, bot_id)
+            .await?
+            .ok_or_else(|| AppError::Core("bot not found".into()))?;
+        let json = serde_json::to_string(&config)
+            .map_err(|e| AppError::Core(format!("llm config serialize: {e}")))?;
+        self.db
+            .set_bot_config(owner_id, bot_id, Some(&json))
+            .await?;
+        let ctx = self.accounts.lock().await.get_account(row.bot_account_id);
+        let addr = match &ctx {
+            Some(ctx) => ctx.get_config(Config::ConfiguredAddr).await?,
+            None => None,
+        };
+        Ok(BotDto {
+            id: row.id,
+            bot_account_id: row.bot_account_id,
+            display_name: row.display_name,
+            addr,
+            io_running: row.status == "running",
+            created_at: row.created_at,
+        })
+    }
+
+    /// 读取某个 bot 的 LLM 配置；未配置或 JSON 解析失败返回 None。
+    pub async fn get_bot_llm(
+        &self,
+        owner_id: u32,
+        bot_id: i64,
+    ) -> AppResult<Option<LlmConfigInput>> {
+        self.db
+            .get_bot(owner_id, bot_id)
+            .await?
+            .ok_or_else(|| AppError::Core("bot not found".into()))?;
+        let raw = self.db.get_bot_config(owner_id, bot_id).await?;
+        match raw.as_deref() {
+            None | Some("") => Ok(None),
+            Some(json) => match serde_json::from_str::<LlmConfigInput>(json) {
+                Ok(cfg) => Ok(Some(cfg)),
+                // 设置回读场景下解析失败更安全地返回 None，而非报错
+                Err(_) => Ok(None),
+            },
+        }
+    }
+
+    /// 启动 LLM 自动回复后台运行时(内部 spawn，不阻塞当前调用方)。
+    pub fn spawn_runtime(&self) {
+        tauri::async_runtime::spawn(bot_llm::spawn(
+            self.accounts.clone(),
+            self.db.clone(),
+            self.bot_ids.clone(),
+        ));
     }
 }
 
@@ -236,5 +321,42 @@ mod tests {
 
         let err = svc.delete(1, 999).await.unwrap_err();
         assert!(matches!(err, AppError::Core(_)));
+    }
+
+    /// update_bot_llm 写入的 LLM 配置能被 get_bot_llm 读回（往返一致）。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_update_bot_llm_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (accounts, db, svc) = test_env(&tmp).await;
+
+        let owner_id = 1u32;
+        let bot_account_id = {
+            let mut accounts = accounts.lock().await;
+            accounts.add_account().await.unwrap()
+        };
+        let bot_id = db
+            .insert_bot(owner_id, bot_account_id, "LlmBot", chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+
+        let config = LlmConfigInput {
+            system_prompt: Some("你是助手".to_string()),
+            base_url: Some("https://api.example.com/v1".to_string()),
+            api_key: Some("sk-test".to_string()),
+            model: Some("gpt-4o-mini".to_string()),
+            provider: Some("openai".to_string()),
+        };
+        let dto = svc.update_bot_llm(owner_id, bot_id, config.clone()).await.unwrap();
+        assert_eq!(dto.bot_account_id, bot_account_id);
+        // 归属校验：非 owner 更新应报错
+        let err = svc.update_bot_llm(2, bot_id, config.clone()).await.unwrap_err();
+        assert!(matches!(err, AppError::Core(_)));
+
+        let read = svc.get_bot_llm(owner_id, bot_id).await.unwrap().unwrap();
+        assert_eq!(read.system_prompt, config.system_prompt);
+        assert_eq!(read.base_url, config.base_url);
+        assert_eq!(read.api_key, config.api_key);
+        assert_eq!(read.model, config.model);
+        assert_eq!(read.provider, config.provider);
     }
 }
