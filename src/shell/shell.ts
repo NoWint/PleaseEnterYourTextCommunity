@@ -48,8 +48,8 @@ export async function renderShell(): Promise<void> {
       <div id="channel-tree" class="nav-panel"></div>
       <div id="nav-resizer" class="col-resizer" data-resizer="nav"></div>
       <div id="chat-main" class="chat-main"><div class="empty">选择一个频道</div></div>
-      <div id="right-drawer" class="right-drawer collapsed"></div>
       <div id="drawer-resizer" class="col-resizer" data-resizer="drawer"></div>
+      <div id="right-drawer" class="right-drawer collapsed"></div>
     </div>
   `;
 

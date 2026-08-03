@@ -25,6 +25,8 @@ interface ResizerSpec {
   max: number;
   varName: string;
   persistKey: string;
+  /** 手柄在目标列左侧时(drawer),dx 需反向:向右拖 = 目标变窄 */
+  invert?: boolean;
 }
 
 const SPECS: Record<string, ResizerSpec> = {
@@ -41,6 +43,7 @@ const SPECS: Record<string, ResizerSpec> = {
     max: DRAWER_MAX,
     varName: '--drawer-w',
     persistKey: 'peyt.drawerWidth',
+    invert: true,
   },
 };
 
@@ -79,7 +82,8 @@ export function bindColumnResizers(): void {
     handle.addEventListener('pointermove', (e) => {
       if (!dragging) return;
       const dx = e.clientX - startX;
-      let w = startW + dx;
+      // 手柄在目标列左侧(invert)时:向右拖 dx>0 → 目标变窄,故取反
+      let w = startW + (spec.invert ? -dx : dx);
       if (w < spec.min || w > spec.max) {
         // 越过边界:渐进阻尼 + 边界反馈条 (拖到底/顶时高亮)
         const overshoot = w < spec.min ? spec.min - w : w - spec.max;

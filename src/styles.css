@@ -371,8 +371,8 @@ html { background: var(--bg); }
 .col-resizer:hover::after { background: var(--text-mute); }
 .col-resizer.dragging::after { width: 3px; background: var(--text); }
 .col-resizer.boundary::after { width: 4px; background: var(--text); box-shadow: 0 0 8px var(--text); }
-/* 抽屉折叠时其右侧手柄一并隐藏 */
-.right-drawer.collapsed + #drawer-resizer { display: none; }
+/* 抽屉折叠时其左侧手柄一并隐藏 */
+#drawer-resizer:has(+ .right-drawer.collapsed) { display: none; }
 
 .rd-tabs { padding: 12px 16px; font-size: 12px; display: flex; align-items: center; gap: 2px; background: var(--panel); }
 .rd-tab { color: var(--text-weak); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; transition: background 120ms, color 120ms; }
@@ -432,21 +432,24 @@ html { background: var(--bg); }
 /* 按钮 */
 .ui-button {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 16px; border-radius: var(--radius-sm);
-  background: var(--capsule); color: var(--text);
-  border: 1px solid var(--border-strong);
+  padding: 8px 16px; border-radius: 999px;
+  background: var(--control-bg); color: var(--text);
+  border: none;
   font: inherit; font-size: var(--font-scale-body); cursor: pointer;
   transition: transform 120ms ease, opacity 120ms ease, background 120ms ease,
-              border-color 120ms ease, box-shadow 120ms ease;
+              color 120ms ease, box-shadow 120ms ease;
 }
-.ui-button:hover { border-color: var(--text-mute); }
+.ui-button:hover { background: var(--active); }
 .ui-button:active { transform: scale(0.97); }
 .ui-button:disabled { opacity: 0.4; cursor: default; }
-.ui-button-primary { background: var(--text); color: var(--panel); border-color: var(--text); font-weight: 600; }
-.ui-button-primary:hover { background: var(--hover-bright); }
+.ui-button-primary {
+  background: var(--text); color: var(--panel); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.ui-button-primary:hover { background: color-mix(in srgb, var(--text) 88%, var(--bg)); }
 .ui-button-ghost { background: transparent; color: var(--text-mute); }
 .ui-button-ghost:hover { color: var(--text); background: var(--active); }
-.ui-button-danger { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+.ui-button-danger { background: var(--danger-bg); color: var(--danger); }
 .ui-button-danger:hover { background: var(--danger-bg-hover); }
 
 /* 图标按钮 */
@@ -479,7 +482,7 @@ html { background: var(--bg); }
 .ui-dialog-sm { max-width: 320px; }
 .ui-dialog-lg { max-width: 520px; }
 .ui-dialog-head { display: flex; align-items: center; gap: 8px; }
-.ui-dialog-head h2 { margin: 0; font-size: var(--font-scale-lg); font-weight: 600; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-dialog-head h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.2px; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-dialog-close {
   flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; border-radius: 999px; cursor: pointer;
@@ -487,7 +490,7 @@ html { background: var(--bg); }
 }
 .ui-dialog-close:hover { background: var(--active); color: var(--text); }
 .ui-dialog-close:active { transform: scale(0.92); }
-.ui-dialog-body { color: var(--text-body); font-size: var(--font-scale-body); line-height: 1.5; overflow-y: auto; min-height: 0; }
+.ui-dialog-body { color: var(--text-body); font-size: 14px; line-height: 1.55; overflow-y: auto; min-height: 0; }
 .ui-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0; }
 .ui-dialog-actions .ui-button { min-width: 72px; justify-content: center; }
 
@@ -506,12 +509,17 @@ html { background: var(--bg); }
 /* 输入框 */
 .ui-input {
   width: 100%; padding: 8px 12px;
-  background: var(--capsule); border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm); color: var(--text);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text);
   font: inherit; font-size: var(--font-scale-body);
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.ui-input:focus { outline: none; border-color: var(--text-weak); }
+.ui-input::placeholder { color: var(--text-weak); }
+.ui-input:hover { border-color: var(--text-weak); }
+.ui-input:focus {
+  outline: none; border-color: var(--text-mute);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-mute) 22%, transparent);
+}
 
 /* 确认消息 */
 .ui-confirm-msg { color: var(--text-body); font-size: var(--font-scale-body); line-height: 1.5; }
@@ -537,7 +545,7 @@ html { background: var(--bg); }
 @keyframes ui-fade-out { to { opacity: 0; } }
 
 /* 按钮尺寸 */
-.ui-button-sm { padding: 4px 10px; font-size: var(--font-scale-secondary); }
+.ui-button-sm { padding: 4px 12px; font-size: var(--font-scale-secondary); }
 .ui-button-lg { padding: 9px 20px; font-size: var(--font-scale-body); }
 .ui-icon-button-sm { width: 24px; height: 24px; }
 .ui-icon-button-sm svg { width: 14px; height: 14px; }
@@ -560,7 +568,7 @@ html { background: var(--bg); }
 
 /* 表单字段 */
 .ui-field { display: flex; flex-direction: column; gap: 6px; }
-.ui-field-label { font-size: var(--font-scale-secondary); color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.3px; }
+.ui-field-label { font-size: 13px; font-weight: 500; color: var(--text-weak); }
 .ui-field-help { font-size: var(--font-scale-micro); color: var(--text-faint); }
 
 /* 开关 */
@@ -1805,7 +1813,7 @@ body {
 .nav-chat-item:active { background: var(--border-strong); }
 .nav-chat-name { font-size: 15px; color: var(--text); font-weight: 500; }
 .nav-chat-preview { font-size: 13px; color: var(--text-weak); margin-top: 2px; }
-.nav-chat-time { position: absolute; top: 8px; right: 12px; font-size: var(--font-scale-secondary); color: var(--text-weak); }
+.nav-chat-time { font-size: var(--font-scale-secondary); color: var(--text-weak); flex-shrink: 0; }
 .nav-unread { position: absolute; bottom: 8px; right: 12px; background: var(--text); color: var(--on-accent); font-size: var(--font-scale-secondary); font-weight: 600; padding: 2px 6px; border-radius: 8px; }
 .nav-category { display: flex; align-items: center; gap: 4px; padding: 8px 16px 4px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-mute); text-transform: uppercase; }
 .nav-category:hover { color: var(--text); }

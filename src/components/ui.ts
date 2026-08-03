@@ -248,7 +248,10 @@ export function inputDialog(opts: InputDialogOpts): void {
     },
   });
   const dlg = dialog({ title: opts.title, actions: [cancel, confirm] });
-  dlg.overlay.querySelector('.ui-dialog')!.append(inputEl);
+  // 输入框必须插到按钮组之前(dialog 的 DOM 顺序是 head → actions,
+  // append 会把它追加到按钮组后面 → 按钮出现在输入框上方)
+  const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(inputEl, actionsEl);
   inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirm.click(); });
   inputEl.focus();
 }
