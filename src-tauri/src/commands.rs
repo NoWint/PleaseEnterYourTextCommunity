@@ -609,7 +609,16 @@ pub async fn send_text(
 #[tauri::command]
 pub async fn get_contacts(state: State<'_, AppState>) -> AppResult<Vec<ContactDto>> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
-    let ids = Contact::get_all(&ctx, 0, None).await?;
+    // 联系人列表须同时包含 key-contacts(有公钥指纹)与地址联系人(纯邮箱/未加密)。
+    // core 的 get_all 里 DC_GCL_ADDRESS 是「地址联系人替代密钥联系人」(二选一),
+    // 需两次调用合并 —— 否则 create_chat_by_email 单方面添加的未加密联系人
+    // (fingerprint='')会被 `(fingerprint='')=?` 条件过滤,导致「加群/通讯录看不见联系人」。
+    let mut ids = Contact::get_all(&ctx, 0, None).await?;
+    let addr_ids = Contact::get_all(&ctx, deltachat::constants::DC_GCL_ADDRESS, None).await?;
+    ids.extend(addr_ids);
+    // 去重(key-contact 与地址联系人集合无交集,此处仅防御;保持 key-contacts 在前)。
+    let mut seen = std::collections::HashSet::new();
+    ids.retain(|id| seen.insert(*id));
     let mut out = Vec::new();
     for id in ids {
         if id == ContactId::SELF || id == ContactId::INFO || id == ContactId::DEVICE {
