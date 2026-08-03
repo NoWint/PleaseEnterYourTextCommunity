@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use deltachat::chat::{self, ChatId};
 use deltachat::chat::ChatItem;
@@ -7,7 +5,7 @@ use deltachat::contact::Contact;
 use deltachat::context::Context;
 use deltachat::message::{Message, MsgId, Viewtype};
 
-use super::{BotDriver, BotRuntime, DriverKind, IncomingMsg};
+use super::{BotDriver, BotRuntime, DriverKind, DriverRegistry, IncomingMsg};
 use crate::error::{AppError, AppResult};
 use crate::llm::{ChatMessage, LlmClient};
 
@@ -133,6 +131,7 @@ pub fn format_message_line(name: &str, text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use deltachat::message::Viewtype::*;
 
     #[test]

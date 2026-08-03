@@ -1033,9 +1033,9 @@ impl Db {
             let row = c.query_row(
                 "SELECT config_json FROM bots WHERE owner_account_id = ?1 AND id = ?2",
                 params![owner_account_id, bot_id],
-                |row| row.get(0),
+                |row| row.get::<_, Option<String>>(0),
             ).optional()?;
-            Ok(row)
+            Ok(row.flatten())
         })
         .await?
     }
@@ -1082,9 +1082,9 @@ impl Db {
         tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
             let c = conn.blocking_lock();
             let row = c
-                .query_row("SELECT config_json FROM bots WHERE id = ?1", params![bot_id], |row| row.get(0))
+                .query_row("SELECT config_json FROM bots WHERE id = ?1", params![bot_id], |row| row.get::<_, Option<String>>(0))
                 .optional()?;
-            Ok(row)
+            Ok(row.flatten())
         })
         .await?
     }

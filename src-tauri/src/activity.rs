@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::sync::Mutex as StdMutex;
 
 use crate::db::Db;
 use crate::dto::BotActivityDto;
@@ -64,6 +63,7 @@ impl ActivityLog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex as StdMutex;
 
     async fn test_db() -> (tempfile::TempDir, Arc<Db>) {
         let tmp = tempfile::tempdir().unwrap();

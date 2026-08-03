@@ -312,7 +312,7 @@ fn default_reply_interval() -> u64 {
 }
 
 /// 结构化 LLM 驱动配置(旧 LlmConfigInput 的超集)。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LlmConfig {
     pub system_prompt: Option<String>,
     pub base_url: Option<String>,
@@ -357,7 +357,7 @@ impl From<LlmConfigInput> for LlmConfig {
 }
 
 /// Bot 运行时限额。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BotLimits {
     #[serde(default = "default_max_concurrent")]
     pub max_concurrent: u32,
@@ -375,7 +375,7 @@ impl Default for BotLimits {
 }
 
 /// Bot 完整配置(存于 bots.config_json)。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct BotConfig {
     #[serde(default)]
     pub llm: Option<LlmConfig>,
@@ -405,6 +405,10 @@ impl BotConfig {
             provider: Option<String>,
         }
         let legacy: Legacy = serde_json::from_str(s).ok()?;
+        // 需要旧格式证据(base_url/api_key/model 任一存在),避免把任意 JSON 误判为旧配置
+        if legacy.base_url.is_none() && legacy.api_key.is_none() && legacy.model.is_none() {
+            return None;
+        }
         Some(BotConfig {
             llm: Some(LlmConfig {
                 system_prompt: legacy.system_prompt,

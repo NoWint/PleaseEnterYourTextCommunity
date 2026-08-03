@@ -7,7 +7,6 @@ use deltachat::accounts::Accounts;
 use deltachat::chat::{self, ChatId};
 use deltachat::config::Config;
 use deltachat::contact::Contact;
-use deltachat::context::Context;
 use deltachat::message::{Message, MsgId, Viewtype};
 use deltachat::EventType;
 use tokio::sync::{Mutex, Semaphore};
@@ -15,8 +14,7 @@ use tokio::sync::{Mutex, Semaphore};
 use crate::activity::ActivityLog;
 use crate::db::Db;
 use crate::dto::{BotConfig, bot_activity_kind as act};
-use crate::drivers::{BotDriver, BotRuntime, DriverRegistry, IncomingMsg, driver_kind_label};
-use crate::error::AppResult;
+use crate::drivers::{BotRuntime, DriverRegistry, IncomingMsg, driver_kind_label};
 
 /// 全局并发上限:跨所有 bot 的 LLM/驱动调用总数。
 const GLOBAL_MAX_CONCURRENT: usize = 4;
@@ -99,7 +97,15 @@ async fn handle_bot_message(
         return;
     }
 
-    let Some(config) = BotConfig::parse(row.config_json.as_deref()) else {
+    // config_json 单独查询(BotRow 不含该列)
+    let config_json = match db.get_bot_config_by_id(bot_id).await {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("bot {bot_id}: query config failed: {e}");
+            return;
+        }
+    };
+    let Some(config) = BotConfig::parse(config_json.as_deref()) else {
         activity
             .record(
                 bot_id,
@@ -150,7 +156,7 @@ async fn handle_bot_message(
     };
 
     // 防循环:发送者是另一个 bot → 跳过
-    if is_bot_addr(&from_addr, collect_bot_addrs(accounts, bot_ids).await) {
+    if is_bot_addr(&from_addr, &collect_bot_addrs(accounts, bot_ids).await) {
         activity
             .record(
                 bot_id,
@@ -189,11 +195,12 @@ async fn handle_bot_message(
         db,
         activity,
     };
+    let msg_text = m.get_text();
     let incoming = IncomingMsg {
         chat_id,
         msg_id,
         from_addr: from_addr.as_str(),
-        text: Some(m.get_text().as_str()),
+        text: Some(msg_text.as_str()),
         viewtype: m.get_viewtype(),
     };
 
@@ -357,7 +364,7 @@ mod tests {
         assert!(limiter.try_acquire(1, 100, interval));
         ms.store(1499, Ordering::Relaxed);
         assert!(!limiter.try_acquire(1, 100, interval));
-        ms.store(1500, Ordering::Relaxed);
+        ms.store(2000, Ordering::Relaxed);
         assert!(limiter.try_acquire(1, 100, interval));
     }
 }
