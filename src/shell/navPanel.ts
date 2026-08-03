@@ -1,6 +1,7 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
+import { escapeHtml as esc } from '../components/escape.js';
 import type { ChannelDto, Page, SpaceType } from '../types.js';
 
 export async function refreshChannels(): Promise<void> {
@@ -201,14 +202,4 @@ export async function renderMain(): Promise<void> {
   } catch {
     main.innerHTML = `<div class="empty">聊天视图加载失败</div>`;
   }
-}
-
-function esc(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[c]!);
 }

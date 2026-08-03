@@ -92,12 +92,12 @@ html { background: var(--bg); }
   width: 100%; padding: 32px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
 }
-.login-form input, .login-form select, .login-form button {
+.login-form .ui-input, .login-form .ui-select, .login-form .ui-button {
   padding: 13px 14px; border: 1px solid var(--border-strong); border-radius: 8px;
   background: var(--panel); color: var(--text); font-size: var(--font-scale-body); font-family: var(--font);
 }
-.login-form button { cursor: pointer; background: var(--text); color: var(--on-accent); border-color: var(--text); }
-.login-form button:disabled { opacity: 0.5; cursor: default; }
+.login-form .ui-button { cursor: pointer; background: var(--text); color: var(--on-accent); border-color: var(--text); }
+.login-form .ui-button:disabled { opacity: 0.5; cursor: default; }
 
 /* 登录页 tab 切换（快速开始 / 邮箱登录）*/
 .login-form .tabs {
