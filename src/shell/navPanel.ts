@@ -100,11 +100,6 @@ export async function renderMain(): Promise<void> {
   const main = document.getElementById('chat-main');
   if (!main) return;
 
-  // macOS 顶栏:离开聊天页时清空聊天工具按钮(避免残留悬浮在其它页面顶部)
-  if (state.currentPage !== 'messages' && state.currentPage !== 'groups') {
-    void import('../chat/chatView.js').then((m) => m.clearChatToolbar?.()).catch(() => {});
-  }
-
   // 离开消息/群聊页时释放麦克风(录音中切到 settings/work 等会持续占用)
   if (state.currentPage !== 'messages' && state.currentPage !== 'groups') {
     void import('../chat/composer.js').then((m) => m.cleanupVoiceRecorder()).catch(() => {});

@@ -109,8 +109,6 @@ export function renderRightDrawer(): void {
     renderRightDrawer();
   });
   void renderRdBody();
-  // macOS 顶栏:抽屉宽度变化后重定位聊天工具按钮(chatView.repositionChatToolbar)
-  void import('../chat/chatView.js').then((m) => m.repositionChatToolbar?.());
 }
 
 // 同步 chat-header 的 members/pin 按钮 active 态,使与抽屉当前 tab 一致
