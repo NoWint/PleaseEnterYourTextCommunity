@@ -32,6 +32,28 @@ pub struct BotActivityRow {
     pub created_at: i64,
 }
 
+/// bot_schedules 表行结构。
+pub struct BotScheduleRow {
+    pub id: i64,
+    pub bot_id: i64,
+    pub chat_id: u32,
+    pub minute: i32,
+    pub hour: i32,
+    pub day_of_week: i32,
+    pub message: String,
+    pub enabled: bool,
+    pub next_run_at: i64,
+    pub created_at: i64,
+}
+
+/// bot_plugin_tools 表行结构。
+pub struct PluginToolRow {
+    pub name: String,
+    pub description: String,
+    pub parameters: String,
+    pub created_at: i64,
+}
+
 pub struct Db {
     pub conn: Arc<Mutex<Connection>>,
 }
@@ -162,7 +184,26 @@ impl Db {
                     detail_json TEXT,
                     created_at INTEGER NOT NULL
                 );
-                CREATE INDEX IF NOT EXISTS idx_bot_activities_bot ON bot_activities(bot_id, created_at DESC);",
+                CREATE INDEX IF NOT EXISTS idx_bot_activities_bot ON bot_activities(bot_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS bot_schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bot_id INTEGER NOT NULL,
+                    chat_id INTEGER NOT NULL,
+                    minute INTEGER NOT NULL DEFAULT -1,
+                    hour INTEGER NOT NULL DEFAULT -1,
+                    day_of_week INTEGER NOT NULL DEFAULT -1,
+                    message TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    next_run_at INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_bot_schedules_due ON bot_schedules(next_run_at);
+                CREATE TABLE IF NOT EXISTS bot_plugin_tools (
+                    name TEXT PRIMARY KEY,
+                    description TEXT NOT NULL,
+                    parameters TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );",
             )?;
             Ok(())
         })
@@ -1149,6 +1190,192 @@ impl Db {
         })
         .await?
     }
+
+    // ── Bot 定时消息 ──────────────────────────────────────────────────────
+
+    pub async fn insert_bot_schedule(
+        &self,
+        bot_id: i64,
+        chat_id: u32,
+        minute: i32,
+        hour: i32,
+        day_of_week: i32,
+        message: &str,
+        next_run_at: i64,
+    ) -> AppResult<i64> {
+        let conn = self.conn.clone();
+        let message = message.to_string();
+        let created_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<i64> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO bot_schedules (bot_id, chat_id, minute, hour, day_of_week, message, enabled, next_run_at, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)",
+                params![bot_id, chat_id, minute, hour, day_of_week, message, next_run_at, created_at],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await?
+    }
+
+    pub async fn list_bot_schedules(&self, bot_id: i64) -> AppResult<Vec<BotScheduleRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<BotScheduleRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, bot_id, chat_id, minute, hour, day_of_week, message, enabled, next_run_at, created_at
+                 FROM bot_schedules WHERE bot_id = ?1 ORDER BY id",
+            )?;
+            let rows = stmt.query_map(params![bot_id], |r| {
+                Ok(BotScheduleRow {
+                    id: r.get(0)?,
+                    bot_id: r.get(1)?,
+                    chat_id: r.get::<_, i64>(2)? as u32,
+                    minute: r.get(3)?,
+                    hour: r.get(4)?,
+                    day_of_week: r.get(5)?,
+                    message: r.get(6)?,
+                    enabled: r.get::<_, i64>(7)? != 0,
+                    next_run_at: r.get(8)?,
+                    created_at: r.get(9)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    pub async fn get_bot_schedule(&self, id: i64) -> AppResult<Option<BotScheduleRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<BotScheduleRow>> {
+            let c = conn.blocking_lock();
+            let row = c
+                .query_row(
+                    "SELECT id, bot_id, chat_id, minute, hour, day_of_week, message, enabled, next_run_at, created_at
+                     FROM bot_schedules WHERE id = ?1",
+                    params![id],
+                    |r| {
+                        Ok(BotScheduleRow {
+                            id: r.get(0)?,
+                            bot_id: r.get(1)?,
+                            chat_id: r.get::<_, i64>(2)? as u32,
+                            minute: r.get(3)?,
+                            hour: r.get(4)?,
+                            day_of_week: r.get(5)?,
+                            message: r.get(6)?,
+                            enabled: r.get::<_, i64>(7)? != 0,
+                            next_run_at: r.get(8)?,
+                            created_at: r.get(9)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(row)
+        })
+        .await?
+    }
+
+    pub async fn delete_bot_schedule(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM bot_schedules WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 查询到期的定时消息:enabled=1 且 next_run_at <= now。
+    pub async fn list_due_schedules(&self, now: i64) -> AppResult<Vec<BotScheduleRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<BotScheduleRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, bot_id, chat_id, minute, hour, day_of_week, message, enabled, next_run_at, created_at
+                 FROM bot_schedules WHERE enabled = 1 AND next_run_at <= ?1 ORDER BY next_run_at",
+            )?;
+            let rows = stmt.query_map(params![now], |r| {
+                Ok(BotScheduleRow {
+                    id: r.get(0)?,
+                    bot_id: r.get(1)?,
+                    chat_id: r.get::<_, i64>(2)? as u32,
+                    minute: r.get(3)?,
+                    hour: r.get(4)?,
+                    day_of_week: r.get(5)?,
+                    message: r.get(6)?,
+                    enabled: r.get::<_, i64>(7)? != 0,
+                    next_run_at: r.get(8)?,
+                    created_at: r.get(9)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    pub async fn set_schedule_next_run(&self, id: i64, next_run_at: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("UPDATE bot_schedules SET next_run_at = ?2 WHERE id = ?1", params![id, next_run_at])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    // ── 插件工具 ──────────────────────────────────────────────────────────
+
+    /// 注册或更新插件工具(以 name 为主键,INSERT OR REPLACE 覆盖)。
+    pub async fn upsert_plugin_tool(&self, name: &str, description: &str, parameters: &str, created_at: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let name = name.to_string();
+        let description = description.to_string();
+        let parameters = parameters.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT OR REPLACE INTO bot_plugin_tools (name, description, parameters, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![name, description, parameters, created_at],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn delete_plugin_tool(&self, name: &str) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let name = name.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM bot_plugin_tools WHERE name = ?1", params![name])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn list_plugin_tools(&self) -> AppResult<Vec<PluginToolRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<PluginToolRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT name, description, parameters, created_at FROM bot_plugin_tools ORDER BY name",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(PluginToolRow {
+                    name: r.get(0)?,
+                    description: r.get(1)?,
+                    parameters: r.get(2)?,
+                    created_at: r.get(3)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
 }
 
 #[cfg(test)]
@@ -1423,5 +1650,88 @@ mod tests {
         let limited = db.list_bot_activities(5, 2).await.unwrap();
         assert_eq!(limited.len(), 2);
         assert!(db.list_bot_activities(99, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_schedule_crud_and_due() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let id1 = db.insert_bot_schedule(9, 3, 30, 9, -1, "每天 9:30 打卡", 100).await.unwrap();
+        let id2 = db.insert_bot_schedule(9, 3, -1, -1, -1, "一次性提醒", 200).await.unwrap();
+        assert!(id1 > 0 && id2 > 0);
+
+        // list 按 bot_id 过滤
+        let list = db.list_bot_schedules(9).await.unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list.iter().all(|s| s.bot_id == 9));
+        assert_eq!(list[0].message, "每天 9:30 打卡");
+        assert!(list[0].enabled);
+        assert_eq!(list[1].day_of_week, -1);
+
+        // 非本 bot 查不到
+        assert!(db.list_bot_schedules(99).await.unwrap().is_empty());
+
+        // get
+        let row = db.get_bot_schedule(id1).await.unwrap().unwrap();
+        assert_eq!(row.id, id1);
+        assert_eq!(row.minute, 30);
+        assert_eq!(row.hour, 9);
+        assert!(db.get_bot_schedule(9999).await.unwrap().is_none());
+
+        // due 查询:now=100 → id1 到期,id2(200)未到期
+        let due = db.list_due_schedules(100).await.unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].id, id1);
+
+        // set_next_run 后不再 due
+        db.set_schedule_next_run(id1, 99999).await.unwrap();
+        assert!(db.list_due_schedules(100).await.unwrap().is_empty());
+
+        // delete → empty
+        db.delete_bot_schedule(id1).await.unwrap();
+        db.delete_bot_schedule(id2).await.unwrap();
+        assert!(db.list_bot_schedules(9).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_schedule_due_ignores_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let id = db.insert_bot_schedule(9, 3, -1, -1, -1, "提醒", 10).await.unwrap();
+        let conn = db.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("UPDATE bot_schedules SET enabled = 0 WHERE id = ?1", params![id])?;
+            Ok(())
+        }).await.unwrap();
+        assert!(db.list_due_schedules(10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_plugin_tool_upsert_list_delete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        // upsert 两次,同名覆盖更新
+        db.upsert_plugin_tool("webhook", "触发 webhook", "{\"type\":\"object\"}", 1000).await.unwrap();
+        db.upsert_plugin_tool("webhook", "触发 webhook v2", "{\"type\":\"object\",\"v\":2}", 2000).await.unwrap();
+        db.upsert_plugin_tool("calc", "计算", "{\"type\":\"object\"}", 1500).await.unwrap();
+
+        let list = db.list_plugin_tools().await.unwrap();
+        assert_eq!(list.len(), 2);
+        let webhook = list.iter().find(|t| t.name == "webhook").unwrap();
+        assert_eq!(webhook.description, "触发 webhook v2");
+        assert_eq!(webhook.parameters, "{\"type\":\"object\",\"v\":2}");
+        assert_eq!(webhook.created_at, 2000);
+
+        // delete → empty
+        db.delete_plugin_tool("webhook").await.unwrap();
+        db.delete_plugin_tool("calc").await.unwrap();
+        assert!(db.list_plugin_tools().await.unwrap().is_empty());
     }
 }
