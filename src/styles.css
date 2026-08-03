@@ -962,13 +962,14 @@ html.window-overlay .wb-controls { display: none; }
 /* toast */
 .toast {
   position: fixed;
-  top: 20px;
+  top: 48px;
   left: 50%;
   transform: translateX(-50%);
   background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%);
   color: var(--text);
   padding: var(--space-2) var(--space-4);
-  font-size: var(--font-scale-secondary);
+  /* 字号随设置页字号体系(基础档 13px → 大档更高),而非次级小号 */
+  font-size: var(--font-scale-body);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   opacity: 0;
