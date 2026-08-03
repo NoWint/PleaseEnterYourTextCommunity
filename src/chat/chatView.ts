@@ -1,6 +1,6 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
-import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache } from './message.js';
+import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache, type GroupRole } from './message.js';
 import { renderComposer } from './composer.js';
 import { renderRightDrawer } from '../shell/rightDrawer.js';
 import { saveState } from '../persist.js';
@@ -25,6 +25,11 @@ interface ReplyEventDetail {
 type LegacyState = AppState & { homeMode?: boolean };
 
 let loadingEarlier = false;
+
+// 并发守卫:递增 token。renderVisibleMessages 里 await 会让多个调用交错,
+// 后发的更新看到的前置调用若已过时(stale),会覆盖 DOM。
+// 每次新调用递增 renderToken 并捕获当前值,await 后仅当 token 仍是本次调用才写入 DOM。
+let renderToken = 0;
 
 // Task 12: 当前 chat 的未读消息数,用于在 renderVisibleMessages 中插入"新消息"分隔线。
 // 在 renderChatView 中拉取一次(mark_chat_noticed 之前),供后续虚拟化重渲染复用。
@@ -234,12 +239,33 @@ async function refreshMessages(chatId: number): Promise<void> {
     box.appendChild(ui.empty('这个频道还没有消息,发第一条吧'));
     return;
   }
-  // Task 11: 虚拟化渲染 — 初始展示底部(最新消息)范围,spacers 撑住总高度,
-  // bindMessageActions 由 renderVisibleMessages 内部对 temp 容器调用。
+  // 增量更新依赖两个常驻 spacer 撑住总高度(scrollTop 由浏览器维护),
+  // 初始渲染前先确保它们存在并设置高度。
+  ensureSpacers(box, 0, msgs.length, msgs.length);
+  // Task 11: 虚拟化渲染 — 初始展示底部(最新消息)范围。
   const end = msgs.length;
   const start = Math.max(0, end - VIEWPORT - 2 * BUFFER);
   await renderVisibleMessages(box, start, end);
   box.scrollTop = box.scrollHeight;
+}
+
+// 确保 box 首/末各有一个 spacer(spacerTop / spacerBottom),并设置估算高度。
+// 增量更新全程保持这两个节点常驻,scrollHeight 才恒定。
+function ensureSpacers(box: HTMLElement, start: number, end: number, total: number): void {
+  let top = box.querySelector<HTMLElement>('.msg-spacer-top');
+  if (!top) {
+    top = document.createElement('div');
+    top.className = 'msg-spacer-top';
+    box.insertBefore(top, box.firstChild);
+  }
+  let bottom = box.querySelector<HTMLElement>('.msg-spacer-bottom');
+  if (!bottom) {
+    bottom = document.createElement('div');
+    bottom.className = 'msg-spacer-bottom';
+    box.appendChild(bottom);
+  }
+  top.style.height = (start * ITEM_HEIGHT) + 'px';
+  bottom.style.height = ((total - end) * ITEM_HEIGHT) + 'px';
 }
 
 async function loadEarlier(chatId: number): Promise<void> {
@@ -300,34 +326,33 @@ function getVisibleRange(scrollTop: number, clientHeight: number, itemHeight: nu
 // 落在 [start, end) 内,在对应消息前插入"新消息"分隔线。divider 不计入 visible 消息计数,
 // 是消息之间的额外 DOM 元素。若 dividerIndex 在可视范围外则跳过(用户滚动到时再出现)。
 //
-// Task 14 修复:原实现在 await renderMessage 之前就 `box.innerHTML = ""`,
-// 浏览器在 await 期间绘制空容器 + 仅 spacerTop → 用户看到闪烁;
-// 且清空后 scrollTop 被钳位为 0,新内容渲染后未恢复 → 跳到最早消息。
-// 现改为:先在 off-DOM temp 中构建完整内容(含 awaits),再同步原子替换 box 子节点,
-// 并在替换前后保存/恢复 scrollTop。
+// 虚拟化渲染核心。增量更新:滚动时只把【滚出窗口】的节点从 DOM 移除、
+// 把【滚进窗口】的插入到正确位置,窗口内已存在的节点一个都不动。
+// 这样 scrollHeight 全程不变,scrollTop 完全由浏览器维护 —— 不需要任何手动
+// 恢复 scrollTop,也就从根本上避免"渲染完被拉回旧位置"(整体替换的必然代价)。
 async function renderVisibleMessages(box: HTMLElement, start: number, end: number): Promise<void> {
+  // 并发守卫:本次渲染捕获递增 token,await 期间若有更新的调用推进 token,
+  // 则本次(过时)直接放弃写入,避免 stale 数据覆盖 DOM。
+  const token = ++renderToken;
   const visible = state.messages.slice(start, end);
-  const savedScrollTop = box.scrollTop;
 
-  // 增量更新:按 data-msg 复用已存在节点,只新建缺失的,越界的随整体替换移除。
-  // 滚动时大多数消息已在 DOM,复用避免重建 → 消除闪动 (apple-design §11)。
+  const dividerIndex = (currentChatUnread > 0 && state.messages.length >= currentChatUnread)
+    ? state.messages.length - currentChatUnread
+    : -1;
+
+  // 现状盘点:box 里已有的所有带 data-msg 的节点,按 data-msg → element 记录。
   const existing = new Map<number, HTMLElement>();
   for (const el of Array.from(box.children)) {
     const msgId = (el as HTMLElement).dataset?.msg;
     if (msgId) existing.set(Number(msgId), el as HTMLElement);
   }
 
-  const dividerIndex = (currentChatUnread > 0 && state.messages.length >= currentChatUnread)
-    ? state.messages.length - currentChatUnread
-    : -1;
+  // 锚点:新节点插入到哪个节点之前。spacerTop 永远在最前、spacerBottom 永远在最后,
+  // 所以初值设为 spacerBottom —— 新节点插在它之前(append 到滚动条内)。
+  // 遍历过程中 anchor 持续推进,保持消息顺序。
+  let anchor: HTMLElement | null = box.querySelector<HTMLElement>('.msg-spacer-bottom');
 
-  // 在 off-DOM temp 组装新序列:spacerTop + 分隔线 + 消息节点(spacerBottom 末尾)。
-  // 已存在的消息节点直接移动(不重建),缺失的新建。
-  const temp = document.createElement('div');
-  const spacerTop = document.createElement('div');
-  spacerTop.style.height = (start * ITEM_HEIGHT) + 'px';
-  temp.appendChild(spacerTop);
-
+  // 依次保证 [start, end) 每条消息都在 DOM 中且顺序正确。
   let prevDate: string | null = null;
   if (start > 0 && state.messages.length > 0) {
     prevDate = formatDate(new Date(state.messages[start - 1].ts * 1000));
@@ -336,25 +361,24 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
   for (let i = 0; i < visible.length; i++) {
     const absIdx = start + i;
     const m = visible[i];
-    if (absIdx === dividerIndex) {
-      const d = document.createElement('div');
-      d.className = 'msg-unread-divider';
-      d.innerHTML = `<span class="divider-line"></span><span class="divider-label">新消息</span><span class="divider-line"></span>`;
-      temp.appendChild(d);
-    }
     const dateStr = formatDate(new Date(m.ts * 1000));
+
+    // 需要插一个日期分隔线吗?找它是否已在 DOM(用 data-date 标记)。
     if (dateStr !== prevDate) {
-      const d = document.createElement('div');
-      d.className = 'msg-date-divider';
-      d.textContent = dateStr;
-      temp.appendChild(d);
+      anchor = ensureDivider(box, dateStr, anchor);
       prevDate = dateStr;
     }
+    if (absIdx === dividerIndex) {
+      anchor = ensureDivider(box, '新消息', anchor, 'msg-unread-divider');
+    }
+
     const existingEl = existing.get(m.msg_id);
     if (existingEl) {
-      // 复用已存在节点:移动而非重建,消除滚动闪动
-      temp.appendChild(existingEl);
+      // 已在 DOM:只修正分组角色,位置不动(浏览器按文档流天然对)。
+      applyGroupRole(m, visible, i, absIdx, dividerIndex, dateStr, existingEl);
+      anchor = existingEl.nextElementSibling as HTMLElement | null;
     } else {
+      // 不在 DOM:新建并插入到 anchor 之前。
       const isPending = m.state === 'pending' || m.state === 'failed';
       const prevIsSame = (visible[i - 1]?.from_id === m.from_id) && !isPending
         && (visible[i - 1]?.state !== 'pending' && visible[i - 1]?.state !== 'failed')
@@ -364,7 +388,7 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
         && (visible[i + 1]?.state !== 'pending' && visible[i + 1]?.state !== 'failed')
         && formatDate(new Date((visible[i + 1]?.ts ?? 0) * 1000)) === dateStr
         && (absIdx + 1) !== dividerIndex;
-      const role: 'solo' | 'first' | 'middle' | 'last' =
+      const role: GroupRole =
         !prevIsSame && !nextIsSame ? 'solo'
         : !prevIsSame && nextIsSame ? 'first'
         : prevIsSame && !nextIsSame ? 'last'
@@ -374,24 +398,95 @@ async function renderVisibleMessages(box: HTMLElement, start: number, end: numbe
       const node = frag.firstElementChild as HTMLElement;
       if (node) {
         bindMessageActions(frag);
-        // 新建消息:入场动画(pop-in)。滚动复用的节点不带此类,不重复动画。
         node.classList.add('msg-enter');
-        temp.appendChild(node);
+        node.addEventListener('animationend', () => node.classList.remove('msg-enter'), { once: true });
+        box.insertBefore(node, anchor);
+        anchor = node.nextElementSibling as HTMLElement | null;
       }
     }
   }
 
-  const spacerBottom = document.createElement('div');
-  spacerBottom.style.height = ((state.messages.length - end) * ITEM_HEIGHT) + 'px';
-  temp.appendChild(spacerBottom);
+  // await 之后先检查并发 token:若已有更新的渲染,放弃本次(避免 stale 覆盖)
+  if (token !== renderToken) return;
 
-  // 原子替换:temp 新序列整体替换 box 内容(同一 tick,浏览器只绘制一次)
-  box.innerHTML = '';
-  while (temp.firstChild) box.appendChild(temp.firstChild);
-
-  if (box.scrollTop !== savedScrollTop) {
-    box.scrollTop = savedScrollTop;
+  // 移除滚出窗口的节点:遍历 box 子元素,把带 data-msg 但不在 visible 集合里的删掉。
+  // 注意:不删 spacerTop/spacerBottom/日期分隔线/未读分隔线(它们由下轮渲染负责)。
+  const keep = new Set(visible.map((m) => m.msg_id));
+  for (const el of Array.from(box.children)) {
+    const msgId = (el as HTMLElement).dataset?.msg;
+    if (msgId && !keep.has(Number(msgId))) {
+      el.remove();
+    }
   }
+
+  // 更新两个 spacer 的高度(反映 [0,start) 与 [end,total) 的估算高度)。
+  // spacerTop 必为 box 首子元素、spacerBottom 必为末子元素。
+  const spacerTop = box.querySelector<HTMLElement>('.msg-spacer-top');
+  const spacerBottom = box.querySelector<HTMLElement>('.msg-spacer-bottom');
+  if (spacerTop) spacerTop.style.height = (start * ITEM_HEIGHT) + 'px';
+  if (spacerBottom) spacerBottom.style.height = ((state.messages.length - end) * ITEM_HEIGHT) + 'px';
+
+  // 注意:不手动恢复 scrollTop —— scrollHeight 全程没变(增量更新),浏览器位置自然正确。
+}
+
+// 确保某个日期/未读分隔线节点在 DOM 中,返回其 nextElementSibling 作为下一个插入锚点。
+// 已存在则复用,不存在则新建并插到 anchor 之前。
+function ensureDivider(
+  box: HTMLElement,
+  key: string,
+  anchor: HTMLElement | null,
+  className = 'msg-date-divider',
+): HTMLElement | null {
+  const keyAttr = className === 'msg-date-divider' ? 'data-date' : 'data-unread';
+  const existingDiv = box.querySelector<HTMLElement>(`.${className}[${keyAttr}="${CSS.escape(key)}"]`);
+  let div: HTMLElement;
+  if (existingDiv) {
+    div = existingDiv;
+  } else {
+    div = document.createElement('div');
+    div.className = className;
+    div.setAttribute(keyAttr, key);
+    if (className === 'msg-date-divider') {
+      div.textContent = key;
+    } else {
+      div.innerHTML = `<span class="divider-line"></span><span class="divider-label">新消息</span><span class="divider-line"></span>`;
+    }
+    box.insertBefore(div, anchor);
+  }
+  return div.nextElementSibling as HTMLElement | null;
+}
+
+// 修正复用节点的分组角色:邻居变化后(追加/前插/分隔线移入),边界气泡的
+// msg-group-* / collapsed 状态会过期。只在角色不同时重写类,避免抖动。
+function applyGroupRole(
+  m: MsgDto,
+  visible: MsgDto[],
+  i: number,
+  absIdx: number,
+  dividerIndex: number,
+  dateStr: string,
+  el: HTMLElement,
+): void {
+  const isPending = m.state === 'pending' || m.state === 'failed';
+  const prevIsSame = (visible[i - 1]?.from_id === m.from_id) && !isPending
+    && (visible[i - 1]?.state !== 'pending' && visible[i - 1]?.state !== 'failed')
+    && formatDate(new Date((visible[i - 1]?.ts ?? 0) * 1000)) === dateStr
+    && (absIdx - 1) !== dividerIndex;
+  const nextIsSame = (visible[i + 1]?.from_id === m.from_id) && !isPending
+    && (visible[i + 1]?.state !== 'pending' && visible[i + 1]?.state !== 'failed')
+    && formatDate(new Date((visible[i + 1]?.ts ?? 0) * 1000)) === dateStr
+    && (absIdx + 1) !== dividerIndex;
+  const role: GroupRole =
+    !prevIsSame && !nextIsSame ? 'solo'
+    : !prevIsSame && nextIsSame ? 'first'
+    : prevIsSame && !nextIsSame ? 'last'
+    : 'middle';
+
+  for (const r of ['solo', 'first', 'middle', 'last'] as const) {
+    el.classList.remove(`msg-group-${r}`, 'collapsed');
+  }
+  if (role !== 'solo') el.classList.add('collapsed');
+  el.classList.add(`msg-group-${role}`);
 }
 
 function formatDate(d: Date): string {

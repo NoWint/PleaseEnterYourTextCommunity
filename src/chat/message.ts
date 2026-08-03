@@ -92,6 +92,8 @@ export function stateLabel(s: MsgState): string {
     case 'delivered': return ico('check');
     case 'read': return ico('check-check');
     case 'failed': return ico('alert-circle');
+    // 乐观消息(发送中)没有 state 字段,fallback 到 pending(时钟)
+    default: return ico('clock');
   }
 }
 
@@ -374,11 +376,14 @@ async function renderReactions(msgId: number): Promise<string> {
 // Input: get_reactions return array. Output: inner capsules HTML (without .msg-reactions wrapper).
 export function renderReactionsHtml(reactions: Reaction[] | null, msgId: number): string {
   if (!reactions || reactions.length === 0) return '';
-  // 反应 = 原生 emoji:直接渲染 emoji 文本 + 计数,与 Delta Chat 互通。
-  return reactions.map((r) => {
-    const count = r.count > 1 ? `<span class="msg-reaction-count">${r.count}</span>` : '';
-    return `<span class="msg-reaction" data-msg="${msgId}" data-emoji="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji.trim())}${count}</span>`;
-  }).join('');
+  return reactions.map((r) => renderReactionCapsule(r, msgId)).join('');
+}
+
+// 单个反应胶囊 HTML。refreshMsgReactions 用它对已有胶囊做 diff 更新:
+// 已存在的胶囊只改计数不重建,避免重播 reaction-pop-in 动画 → 反应闪烁。
+export function renderReactionCapsule(r: Reaction, msgId: number): string {
+  const count = r.count > 1 ? `<span class="msg-reaction-count">${r.count}</span>` : '';
+  return `<span class="msg-reaction" data-msg="${msgId}" data-emoji="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji.trim())}${count}</span>`;
 }
 export function bindMessageActions(container: HTMLElement): void {
   // Reaction toggle (click existing reaction capsule)
@@ -503,6 +508,11 @@ export function bindMessageActions(container: HTMLElement): void {
 // Toggle reaction picker visibility for a message (close others first)
 // 发送反应 (react 快捷按钮 / picker 选项共用)
 async function sendReaction(msgIdStr: string, emoji: string): Promise<void> {
+  // 乐观消息(tmp_ 前缀)尚无真实 msg_id,后端无法发反应,直接提示
+  if (msgIdStr.startsWith('tmp_')) {
+    showToast('消息发送中,稍后可回应');
+    return;
+  }
   try {
     await call('send_reaction', { chatId: state.currentChatId, msgId: Number(msgIdStr), emoji });
   } catch (err) {

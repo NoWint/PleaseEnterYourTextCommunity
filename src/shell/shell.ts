@@ -7,7 +7,7 @@ import { renderRightDrawer } from './rightDrawer.js';
 import { bindColumnResizers } from './columnResizer.js';
 import { loadState, saveState } from '../persist.js';
 import { showToast } from '../toast.js';
-import { stateLabel, updateReactionsCache } from '../chat/message.js';
+import { stateLabel, updateReactionsCache, renderReactionCapsule } from '../chat/message.js';
 import { appendNewMessages } from '../chat/chatView.js';
 import type { MsgState, MsgDto } from '../types.js';
 
@@ -373,11 +373,69 @@ async function refreshMsgReactions(msgId: number): Promise<void> {
     const reactions = await call<Reaction[]>('get_reactions', { msgId });
     // 更新 message.ts 的 reactions 缓存,重渲染时 renderReactions 直接命中
     updateReactionsCache(msgId, reactions);
-    // 移除该消息的 DOM 节点,强制重建(读最新反应缓存),否则虚拟化复用旧节点不更新
-    const oldEl = document.querySelector(`[data-msg="${msgId}"]`);
-    if (oldEl) oldEl.remove();
-    const { refreshVisibleMessages } = await import('../chat/chatView.js');
-    refreshVisibleMessages();
+    const msgEl = document.querySelector(`[data-msg="${msgId}"]`);
+    if (!msgEl) return;
+    const wrap = msgEl.querySelector<HTMLElement>('.msg-reactions');
+
+    // 无反应 → 移除整个 reactions 节点(若有)
+    if (!reactions || reactions.length === 0) {
+      if (wrap) wrap.remove();
+      return;
+    }
+
+    // diff 更新胶囊:已存在的按 emoji 复用(只改计数,不重建 → 不重播动画),
+    // 新增的追加,消失的移除。避免 innerHTML 重建导致每个胶囊 re-pop。
+    const existingCaps = new Map<string, HTMLElement>();
+    if (wrap) {
+      wrap.querySelectorAll<HTMLElement>('.msg-reaction').forEach((c) => {
+        const emoji = c.dataset.emoji || '';
+        existingCaps.set(emoji, c);
+      });
+    }
+    const fragment = wrap ?? document.createElement('div');
+    if (!wrap) fragment.className = 'msg-reactions';
+    for (const r of reactions) {
+      let cap = existingCaps.get(r.emoji);
+      if (cap) {
+        // 复用:更新计数(仅 >1 显示)
+        const countEl = cap.querySelector('.msg-reaction-count');
+        if (r.count > 1) {
+          if (countEl) countEl.textContent = String(r.count);
+          else {
+            const span = document.createElement('span');
+            span.className = 'msg-reaction-count';
+            span.textContent = String(r.count);
+            cap.appendChild(span);
+          }
+        } else if (countEl) {
+          countEl.remove();
+        }
+        existingCaps.delete(r.emoji);
+      } else {
+        // 新增胶囊
+        cap = document.createElement('span');
+        cap.className = 'msg-reaction';
+        cap.dataset.msg = String(msgId);
+        cap.dataset.emoji = r.emoji;
+        cap.innerHTML = renderReactionCapsule(r, msgId);
+        cap.addEventListener('click', async () => {
+          try {
+            await call('send_reaction', { chatId: state.currentChatId, msgId, emoji: r.emoji });
+          } catch (e) {
+            showToast(e instanceof Error ? e.message : String(e));
+          }
+        });
+        fragment.appendChild(cap);
+      }
+    }
+    // 移除已消失的胶囊
+    for (const cap of existingCaps.values()) cap.remove();
+    // 若 reactions 节点原本不存在,插入 bubble 末尾(状态图标之前)
+    if (!wrap) {
+      const stateEl = msgEl.querySelector('.msg-state');
+      if (stateEl) msgEl.insertBefore(fragment, stateEl);
+      else msgEl.appendChild(fragment);
+    }
   } catch {}
 }
 
