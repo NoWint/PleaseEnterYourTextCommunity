@@ -211,6 +211,34 @@ impl BotService {
         })
     }
 
+    /// 启动全部 bot 的 IO(应用级后台服务,不依赖当前账号)。单个 bot 失败只记日志。
+    /// 同时重建 bot_ids 集合并执行「选中账号是 bot 则切回 owner」的自愈。
+    pub async fn start_all(&self) -> AppResult<()> {
+        let rows = self.db.list_all_bots().await?;
+        {
+            let mut ids = self.bot_ids.lock().await;
+            ids.clear();
+            for row in &rows {
+                ids.insert(row.bot_account_id);
+            }
+        }
+        if let Some(owner) = self.ensure_selected_not_bot().await? {
+            log::warn!("selected account was a bot; switched back to owner {owner}");
+        }
+        for row in rows {
+            if let Some(ctx) = self.accounts.lock().await.get_account(row.bot_account_id) {
+                ctx.start_io().await;
+            } else {
+                log::warn!(
+                    "bot {} (account {}) context unavailable, skipping",
+                    row.id,
+                    row.bot_account_id
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// 启动某个用户名下所有 bot 的 IO。单个 bot 失败只记日志，不向外传播。
     pub async fn start_all_for_owner(&self, owner_id: u32) -> AppResult<()> {
         let rows = self.db.list_bots(owner_id).await?;

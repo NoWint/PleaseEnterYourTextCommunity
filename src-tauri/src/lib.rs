@@ -35,13 +35,9 @@ pub fn run() {
                 state.set_current(owner);
                 log::warn!("healed: switched selected account to owner {owner}");
             }
-            // 启动当前用户名下所有 bot 的 IO；失败只记日志，不中断启动
-            if let Some(current_id) = *state.current_id.lock().unwrap() {
-                if let Err(e) =
-                    tauri::async_runtime::block_on(state.bots.start_all_for_owner(current_id))
-                {
-                    log::warn!("failed to start bots for owner {current_id}: {e}");
-                }
+            // 启动全部 bot 的 IO(bot 是应用级后台服务,不依赖当前账号);失败只记日志
+            if let Err(e) = tauri::async_runtime::block_on(state.bots.start_all()) {
+                log::warn!("failed to start bots: {e}");
             }
             // 挂载 LLM 自动回复后台运行时(内部 spawn，单次调用)
             state.bots.spawn_runtime();
@@ -169,6 +165,8 @@ pub fn run() {
             commands::bot_send_text,
             commands::bot_mark_chat_noticed,
             commands::test_llm_config,
+            commands::list_accounts,
+            commands::switch_account,
             commands::add_bot_to_chat,
             // Terminal
             terminal::open_terminal,

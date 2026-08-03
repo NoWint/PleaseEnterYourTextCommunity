@@ -145,6 +145,13 @@ function showUserMenu(anchor: HTMLElement): void {
       },
     },
     {
+      label: '切换账号',
+      icon: 'users',
+      action: () => {
+        void showAccountSwitcher();
+      },
+    },
+    {
       label: '重启',
       icon: 'refresh-cw',
       action: () => {
@@ -166,4 +173,54 @@ function showUserMenu(anchor: HTMLElement): void {
       },
     },
   ], { position: 'top-left' });
+}
+
+// 切换账号:列出全部账号,点击切换后 reload 重建 UI(新选中账号的数据)。
+async function showAccountSwitcher(): Promise<void> {
+  let accounts: Array<{ id: number; name: string; addr: string; is_current: boolean }>;
+  try {
+    accounts = await call('list_accounts');
+  } catch (e) {
+    reportError(e);
+    return;
+  }
+  const { ui } = await import('../components/ui.js');
+  if (accounts.length <= 1) {
+    ui.toast('当前只有一个账号');
+    return;
+  }
+  const list = document.createElement('div');
+  list.style.cssText = 'max-height:320px;overflow-y:auto;display:flex;flex-direction:column';
+  for (const a of accounts) {
+    const item = ui.listItem({
+      title: a.name || a.addr || `账号 ${a.id}`,
+      subtitle: a.addr,
+      onClick: async () => {
+        dlg?.close();
+        if (a.is_current) return;
+        try {
+          await call('switch_account', { id: a.id });
+          location.reload();
+        } catch (e) {
+          reportError(e);
+        }
+      },
+    });
+    if (a.is_current) {
+      item.style.opacity = '0.6';
+      item.style.cursor = 'default';
+      const tag = document.createElement('span');
+      tag.style.cssText = 'font-size:11px;color:var(--text-weak);margin-left:8px';
+      tag.textContent = '当前';
+      item.appendChild(tag);
+    }
+    list.appendChild(item);
+  }
+  let dlg: ReturnType<typeof ui.dialog> | null = null;
+  dlg = ui.dialog({
+    title: '切换账号',
+    actions: [],
+  });
+  const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(list, actionsEl);
 }

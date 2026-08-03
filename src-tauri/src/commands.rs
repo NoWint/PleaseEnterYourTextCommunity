@@ -3012,3 +3012,44 @@ pub async fn add_bot_to_chat(
         .map_err(|e| AppError::Core(format!("bot 加入失败: {e}")))?;
     Ok(())
 }
+
+/// 列出所有账号(含名称/地址),供前端「切换账号」。
+#[tauri::command]
+pub async fn list_accounts(state: State<'_, AppState>) -> AppResult<Vec<crate::dto::AccountInfoDto>> {
+    let accounts = state.accounts.lock().await;
+    let mut out = Vec::new();
+    for id in accounts.get_all() {
+        let Some(ctx) = accounts.get_account(id) else { continue };
+        let name = ctx.get_config(Config::Displayname).await.unwrap_or(None).unwrap_or_default();
+        let addr = ctx.get_config(Config::ConfiguredAddr).await.unwrap_or(None).unwrap_or_default();
+        let is_current = Some(id) == *state.current_id.lock().unwrap();
+        out.push(crate::dto::AccountInfoDto {
+            id,
+            name,
+            addr,
+            is_current,
+        });
+    }
+    Ok(out)
+}
+
+/// 切换到指定账号(选中 + 设 current + 启动 IO)。前端切换后 reload 重建 UI。
+#[tauri::command]
+pub async fn switch_account(state: State<'_, AppState>, id: u32) -> AppResult<crate::dto::AccountInfoDto> {
+    let ctx = {
+        let mut accounts = state.accounts.lock().await;
+        if accounts.get_account(id).is_none() {
+            return Err(AppError::Core("账号不存在".into()));
+        }
+        accounts.select_account(id).await?;
+        accounts.get_account(id)
+    };
+    if let Some(ctx) = ctx {
+        ctx.start_io().await;
+        state.set_current(id);
+        let name = ctx.get_config(Config::Displayname).await.unwrap_or(None).unwrap_or_default();
+        let addr = ctx.get_config(Config::ConfiguredAddr).await.unwrap_or(None).unwrap_or_default();
+        return Ok(crate::dto::AccountInfoDto { id, name, addr, is_current: true });
+    }
+    Err(AppError::Core("账号不可用".into()))
+}
