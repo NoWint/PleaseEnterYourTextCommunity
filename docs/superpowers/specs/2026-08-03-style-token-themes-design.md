@@ -46,6 +46,7 @@
 | token | 含义 | Nowint 默认 |
 |---|---|---|
 | `--theme-texture` | 背景质感 `background-image`（噪点/网格/圆点） | `none` |
+| `--theme-texture-size` | 质感层 `background-size` | `auto` |
 | `--theme-texture-opacity` | 质感层不透明度 | `0` |
 | `--theme-scanlines` | CRT 扫描线叠加层 | `none` |
 
@@ -109,7 +110,7 @@
 
 ### 3.3 Toon（卡通漫画）`toon`
 
-- **颜色**: 高饱和撞色背景（暖黄底 `#FFE156`，或深靛蓝底二选一，实施计划钉死）+ 泡泡糖粉 `#ff4fd8` / 电光蓝 `#2f6bff` 强调
+- **颜色**: 暖黄底 `#FFE156`（实色）+ 泡泡糖粉 `#ff4fd8` / 电光蓝 `#2f6bff` 强调，`--theme-gradient:none`
 - **圆角**: `--radius-*` 超大（`24px`+，接近胶囊）
 - **边框**: `--border-width:3px` 粗描边（黑色描边感）
 - **阴影**: `--shadow-*` 用卡通「掉在地上」式硬阴影（如 `0 6px 0 rgba(0,0,0,.4)`，无模糊）
