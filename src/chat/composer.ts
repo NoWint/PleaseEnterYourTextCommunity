@@ -40,8 +40,10 @@ let mentionItems: Array<{ name: string; type: 'member' | 'channel' }> = [];
 let mentionKind: '@' | '#' | null = null;
 let mentionSelectedIndex = 0;
 let mentionQueryStart = -1;
+// 草稿:输入防抖保存计时器(500ms 后写入后端)
+let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function renderComposer(chatId: number, onSent: () => void): void {
+export async function renderComposer(chatId: number, onSent: () => void): Promise<void> {
   const area = document.getElementById('composer-area');
   if (!area) return;
   // F5:切换 chat 时清理可能残留的 @提及/#频道建议面板 (模块级 mentionList),
@@ -100,6 +102,11 @@ export function renderComposer(chatId: number, onSent: () => void): void {
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     handleMentionInput(input);
     updateSendState();
+    // 草稿:输入防抖 500ms 保存(空文本=清除)
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      void call('set_draft', { chatId, text: input.value });
+    }, 500);
   };
   // keydown — 含 @提及/#频道导航(上下/Enter/Esc)和发送逻辑
   input.onkeydown = async (e) => {
@@ -154,6 +161,16 @@ export function renderComposer(chatId: number, onSent: () => void): void {
       }
     }
   };
+  // 草稿:恢复上次未发送的输入(后端 get_draft),再聚焦
+  try {
+    const draft = await call<string | null>('get_draft', { chatId });
+    if (draft) {
+      input.value = draft;
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+      updateSendState();
+    }
+  } catch {}
   input.focus();
 }
 
@@ -327,6 +344,8 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
       } catch (e) {
         showToast(e instanceof Error ? e.message : String(e));
       }
+      // 草稿:命令输入同样清空后端草稿,避免旧文本残留
+      try { await call('set_draft', { chatId, text: '' }); } catch {}
       if (onSent) await onSent();
       return;
     }
@@ -369,9 +388,14 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
     if (replyTo) {
       await call('send_reply', { chatId, text, quoteMsgId: Number(replyTo) });
       delete area.dataset.replyTo;
-      renderComposer(chatId, onSent);
     } else {
       await call('send_text', { chatId, text });
+    }
+    // 草稿:发送成功即清除后端草稿。回复路径在清除完成后再重新渲染,
+    // 避免 get_draft 与 set_draft 竞态导致恢复出旧的未发送文本。
+    try { await call('set_draft', { chatId, text: '' }); } catch {}
+    if (replyTo) {
+      renderComposer(chatId, onSent);
     }
     // onSent 触发全量刷新(会替换临时消息)
     if (onSent) await onSent();

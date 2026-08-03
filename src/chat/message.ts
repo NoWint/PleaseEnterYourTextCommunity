@@ -491,7 +491,7 @@ export function bindMessageActions(container: HTMLElement): void {
   });
 
   // Task 14: right-click context menu using showDropdown.
-  // Items: copy/reply/pin/convert card/forward/delete(is_out only).
+  // Items: copy/save/reply/pin/convert card/forward/delete(is_out only).
   container.querySelectorAll<HTMLElement>('.msg').forEach((el) => {
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -640,6 +640,18 @@ function showContextMenuAt(
       },
     });
   }
+  items.push({
+    label: '保存消息',
+    icon: 'bookmark',
+    action: async () => {
+      try {
+        await call('save_msg', { msgId });
+        showToast('已保存');
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e));
+      }
+    },
+  });
   items.push({
     label: '回复',
     icon: 'reply',

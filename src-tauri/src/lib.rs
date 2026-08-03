@@ -108,6 +108,12 @@ pub fn run() {
             commands::list_plugins,
             commands::toggle_plugin,
             commands::get_plugin_js,
+            // Delta 对齐批次 1
+            commands::archive_chat,
+            commands::save_msg,
+            commands::unsave_msg,
+            commands::get_draft,
+            commands::set_draft,
             // Terminal
             terminal::open_terminal,
             terminal::write_terminal,

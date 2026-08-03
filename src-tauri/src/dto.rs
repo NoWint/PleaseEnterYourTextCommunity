@@ -29,6 +29,7 @@ pub struct ChatDto {
     pub is_group: bool,
     pub is_contact_request: bool,
     pub is_self_talk: bool,
+    pub is_archived: bool,
     pub last_msg: Option<String>,
     pub last_ts: Option<i64>,
     pub unread: u32,

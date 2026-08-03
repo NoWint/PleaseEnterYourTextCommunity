@@ -7,6 +7,7 @@ import { renderAvatarHtml } from '../components/avatar.js';
 import type { ChatListItem } from '../types.js';
 
 let panel: HTMLElement | null = null;
+let showArchived = false;
 
 export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
   panel = panelEl;
@@ -15,6 +16,7 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
     <div class="nav-header">
       <div class="nav-title">消息</div>
       <div class="nav-subtitle">私聊与群组</div>
+      <button class="nav-archive-toggle" id="messages-archive-toggle" title="切换已归档会话" style="display:inline-flex;align-items:center;background:none;border:none;color:var(--text-weak);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;margin-top:6px;">${showArchived ? '返回消息' : '已归档'}</button>
       <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
     </div>
     <div class="nav-list" id="messages-list"></div>
@@ -30,6 +32,17 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
   await renderMessageList();
   bindAddButton();
   bindUserBar();
+  bindArchiveToggle();
+}
+
+function bindArchiveToggle(): void {
+  const btn = document.getElementById('messages-archive-toggle');
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showArchived = !showArchived;
+    void renderMessagesPage(panel!);
+  });
 }
 
 async function renderMessageList(): Promise<void> {
@@ -43,8 +56,11 @@ async function renderMessageList(): Promise<void> {
   }
   // 按会话类型过滤,而非 chat_id 集合:workspace 主群/频道都是群(排除),
   // 保留单聊(1:1 会话)。用类型判断避免 chat_id 与 securejoin 会话冲突时误伤。
+  // showArchived 分流:已归档视图只看 is_archived 会话,常规视图隐藏它们。
   const messages = chats.filter((c) =>
-    !c.is_group && !c.is_self_talk && !c.is_contact_request
+    showArchived
+      ? c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
+      : !c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
   );
 
   if (messages.length === 0) {
@@ -79,7 +95,7 @@ async function renderMessageList(): Promise<void> {
     if (state.currentChatId === c.chat_id) item.classList.add('active');
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      showChatContextMenu(item, c.chat_id);
+      showChatContextMenu(item, c);
     });
     list.appendChild(item);
   }
@@ -174,15 +190,28 @@ async function joinPeytStudio(): Promise<void> {
   }
 }
 
-function showChatContextMenu(anchor: HTMLElement, id: number): void {
+function showChatContextMenu(anchor: HTMLElement, c: ChatListItem): void {
   ui.menu(anchor, [
     { label: '查看资料', icon: 'user', action: () => ui.toast('查看资料(开发中)') },
+    {
+      label: c.is_archived ? '取消归档' : '归档',
+      icon: 'inbox',
+      action: async () => {
+        try {
+          await call('archive_chat', { chatId: c.chat_id, archive: !c.is_archived });
+          ui.toast(c.is_archived ? '已取消归档' : '已归档');
+          await renderMessagesPage(panel!);
+        } catch (e) {
+          ui.toast(e instanceof Error ? e.message : String(e));
+        }
+      },
+    },
     {
       label: '屏蔽',
       icon: 'volume-x',
       action: async () => {
         try {
-          await call('block_chat', { chatId: id });
+          await call('block_chat', { chatId: c.chat_id });
           ui.toast('已屏蔽');
           await renderMessagesPage(panel!);
         } catch (e) {
@@ -196,8 +225,8 @@ function showChatContextMenu(anchor: HTMLElement, id: number): void {
       danger: true,
       action: async () => {
         try {
-          await call('delete_chat', { chatId: id });
-          if (state.currentChatId === id) {
+          await call('delete_chat', { chatId: c.chat_id });
+          if (state.currentChatId === c.chat_id) {
             state.currentChatId = null;
             saveState();
           }

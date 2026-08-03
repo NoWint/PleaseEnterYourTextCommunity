@@ -1,4 +1,4 @@
-use deltachat::chat::{self, Chat, ChatItem};
+use deltachat::chat::{self, Chat, ChatItem, ChatVisibility};
 use deltachat::context::Context;
 use deltachat::chatlist::Chatlist;
 use deltachat::config::Config;
@@ -263,6 +263,7 @@ pub async fn get_chatlist(state: State<'_, AppState>) -> AppResult<Vec<ChatDto>>
         let is_group = chat.get_type() == Chattype::Group;
         let is_contact_request = chat.is_contact_request();
         let is_self_talk = chat.is_self_talk();
+        let is_archived = chat.get_visibility() == ChatVisibility::Archived;
         let (last_msg, last_ts) = if let Some(msg_id) = list.get_msg_id(i)? {
             let m = message::Message::load_from_db(&ctx, msg_id).await?;
             (Some(m.get_text()), Some(m.get_timestamp()))
@@ -276,6 +277,7 @@ pub async fn get_chatlist(state: State<'_, AppState>) -> AppResult<Vec<ChatDto>>
             is_group,
             is_contact_request,
             is_self_talk,
+            is_archived,
             last_msg,
             last_ts,
             unread,
@@ -2238,5 +2240,83 @@ pub async fn record_inbox_event(
             &summary,
         )
         .await?;
+    Ok(())
+}
+
+// ==== Delta 对齐批次 1 ====
+
+/// 归档/取消归档会话。core 2.58 的 ChatId::set_visibility。
+#[tauri::command]
+pub async fn archive_chat(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    archive: bool,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    let visibility = if archive {
+        ChatVisibility::Archived
+    } else {
+        ChatVisibility::Normal
+    };
+    chat_id.set_visibility(&ctx, visibility).await?;
+    Ok(())
+}
+
+/// 保存消息到 "Saved Messages"（self-talk 会话）。
+#[tauri::command]
+pub async fn save_msg(state: State<'_, AppState>, msg_id: u32) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    chat::save_msgs(&ctx, &[MsgId::new(msg_id)]).await?;
+    Ok(())
+}
+
+/// 取消保存消息（删除 saved 副本）。
+#[tauri::command]
+pub async fn unsave_msg(state: State<'_, AppState>, msg_id: u32) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    message::delete_msgs(&ctx, &[MsgId::new(msg_id)]).await?;
+    Ok(())
+}
+
+/// 读取会话草稿文本。core 2.58 的 ChatId::get_draft。
+#[tauri::command]
+pub async fn get_draft(state: State<'_, AppState>, chat_id: u32) -> AppResult<Option<String>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    let draft = chat_id.get_draft(&ctx).await?;
+    Ok(draft.map(|m| m.get_text().to_string()))
+}
+
+/// 设置会话草稿。空文本 = 清除草稿。
+#[tauri::command]
+pub async fn set_draft(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    text: String,
+) -> AppResult<()> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    if text.trim().is_empty() {
+        chat_id.set_draft(&ctx, None).await?;
+    } else {
+        let mut draft = Message::new_text(text);
+        chat_id.set_draft(&ctx, Some(&mut draft)).await?;
+    }
     Ok(())
 }
