@@ -451,13 +451,13 @@ html { background: var(--bg); }
   display: flex; align-items: center; justify-content: center; z-index: 100;
   animation: ui-fade-in 150ms var(--ease-out);
 }
-/* 弹窗 — 苹果 vibrancy:更透的玻璃 + 强 blur + 主题自适应发丝边缘光 */
+/* 弹窗 — 柔和玻璃:不糊背景色、低饱和、轻边缘光 */
 .ui-dialog {
-  background: color-mix(in srgb, var(--surface) 58%, transparent); backdrop-filter: blur(40px) saturate(180%); -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
+  background: color-mix(in srgb, var(--surface) 84%, transparent); backdrop-filter: blur(28px) saturate(130%); -webkit-backdrop-filter: blur(28px) saturate(130%);
+  border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   border-radius: 18px; padding: 22px; min-width: 320px; max-width: 420px;
   display: flex; flex-direction: column; gap: 16px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.15), 0 28px 60px rgba(0,0,0,0.35);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12), 0 24px 48px rgba(0,0,0,0.30);
   animation: ui-pop-in 180ms var(--ease-out);
   max-height: min(720px, calc(100vh - 48px));
 }
@@ -492,8 +492,8 @@ html { background: var(--bg); }
 /* 输入框 — iOS 系统字段观感:轻填充 + 细边框 */
 .ui-input {
   width: 100%; padding: 9px 13px;
-  background: color-mix(in srgb, var(--surface) 45%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-strong) 65%, transparent);
   border-radius: 10px; color: var(--text);
   font: inherit; font-size: var(--font-scale-body);
   transition: border-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
