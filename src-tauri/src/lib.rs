@@ -1,3 +1,4 @@
+mod bots;
 mod commands;
 mod db;
 mod dto;
@@ -25,6 +26,14 @@ pub fn run() {
             })?;
             let handle = app.handle().clone();
             events::spawn_event_forwarder(handle, state.accounts.clone());
+            // 启动当前用户名下所有 bot 的 IO；失败只记日志，不中断启动
+            if let Some(current_id) = *state.current_id.lock().unwrap() {
+                if let Err(e) =
+                    tauri::async_runtime::block_on(state.bots.start_all_for_owner(current_id))
+                {
+                    log::warn!("failed to start bots for owner {current_id}: {e}");
+                }
+            }
             app.manage(state);
             Ok(())
         })
@@ -132,6 +141,11 @@ pub fn run() {
             commands::export_backup,
             commands::import_backup,
             commands::get_contact_encryption_info,
+            // Bot 系统
+            commands::create_bot,
+            commands::list_bots,
+            commands::delete_bot,
+            commands::set_bot_io,
             // Terminal
             terminal::open_terminal,
             terminal::write_terminal,

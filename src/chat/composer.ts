@@ -74,8 +74,8 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       ${replyPreview}
       <div class="composer-row">
         <textarea id="composer-input" placeholder="发消息到频道... (@提及 / #频道)" rows="1"></textarea>
-        <span class="composer-mic-timer" id="composer-mic-timer" style="display:none; align-self:center; font-size:var(--font-scale-secondary); font-variant-numeric:tabular-nums; color:var(--danger); white-space:nowrap;"></span>
-        <button type="button" class="composer-mic" id="composer-mic" title="录音" style="flex-shrink:0; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border:1px solid var(--border-strong); border-radius:50%; cursor:pointer; background:var(--capsule); color:var(--text-mute); transition:color 120ms, background 120ms;">${iconSvg('volume-2', { width: 18, height: 18 })}</button>
+        <span class="composer-mic-timer" id="composer-mic-timer"></span>
+        <button type="button" class="composer-mic" id="composer-mic" title="录音">${iconSvg('mic', { width: 16, height: 16 })}</button>
         <button type="button" class="composer-send" id="composer-send" title="发送" disabled>${iconSvg('arrow-up', { width: 18, height: 18, strokeWidth: 2.2 })}</button>
       </div>
     </div>
@@ -410,15 +410,15 @@ async function startVoiceRecording(
     }
   };
   mediaRecorder.start();
-  // 录音态 UI:mic 变红 + 显示计时
-  micBtn.style.color = 'var(--danger)';
+  // 录音态 UI:mic 变红(pulse 动画)+ 计时(Apple 录音态特征)
+  micBtn.classList.add('recording');
   micBtn.title = '停止录音';
   if (elapsedEl) {
-    elapsedEl.style.display = 'inline';
-    elapsedEl.textContent = '🔴 0:00';
+    elapsedEl.classList.add('recording');
+    elapsedEl.textContent = `0:00`;
   }
   rec.timer = window.setInterval(() => {
-    if (elapsedEl) elapsedEl.textContent = `🔴 ${formatRecordTime(Date.now() - rec.startTime)}`;
+    if (elapsedEl) elapsedEl.textContent = formatRecordTime(Date.now() - rec.startTime);
   }, 1000);
   activeVoiceRecorder = rec;
 }
@@ -438,11 +438,11 @@ export function cleanupVoiceRecorder(): void {
 // 恢复 mic 按钮与计时 span 到非录音态
 function restoreMicUI(rec: ActiveVoiceRecorder): void {
   if (rec.micBtn) {
-    rec.micBtn.style.color = '';
+    rec.micBtn.classList.remove('recording');
     rec.micBtn.title = '录音';
   }
   if (rec.elapsedEl) {
-    rec.elapsedEl.style.display = 'none';
+    rec.elapsedEl.classList.remove('recording');
     rec.elapsedEl.textContent = '';
   }
 }
