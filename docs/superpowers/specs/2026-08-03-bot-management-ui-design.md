@@ -61,7 +61,7 @@ Bot 列表（空时 ui.empty("还没有 Bot，点击右上角新建")）
   - 系统提示词（`ui.textarea`）、API Key（`ui.input` type=password）、模型名（`ui.input` placeholder "gpt-4o-mini"）
   - 打开时 `get_bot_llm` 回显；保存 → `update_bot_llm` → toast + 刷新列表
 - **启停**：`ui.switch_` → `set_bot_io(botId, running)` → 更新该行状态徽标；失败 toast 并回滚开关。
-- **删除**：`ui.confirmDialog`（"删除后该 Bot 账号及其数据将彻底移除"）→ `delete_bot` → toast + 刷新列表。
+- **删除**：`ui.confirm`（"删除后该 Bot 账号及其数据将彻底移除"，danger）→ `delete_bot` → toast + 刷新列表。
 - **刷新**：每次进入页面 `list_bots`；无轮询。
 
 ## 6. 测试验收
