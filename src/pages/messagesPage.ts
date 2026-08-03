@@ -4,7 +4,6 @@ import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
-import { renderAvatarHtml } from '../components/avatar.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
 import { renderMemberDetail } from '../components/memberDetail.js';
 import { isEmail, parseInviteLink } from '../utils/inviteLink.js';
@@ -50,7 +49,6 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
   panel = panelEl;
   // 每次重建 panel 都重置入口标记,确保「保存的消息」入口总是渲染
   savedEntryRendered = false;
-  const avatarHtml = state.self ? await renderAvatarHtml(state.self) : '';
   panelEl.innerHTML = `
     <div class="nav-header">
       <div class="nav-title">消息</div>
@@ -62,18 +60,10 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
       <button class="nav-meta-link" id="messages-archive-toggle" title="${showArchived ? '返回消息列表' : '查看已归档的会话'}">${showArchived ? '返回消息' : '已归档'}</button>
       <button class="nav-meta-link" id="messages-blocked-toggle" title="被屏蔽的联系人">屏蔽列表</button>
     </div>
-    <div class="nav-user">
-      ${avatarHtml}
-      <div class="nav-user-info">
-        <div class="nav-user-name">${escapeHtml(state.self?.name || 'me')}</div>
-        <div class="nav-user-role">core</div>
-      </div>
-    </div>
   `;
 
   await renderMessageList();
   bindAddButton();
-  bindUserBar();
   bindArchiveToggle();
   bindBlockedToggle();
 }
@@ -446,23 +436,6 @@ async function openChatProfile(c: ChatListItem): Promise<void> {
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e));
   }
-}
-
-function bindUserBar(): void {
-  const userBar = panel?.querySelector<HTMLElement>('.nav-user');
-  if (!userBar) return;
-  userBar.style.cursor = 'pointer';
-  userBar.addEventListener('click', async () => {
-    state.currentPage = 'settings';
-    state.currentSettingsSection = 'account';
-    saveState();
-    const { renderRail } = await import('../shell/rail.js');
-    await renderRail();
-    const { renderNavPanel } = await import('../shell/navPanel.js');
-    await renderNavPanel();
-    const { renderMain } = await import('../shell/navPanel.js');
-    await renderMain();
-  });
 }
 
 function formatTime(ts: number): string {
