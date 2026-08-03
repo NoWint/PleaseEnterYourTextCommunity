@@ -20,6 +20,18 @@ pub struct BotRow {
     pub created_at: i64,
 }
 
+/// bot_activities 表行结构。
+pub struct BotActivityRow {
+    pub id: i64,
+    pub bot_id: i64,
+    pub kind: String,
+    pub chat_id: Option<u32>,
+    pub msg_id: Option<u32>,
+    pub summary: String,
+    pub detail_json: Option<String>,
+    pub created_at: i64,
+}
+
 pub struct Db {
     pub conn: Arc<Mutex<Connection>>,
 }
@@ -139,7 +151,18 @@ impl Db {
                     config_json TEXT,
                     created_at INTEGER NOT NULL,
                     UNIQUE(owner_account_id, bot_account_id)
-                );",
+                );
+                CREATE TABLE IF NOT EXISTS bot_activities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bot_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    chat_id INTEGER,
+                    msg_id INTEGER,
+                    summary TEXT NOT NULL,
+                    detail_json TEXT,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_bot_activities_bot ON bot_activities(bot_id, created_at DESC);",
             )?;
             Ok(())
         })
@@ -1065,6 +1088,67 @@ impl Db {
         })
         .await?
     }
+
+    // ── Bot 活动日志 ──────────────────────────────────────────────────────
+
+    pub async fn insert_bot_activity(
+        &self,
+        bot_id: i64,
+        kind: &str,
+        chat_id: Option<u32>,
+        msg_id: Option<u32>,
+        summary: &str,
+        detail_json: Option<&str>,
+    ) -> AppResult<i64> {
+        let conn = self.conn.clone();
+        let kind = kind.to_string();
+        let summary = summary.to_string();
+        let detail_json = detail_json.map(|s| s.to_string());
+        let now = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<i64> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO bot_activities (bot_id, kind, chat_id, msg_id, summary, detail_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    bot_id,
+                    kind,
+                    chat_id.map(|v| v as i64),
+                    msg_id.map(|v| v as i64),
+                    summary,
+                    detail_json,
+                    now
+                ],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await?
+    }
+
+    pub async fn list_bot_activities(&self, bot_id: i64, limit: u32) -> AppResult<Vec<BotActivityRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<BotActivityRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, bot_id, kind, chat_id, msg_id, summary, detail_json, created_at
+                 FROM bot_activities WHERE bot_id = ?1 ORDER BY id DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![bot_id, limit], |r| {
+                Ok(BotActivityRow {
+                    id: r.get(0)?,
+                    bot_id: r.get(1)?,
+                    kind: r.get(2)?,
+                    chat_id: r.get::<_, Option<i64>>(3)?.map(|v| v as u32),
+                    msg_id: r.get::<_, Option<i64>>(4)?.map(|v| v as u32),
+                    summary: r.get(5)?,
+                    detail_json: r.get(6)?,
+                    created_at: r.get(7)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
 }
 
 #[cfg(test)]
@@ -1299,5 +1383,45 @@ mod tests {
         db.set_bot_status(1, bot_id, "stopped").await.unwrap();
         let row = db.get_bot(1, bot_id).await.unwrap().unwrap();
         assert_eq!(row.status, "stopped");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_activity_insert_and_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let id1 = db
+            .insert_bot_activity(9, "reply_sent", Some(3), Some(7), "回复 alice", None)
+            .await
+            .unwrap();
+        let id2 = db
+            .insert_bot_activity(9, "llm_error", Some(3), Some(8), "llm 失败", Some("{\"error\":\"timeout\"}"))
+            .await
+            .unwrap();
+        db.insert_bot_activity(10, "no_config", None, None, "无配置", None).await.unwrap();
+
+        let rows = db.list_bot_activities(9, 10).await.unwrap();
+        // ORDER BY id DESC → 最新在前
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, id2);
+        assert_eq!(rows[0].kind, "llm_error");
+        assert_eq!(rows[0].detail_json.as_deref(), Some("{\"error\":\"timeout\"}"));
+        assert_eq!(rows[1].id, id1);
+        assert_eq!(rows[1].chat_id, Some(3));
+        assert_eq!(rows[1].msg_id, Some(7));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_activity_list_limit_and_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        for _ in 0..3 {
+            db.insert_bot_activity(5, "reply_sent", None, None, "r", None).await.unwrap();
+        }
+        let limited = db.list_bot_activities(5, 2).await.unwrap();
+        assert_eq!(limited.len(), 2);
+        assert!(db.list_bot_activities(99, 10).await.unwrap().is_empty());
     }
 }
