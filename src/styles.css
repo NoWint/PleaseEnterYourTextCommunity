@@ -106,16 +106,17 @@ html { background: var(--bg); }
 #app { height: 100vh; display: flex; }
 
 /* ── macOS 无标题栏集成(titleBarStyle: Overlay)──────────────────
-   红黄绿三色按钮浮在左上角,rail 顶部预留空间并作为窗口拖拽区。
+   顶部 48px 为「虚拟标题栏」:红黄绿按钮(经 trafficLightPosition 下移居中)浮在其左端,
+   整条是窗口拖拽区(data-tauri-drag-region);#app 内容整体下移让出此条。
    仅 html.window-overlay(macOS)生效,其余平台保留原生标题栏。 */
 #window-drag-region {
   position: fixed; top: 0; left: 0;
-  width: 56px; height: 40px;
+  width: 100%; height: 48px;
   z-index: 9999;
   display: none;
 }
 html.window-overlay #window-drag-region { display: block; }
-html.window-overlay .rail { padding-top: 46px; }
+html.window-overlay #app { padding-top: 48px; }
 
 /* 登录页上下布局：品牌区在上，表单在下 */
 .login-wrap {

@@ -15,8 +15,8 @@ interface EnsurePeytResult {
 async function boot(): Promise<void> {
   initTheme();
   initFontScale();
-  // macOS Overlay 标题栏:原生三色按钮浮在内容上,标记 <html> 以便 CSS 预留拖拽区与 rail 顶部间距
-  if (navigator.userAgent.includes('Macintosh')) {
+  // macOS Overlay 标题栏:原生三色按钮浮在内容上,标记 <html> 以便 CSS 预留拖拽区与顶部间距
+  if (/(Macintosh|Mac OS X|MacIntel)/.test(navigator.userAgent)) {
     document.documentElement.classList.add('window-overlay');
   }
   const configured = await call<boolean>('is_configured');
