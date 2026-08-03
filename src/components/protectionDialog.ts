@@ -47,8 +47,8 @@ export async function openProtectionDialog(chatId: number): Promise<void> {
   const headerEl = dlg.overlay.querySelector<HTMLElement>('#pd-header');
   if (headerEl) {
     headerEl.innerHTML = `
-      <span style="font-size:15px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(info.name)}</span>
-      <span style="flex:none;font-size:12px;color:var(--text-mute);background:var(--capsule);padding:2px 8px;border-radius:10px">${escapeHtml(typeLabel(info.chat_type))}</span>
+      <span style="font-size:var(--font-scale-body);font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(info.name)}</span>
+      <span style="flex:none;font-size:var(--font-scale-secondary);color:var(--text-mute);background:var(--capsule);padding:2px 8px;border-radius:10px">${escapeHtml(typeLabel(info.chat_type))}</span>
     `;
   }
 
@@ -58,8 +58,8 @@ export async function openProtectionDialog(chatId: number): Promise<void> {
     statusEl.innerHTML = `
       <span style="flex:none;color:var(--text-action)">${iconSvg('shield', { width: 18, height: 18 })}</span>
       <div style="min-width:0">
-        <div style="font-size:13px;font-weight:600;color:var(--text)">端到端加密已启用</div>
-        <div style="font-size:12px;color:var(--text-weak)">${escapeHtml(statusDesc(info.chat_type))}</div>
+        <div style="font-size:var(--font-scale-body);font-weight:600;color:var(--text)">端到端加密已启用</div>
+        <div style="font-size:var(--font-scale-secondary);color:var(--text-weak)">${escapeHtml(statusDesc(info.chat_type))}</div>
       </div>
     `;
   }
@@ -69,7 +69,7 @@ export async function openProtectionDialog(chatId: number): Promise<void> {
   if (!membersEl) return;
   const members = info.members || [];
   if (members.length === 0) {
-    membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:14px;padding:8px">无成员指纹信息</div>`;
+    membersEl.innerHTML = `<div style="color:var(--text-weak);font-size:var(--font-scale-body);padding:8px">无成员指纹信息</div>`;
     return;
   }
   const rows = await Promise.all(
@@ -91,14 +91,14 @@ function memberRow(m: MemberDto, encrinfo: string): string {
   const letter = (m.name || '?').charAt(0).toUpperCase() || '?';
   return `
     <div class="ui-dialog-section" style="flex-direction:row;align-items:flex-start;padding:10px 12px">
-      <div style="flex:none;width:32px;height:32px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--text);overflow:hidden">${escapeHtml(letter)}</div>
+      <div style="flex:none;width:32px;height:32px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:var(--font-scale-body);font-weight:600;color:var(--text);overflow:hidden">${escapeHtml(letter)}</div>
       <div style="min-width:0;flex:1">
         <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
-          <span style="font-size:14px;font-weight:600;color:var(--text)">${escapeHtml(m.name)}</span>
-          ${m.is_self ? '<span style="font-size:11px;color:var(--text-weak)">我</span>' : ''}
-          ${m.addr ? `<span style="font-size:11px;color:var(--text-mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${escapeHtml(m.addr)}</span>` : ''}
+          <span style="font-size:var(--font-scale-body);font-weight:600;color:var(--text)">${escapeHtml(m.name)}</span>
+          ${m.is_self ? '<span style="font-size:var(--font-scale-micro);color:var(--text-weak)">我</span>' : ''}
+          ${m.addr ? `<span style="font-size:var(--font-scale-micro);color:var(--text-mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${escapeHtml(m.addr)}</span>` : ''}
         </div>
-        <pre style="margin:6px 0 0;font-family:var(--font-mono);font-size:11px;line-height:1.5;color:var(--text-body);white-space:pre-wrap;word-break:break-all;max-height:96px;overflow-y:auto;padding:8px;border-radius:6px;background:var(--surface)">${escapeHtml(encrinfo || '(无指纹信息)')}</pre>
+        <pre style="margin:6px 0 0;font-family:var(--font-mono);font-size:var(--font-scale-micro);line-height:1.5;color:var(--text-body);white-space:pre-wrap;word-break:break-all;max-height:96px;overflow-y:auto;padding:8px;border-radius:6px;background:var(--surface)">${escapeHtml(encrinfo || '(无指纹信息)')}</pre>
       </div>
     </div>`;
 }
@@ -128,9 +128,9 @@ function statusDesc(chatType: string): string {
 
 function fail(dlg: { overlay: HTMLDivElement }, message: string): void {
   const headerEl = dlg.overlay.querySelector<HTMLElement>('#pd-header');
-  if (headerEl) headerEl.innerHTML = `<span style="color:var(--text);font-size:14px">加载失败</span>`;
+  if (headerEl) headerEl.innerHTML = `<span style="color:var(--text);font-size:var(--font-scale-body)">加载失败</span>`;
   const statusEl = dlg.overlay.querySelector<HTMLElement>('#pd-status');
-  if (statusEl) statusEl.innerHTML = `<span style="color:var(--text-weak);font-size:12px">${escapeHtml(message)}</span>`;
+  if (statusEl) statusEl.innerHTML = `<span style="color:var(--text-weak);font-size:var(--font-scale-secondary)">${escapeHtml(message)}</span>`;
   const membersEl = dlg.overlay.querySelector<HTMLElement>('#pd-members');
   if (membersEl) membersEl.innerHTML = '';
 }

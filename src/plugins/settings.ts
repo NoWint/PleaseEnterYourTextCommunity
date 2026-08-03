@@ -23,7 +23,7 @@ export async function renderPluginSettings(main: HTMLElement): Promise<void> {
   const installed = await call<PluginStatus[]>('list_plugins').catch(() => []);
 
   if (installed.length === 0) {
-    listEl.innerHTML = `<div class="plugin-empty">还没有安装插件<br><span style="font-size:10px;color:var(--text-faint)">前往左侧「插件」页安装</span></div>`;
+    listEl.innerHTML = `<div class="plugin-empty">还没有安装插件<br><span style="font-size:var(--font-scale-micro);color:var(--text-faint)">前往左侧「插件」页安装</span></div>`;
     return;
   }
 

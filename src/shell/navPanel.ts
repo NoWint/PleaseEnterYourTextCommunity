@@ -126,7 +126,7 @@ export async function renderMain(): Promise<void> {
       await renderPluginsMain(main);
     } catch (err) {
       console.error('[plugins] renderPluginsMain failed:', err);
-      main.innerHTML = `<div class="empty">插件页加载失败<br><span style="font-size:10px;color:var(--text-faint)">${esc(String(err))}</span></div>`;
+      main.innerHTML = `<div class="empty">插件页加载失败<br><span style="font-size:var(--font-scale-micro);color:var(--text-faint)">${esc(String(err))}</span></div>`;
     }
     return;
   }

@@ -73,7 +73,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       ${replyPreview}
       <div class="composer-row">
         <textarea id="composer-input" placeholder="发消息到频道... (@提及 / #频道)" rows="1"></textarea>
-        <span class="composer-mic-timer" id="composer-mic-timer" style="display:none; align-self:center; font-size:12px; font-variant-numeric:tabular-nums; color:var(--danger); white-space:nowrap;"></span>
+        <span class="composer-mic-timer" id="composer-mic-timer" style="display:none; align-self:center; font-size:var(--font-scale-secondary); font-variant-numeric:tabular-nums; color:var(--danger); white-space:nowrap;"></span>
         <button type="button" class="composer-mic" id="composer-mic" title="录音" style="flex-shrink:0; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border:1px solid var(--border-strong); border-radius:50%; cursor:pointer; background:var(--capsule); color:var(--text-mute); transition:color 120ms, background 120ms;">${iconSvg('volume-2', { width: 18, height: 18 })}</button>
         <button type="button" class="composer-send" id="composer-send" title="发送" disabled>${iconSvg('arrow-up', { width: 18, height: 18, strokeWidth: 2.2 })}</button>
       </div>
