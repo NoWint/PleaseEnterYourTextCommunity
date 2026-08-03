@@ -426,13 +426,14 @@ html.window-overlay .wb-controls { display: none; }
 .chat-header .ch-actions { color: var(--text-action); font-size: var(--font-scale-body); display: flex; gap: 14px; }
 .chat-header .ch-actions span { cursor: pointer; }
 /* 消息区:顶部留出悬浮 header 高度,底部留白跟随悬浮 composer 高度。
-   --composer-h 由 composer.ts 的 ResizeObserver 实时写入(展开/拖拽调高自动让位),
-   并额外加 14px 间距让消息与输入框保持呼吸感。 */
+   --composer-h 由 composer.ts 的 ResizeObserver 实时写入(展开/拖拽调高自动让位)。
+   底部留白 = composer 高度 + bottom:14px 偏移 + 22px 呼吸间距,
+   避免消息紧贴输入框卡片顶边。 */
 .messages {
   flex: 1; overflow-y: auto;
   padding: var(--space-4) var(--space-5);
   padding-top: 88px;
-  padding-bottom: calc(var(--composer-h, 120px) + 14px);
+  padding-bottom: calc(var(--composer-h, 120px) + 36px);
   display: flex; flex-direction: column; gap: 10px;
   scrollbar-width: none;
 }

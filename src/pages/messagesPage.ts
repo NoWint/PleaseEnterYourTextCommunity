@@ -47,25 +47,33 @@ async function renderSavedMessagesEntry(list: HTMLElement): Promise<void> {
 
 export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
   panel = panelEl;
-  // 每次重建 panel 都重置入口标记,确保「保存的消息」入口总是渲染
-  savedEntryRendered = false;
-  panelEl.innerHTML = `
-    <div class="nav-header">
-      <div class="nav-title">消息</div>
-      <div class="nav-subtitle">私聊与群组</div>
-      <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
-    </div>
-    <div class="nav-list" id="messages-list"></div>
-    <div class="nav-meta-footer">
-      <button class="nav-meta-link" id="messages-archive-toggle" title="${showArchived ? '返回消息列表' : '查看已归档的会话'}">${showArchived ? '返回消息' : '已归档'}</button>
-      <button class="nav-meta-link" id="messages-blocked-toggle" title="被屏蔽的联系人">屏蔽列表</button>
-    </div>
-  `;
+  // 面板结构首次渲染;后续(MsgsChanged → refreshSidebar → renderNavPanel)跳过
+  // innerHTML 重建 —— 否则整个 nav panel 全量销毁重建,列表闪烁。
+  // 结构不变只刷新列表(renderMessageList 内部 diff)。
+  const alreadyRendered = panelEl.dataset.messagesRendered === '1'
+    && panelEl.querySelector('#messages-list')
+    && panelEl.querySelector('#messages-add');
+  if (!alreadyRendered) {
+    panelEl.dataset.messagesRendered = '1';
+    panelEl.innerHTML = `
+      <div class="nav-header">
+        <div class="nav-title">消息</div>
+        <div class="nav-subtitle">私聊与群组</div>
+        <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
+      </div>
+      <div class="nav-list" id="messages-list"></div>
+      <div class="nav-meta-footer">
+        <button class="nav-meta-link" id="messages-archive-toggle" title="${showArchived ? '返回消息列表' : '查看已归档的会话'}">${showArchived ? '返回消息' : '已归档'}</button>
+        <button class="nav-meta-link" id="messages-blocked-toggle" title="被屏蔽的联系人">屏蔽列表</button>
+      </div>
+    `;
+    // 按钮只在首次渲染时绑定,避免重复 addEventListener
+    bindAddButton();
+    bindArchiveToggle();
+    bindBlockedToggle();
+  }
 
   await renderMessageList();
-  bindAddButton();
-  bindArchiveToggle();
-  bindBlockedToggle();
 }
 
 function bindArchiveToggle(): void {
@@ -149,6 +157,12 @@ async function renderMessageList(): Promise<void> {
       : !c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
   );
 
+  // 清掉每次刷新都要重建的节点:请求区 / 保存入口 / 空态。
+  // (真正会话项走下方 data-id diff,不在此列 —— 避免重复渲染导致闪烁。)
+  list.querySelectorAll<HTMLElement>(':scope > .nav-request-section, :scope > .saved-messages-entry, :scope > .ui-empty')
+    .forEach((el) => el.remove());
+  savedEntryRendered = false;
+
   // 陌生人来信:「新请求」分区置顶,接受/拒绝 (修复 contact request 被过滤不可见的 bug)
   if (!showArchived) await renderRequestSection(list, requests);
 
@@ -160,17 +174,39 @@ async function renderMessageList(): Promise<void> {
     return;
   }
 
-  for (const c of messages) {
-    const trailing = document.createElement('div');
-    trailing.className = 'nav-item-trailing';
-    if (c.last_ts) {
-      const t = document.createElement('span');
-      t.className = 'nav-chat-time';
-      t.textContent = formatTime(c.last_ts);
-      trailing.appendChild(t);
-    }
-    if (c.unread > 0) trailing.appendChild(ui.badge({ text: String(c.unread) }));
+  // 会话列表 diff:发消息触发 MsgsChanged → refreshSidebar → 本函数。
+  // 若每次都重建节点,整列会闪烁(元素销毁/重建 → 重排重绘)。
+  // 改为:已有节点按 data-id 复用,只更新标题/摘要/未读/时间/激活态;
+  // 新会话才创建节点,消失的会话才移除 —— 普通发消息时列表零重建,不闪。
+  const existingEls = new Map<string, HTMLElement>();
+  for (const el of Array.from(list.querySelectorAll<HTMLElement>('.ui-list-item'))) {
+    const id = el.dataset.id;
+    if (id) existingEls.set(id, el);
+  }
+  const desiredIds = new Set(messages.map((c) => String(c.chat_id)));
+  for (const [id, el] of existingEls) {
+    if (!desiredIds.has(id)) el.remove();
+  }
 
+  for (const c of messages) {
+    const cid = String(c.chat_id);
+    const existing = existingEls.get(cid);
+    if (existing) {
+      // 复用节点:更新标题/摘要/未读/时间/激活态,不重建。
+      const titleEl = existing.querySelector('.ui-list-title');
+      const subEl = existing.querySelector('.ui-list-sub');
+      if (titleEl) titleEl.textContent = c.name;
+      if (subEl) subEl.textContent = c.last_msg?.slice(0, 40) || '';
+      // 重建 trailing(未读数/时间) —— 尾部内容小,重建成本低
+      let trailing = existing.querySelector('.nav-item-trailing');
+      if (trailing) trailing.remove();
+      trailing = buildTrailing(c);
+      if (trailing) existing.appendChild(trailing);
+      existing.classList.toggle('active', state.currentChatId === c.chat_id);
+      continue;
+    }
+
+    const trailing = buildTrailing(c) ?? undefined;
     const item = ui.listItem({
       title: c.name,
       subtitle: c.last_msg?.slice(0, 40) || '',
@@ -207,7 +243,7 @@ async function renderMessageList(): Promise<void> {
       const titleEl = item.querySelector('.ui-list-title');
       if (titleEl) titleEl.innerHTML = typeMark + escapeHtml(c.name);
     }
-    item.dataset.id = String(c.chat_id);
+    item.dataset.id = cid;
     if (state.currentChatId === c.chat_id) item.classList.add('active');
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -215,6 +251,21 @@ async function renderMessageList(): Promise<void> {
     });
     list.appendChild(item);
   }
+}
+
+// 构建会话尾部(时间 + 未读数徽标),diff 复用时重建尾部
+function buildTrailing(c: ChatListItem): HTMLElement | null {
+  if (!c.last_ts && c.unread <= 0) return null;
+  const trailing = document.createElement('div');
+  trailing.className = 'nav-item-trailing';
+  if (c.last_ts) {
+    const t = document.createElement('span');
+    t.className = 'nav-chat-time';
+    t.textContent = formatTime(c.last_ts);
+    trailing.appendChild(t);
+  }
+  if (c.unread > 0) trailing.appendChild(ui.badge({ text: String(c.unread) }));
+  return trailing;
 }
 
 function bindAddButton(): void {

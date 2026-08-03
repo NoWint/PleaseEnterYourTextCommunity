@@ -178,6 +178,10 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       const delta = ev.clientY - startY; // 向上拖 = 负增量 = 增高
       const h = Math.min(320, Math.max(40, startH - delta));
       input.style.height = h + 'px';
+      // 输入框变高 → 消息区底部让位,若在底部则同步上顶,保持最新消息可见。
+      // 直接滚到底:composer 顶部抬高多少,消息底部就补多少,消除"消息沉下去"的断档。
+      const messagesEl = document.getElementById('messages');
+      if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
     };
     const onUp = (): void => {
       document.removeEventListener('pointermove', onMove);
