@@ -6,6 +6,7 @@ import { renderAvatarHtml } from '../components/avatar.js';
 import { iconSvg } from '../components/icon.js';
 import { ui } from '../components/ui.js';
 import { updatePinnedCache } from '../chat/message.js';
+import { escapeHtml, escapeAttr } from '../components/escape.js';
 import type { MemberDto, MsgDto } from '../types.js';
 
 interface ContactRole {
@@ -223,11 +224,10 @@ async function renderMembers(body: HTMLElement): Promise<void> {
     for (const r of allRoles) {
       if (!order.includes(r.role_name) && grouped.has(r.role_name)) order.push(r.role_name);
     }
-    const searchHtml = `
+    const addMemberHtml = `
       <div style="padding:8px 12px 0">
         <button id="rd-add-member" style="width:100%;padding:6px 10px;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;background:var(--capsule);color:var(--text)">添加成员</button>
-      </div>
-      <div class="rd-search"><input id="rd-member-search" placeholder="搜索成员..." /></div>`;
+      </div>`;
     // 已添加的联系人 addr 集合,用于成员行「已添加」标记 (群成员加好友复用 create_chat_by_email)
     let existingAddrs = new Set<string>();
     try {
@@ -264,18 +264,21 @@ async function renderMembers(body: HTMLElement): Promise<void> {
           return `<div class="rd-group">${escapeHtml(groupLabel(name))} · ${list.length}</div>${items.join('')}`;
         })
     );
-    body.innerHTML =
-      searchHtml + (sectionResults.join('') || `<div style="padding:16px;color:var(--text-weak)">无成员</div>`);
-    const searchInput = body.querySelector<HTMLInputElement>('#rd-member-search');
-    if (searchInput) {
-      searchInput.addEventListener('input', () => {
-        const q = searchInput.value.toLowerCase();
-        body.querySelectorAll<HTMLElement>('.rd-member').forEach((el) => {
-          const name = el.dataset.name?.toLowerCase() || '';
-          el.style.display = name.includes(q) ? '' : 'none';
-        });
+    const searchWrap = document.createElement('div');
+    searchWrap.className = 'rd-search';
+    const searchInput = ui.input({ placeholder: '搜索成员...' });
+    searchInput.id = 'rd-member-search';
+    searchWrap.appendChild(searchInput);
+    body.insertAdjacentHTML('beforeend', addMemberHtml);
+    body.appendChild(searchWrap);
+    body.insertAdjacentHTML('beforeend', sectionResults.join('') || `<div style="padding:16px;color:var(--text-weak)">无成员</div>`);
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase();
+      body.querySelectorAll<HTMLElement>('.rd-member').forEach((el) => {
+        const name = el.dataset.name?.toLowerCase() || '';
+        el.style.display = name.includes(q) ? '' : 'none';
       });
-    }
+    });
     body.querySelectorAll<HTMLElement>('.rd-member[data-cid]').forEach((el) => {
       el.addEventListener('click', async () => {
         const cid = Number(el.dataset.cid);
@@ -446,12 +449,3 @@ function formatRelativeTime(ts: number): string {
   return Math.floor(diff / 86400000) + '天前';
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)
-  );
-}
-function escapeAttr(s: string): string {
-  return escapeHtml(s);
-}

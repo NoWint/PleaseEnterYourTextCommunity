@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { ui } from '../components/ui.js';
+import { escapeHtml } from '../components/escape.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
 import { renderMemberDetail } from '../components/memberDetail.js';
@@ -54,11 +55,13 @@ export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
     <div class="nav-header">
       <div class="nav-title">消息</div>
       <div class="nav-subtitle">私聊与群组</div>
-      <button class="nav-archive-toggle" id="messages-archive-toggle" title="切换已归档会话" style="display:inline-flex;align-items:center;background:none;border:none;color:var(--text-weak);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;margin-top:6px;">${showArchived ? '返回消息' : '已归档'}</button>
-      <button class="nav-archive-toggle" id="messages-blocked-toggle" title="被屏蔽的联系人" style="display:inline-flex;align-items:center;background:none;border:none;color:var(--text-weak);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;margin-top:6px;margin-left:6px;">屏蔽列表</button>
       <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
     </div>
     <div class="nav-list" id="messages-list"></div>
+    <div class="nav-meta-footer">
+      <button class="nav-meta-link" id="messages-archive-toggle" title="${showArchived ? '返回消息列表' : '查看已归档的会话'}">${showArchived ? '返回消息' : '已归档'}</button>
+      <button class="nav-meta-link" id="messages-blocked-toggle" title="被屏蔽的联系人">屏蔽列表</button>
+    </div>
     <div class="nav-user">
       ${avatarHtml}
       <div class="nav-user-info">
@@ -471,6 +474,3 @@ function formatTime(ts: number): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

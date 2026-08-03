@@ -1,4 +1,5 @@
 import { iconSvg, type IconName } from './icon.js';
+import { escapeHtml, escapeAttr } from './escape.js';
 
 export interface DropdownItem {
   label: string;
@@ -93,7 +94,7 @@ export function hideDropdown(): void {
     currentAnchor = null;
     // 出场:加 .closing 触发 pop-out 动画后延时移除
     menu.classList.add('closing');
-    setTimeout(() => menu.remove(), 120);
+    setTimeout(() => menu.remove(), 150);
   }
   if (closeOnOutsideHandler) {
     document.removeEventListener('click', closeOnOutsideHandler);
@@ -110,7 +111,3 @@ export function hideDropdown(): void {
   }
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: string): string { return escapeHtml(s); }

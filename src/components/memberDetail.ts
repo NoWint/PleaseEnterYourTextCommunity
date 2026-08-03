@@ -7,6 +7,8 @@ import { renderRail } from '../shell/rail.js';
 import { renderNavPanel, renderMain } from '../shell/navPanel.js';
 import { saveState } from '../persist.js';
 import { colorHex } from './avatar.js';
+import { escapeHtml } from './escape.js';
+import { ui } from './ui.js';
 import type { MemberDto } from '../types.js';
 
 interface ChatInfo {
@@ -30,45 +32,53 @@ export async function renderMemberDetail(body: HTMLElement, contactId: number): 
       : `<div class="member-detail-avatar" style="background:${bg}">${escapeHtml(letter)}</div>`;
     body.innerHTML = `
       <div class="rd-group">成员详情</div>
-      <div style="padding:0 16px 8px;display:flex;flex-direction:column;gap:8px">
+      <div id="md-actions" style="padding:0 16px 8px;display:flex;flex-direction:column;gap:8px">
         <div style="display:flex;align-items:center;gap:10px;margin:8px 0">
           ${avatarHtml}
           <div>
-            <div style="font-size:14px;font-weight:600;color:var(--text)">${escapeHtml(member.name)}</div>
-            <div style="font-size:11px;color:var(--text-weak)">${escapeHtml(member.addr || '')}</div>
+            <div style="font-size:var(--font-scale-body);font-weight:600;color:var(--text)">${escapeHtml(member.name)}</div>
+            <div style="font-size:var(--font-scale-micro);color:var(--text-weak)">${escapeHtml(member.addr || '')}</div>
           </div>
         </div>
-        <button id="md-msg" style="background:var(--capsule);border:1px solid var(--border-strong);color:var(--text);padding:8px;border-radius:4px;font-size:11px;cursor:pointer;margin-top:8px">发消息</button>
-        <button id="md-back" style="background:transparent;border:1px solid var(--border-strong);color:var(--text-mute);padding:8px;border-radius:4px;font-size:11px;cursor:pointer">返回成员列表</button>
       </div>
     `;
-    document.getElementById('md-msg')?.addEventListener('click', async () => {
-      try {
-        const chatId = await call<number>('create_chat_by_contact', { contactId });
-        state.currentPage = 'messages';
-        state.currentWsId = null;
-        state.currentChatId = chatId;
-        state.rightDrawerOpen = false;
-        saveState();
-        renderRightDrawer();
-        await renderRail();
-        await renderNavPanel();
-        await renderChatView(chatId);
-        showToast('已进入私聊');
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : String(e));
-      }
-    });
-    document.getElementById('md-back')?.addEventListener('click', () => {
-      state.detailTab = 'members';
-      renderRightDrawer();
-    });
+    const actions = document.getElementById('md-actions');
+    if (actions) {
+      const msgBtn = ui.button({
+        label: '发消息',
+        size: 'sm',
+        onClick: async () => {
+          try {
+            const chatId = await call<number>('create_chat_by_contact', { contactId });
+            state.currentPage = 'messages';
+            state.currentWsId = null;
+            state.currentChatId = chatId;
+            state.rightDrawerOpen = false;
+            saveState();
+            renderRightDrawer();
+            await renderRail();
+            await renderNavPanel();
+            await renderChatView(chatId);
+            showToast('已进入私聊');
+          } catch (e) {
+            showToast(e instanceof Error ? e.message : String(e));
+          }
+        },
+      });
+      msgBtn.style.marginTop = '8px';
+      const backBtn = ui.button({
+        label: '返回成员列表',
+        variant: 'ghost',
+        size: 'sm',
+        onClick: () => {
+          state.detailTab = 'members';
+          renderRightDrawer();
+        },
+      });
+      actions.append(msgBtn, backBtn);
+    }
   } catch (e) {
     body.innerHTML = `<div style="padding:16px;color:var(--text-weak)">加载失败</div>`;
     showToast(e instanceof Error ? e.message : String(e));
   }
-}
-
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }

@@ -5,6 +5,7 @@
 // 仅注入极少量 .command-palette-overlay 定位与关闭动画（首次打开时挂到 <head>,不改 styles.css）。
 import { call } from '../api.js';
 import { state } from '../state.js';
+import { escapeHtml } from './escape.js';
 import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from './icon.js';
 import { ui } from './ui.js';
@@ -154,7 +155,7 @@ function ensureStyles(): void {
   style.id = 'command-palette-css';
   style.textContent = `
 .command-palette-overlay { align-items: flex-start; padding-top: 60px; }
-.command-palette-overlay.closing { animation: fade-out 120ms ease-in forwards; }
+.command-palette-overlay.closing { animation: fade-out 150ms var(--ease-out) forwards; }
 `;
   document.head.appendChild(style);
 }
@@ -215,7 +216,7 @@ export function closeCommandPalette(): void {
   const overlay = document.getElementById('command-palette-overlay');
   if (overlay) {
     overlay.classList.add('closing');
-    setTimeout(() => overlay.remove(), 120);
+    setTimeout(() => overlay.remove(), 150);
   }
 }
 
@@ -287,6 +288,3 @@ function bindResults(resultsEl: HTMLElement): void {
   });
 }
 
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

@@ -1,5 +1,6 @@
 import { call, clearError, onEvent } from '../api.js';
 import type { DcEvent } from '../api.js';
+import { ui } from '../components/ui.js';
 
 interface AdvancedConfig {
   imap_host: string | null;
@@ -40,135 +41,179 @@ export function renderLogin(onSuccess: () => void | Promise<void>): void {
         <p class="login-hero-slogan">Type Everything</p>
       </div>
       <div class="login-panel">
-        <div class="login-form">
-          <div class="tabs">
-          <button type="button" class="tab active" data-tab="quick">快速开始</button>
-          <button type="button" class="tab" data-tab="email">邮箱登录</button>
-        </div>
-
-        <form id="quick-form" class="tab-panel" hidden>
-          <p class="hint">输入显示名，自动创建 yzjtiantian.cn 免费账号，立即开始聊天。</p>
-          <input id="display-name" type="text" placeholder="显示名（如：张三）" required maxlength="60" />
-          <button type="submit" id="quick-btn">开始聊天</button>
-        </form>
-
-        <form id="email-form" class="tab-panel" hidden>
-          <input id="email" type="email" placeholder="邮箱" required autocomplete="username" />
-          <input id="password" type="password" placeholder="密码" required autocomplete="current-password" />
-          <button type="button" id="advanced-toggle" class="link">高级设置</button>
-          <div id="advanced" class="advanced" hidden>
-            <input id="imap_host" placeholder="IMAP 主机" />
-            <input id="imap_port" type="number" placeholder="IMAP 端口" />
-            <select id="imap_security">
-              <option value="">IMAP 安全（自动）</option>
-              <option value="ssl">SSL/TLS</option>
-              <option value="tls">STARTTLS</option>
-              <option value="plain">明文</option>
-            </select>
-            <input id="imap_user" placeholder="IMAP 用户名" />
-            <input id="smtp_host" placeholder="SMTP 主机" />
-            <input id="smtp_port" type="number" placeholder="SMTP 端口" />
-            <select id="smtp_security">
-              <option value="">SMTP 安全（自动）</option>
-              <option value="ssl">SSL/TLS</option>
-              <option value="tls">STARTTLS</option>
-              <option value="plain">明文</option>
-            </select>
-            <input id="smtp_user" placeholder="SMTP 用户名" />
-            <input id="smtp_password" type="password" placeholder="SMTP 密码" />
-          </div>
-          <button type="submit" id="login-btn">登录</button>
-        </form>
-
-          <div id="error" class="error" style="display:none"></div>
-        </div>
+        <div class="login-form"></div>
       </div>
     </div>
   `;
+  const form = app.querySelector<HTMLElement>('.login-form')!;
 
-  const tabs = app.querySelectorAll<HTMLButtonElement>('.tab');
-  const panels: Record<string, HTMLElement | null> = {
-    quick: app.querySelector('#quick-form'),
-    email: app.querySelector('#email-form'),
-  };
-  tabs.forEach((t) => {
-    t.addEventListener('click', () => {
-      tabs.forEach((x) => x.classList.remove('active'));
-      t.classList.add('active');
-      Object.entries(panels).forEach(([k, p]) => {
-        if (p) p.hidden = k !== t.dataset.tab;
-      });
-      clearError();
-    });
+  // ── tabs(快速开始 / 邮箱登录)─────────────────────
+  const tabsEl = document.createElement('div');
+  tabsEl.className = 'tabs';
+  const tabQuick = document.createElement('button');
+  tabQuick.type = 'button';
+  tabQuick.className = 'tab active';
+  tabQuick.dataset.tab = 'quick';
+  tabQuick.textContent = '快速开始';
+  const tabEmail = document.createElement('button');
+  tabEmail.type = 'button';
+  tabEmail.className = 'tab';
+  tabEmail.dataset.tab = 'email';
+  tabEmail.textContent = '邮箱登录';
+  tabsEl.append(tabQuick, tabEmail);
+  form.appendChild(tabsEl);
+
+  // ── 快速开始表单 ─────────────────────────────────
+  const quickForm = document.createElement('form');
+  quickForm.id = 'quick-form';
+  quickForm.className = 'tab-panel';
+  const quickHint = document.createElement('p');
+  quickHint.className = 'hint';
+  quickHint.textContent = '输入显示名，自动创建 yzjtiantian.cn 免费账号，立即开始聊天。';
+  const displayName = ui.input({ placeholder: '显示名（如：张三）' });
+  displayName.id = 'display-name';
+  displayName.required = true;
+  displayName.maxLength = 60;
+  const quickBtn = ui.button({ label: '开始聊天' });
+  quickBtn.id = 'quick-btn';
+  quickForm.append(quickHint, displayName, quickBtn);
+  form.appendChild(quickForm);
+
+  // ── 邮箱登录表单 ─────────────────────────────────
+  const emailForm = document.createElement('form');
+  emailForm.id = 'email-form';
+  emailForm.className = 'tab-panel';
+  emailForm.hidden = true;
+  const email = ui.input({ placeholder: '邮箱', type: 'email' });
+  email.id = 'email';
+  email.required = true;
+  email.autocomplete = 'username';
+  const password = ui.input({ placeholder: '密码', type: 'password' });
+  password.id = 'password';
+  password.required = true;
+  password.autocomplete = 'current-password';
+  const advancedToggle = ui.button({ label: '高级设置', variant: 'ghost' });
+  advancedToggle.id = 'advanced-toggle';
+  advancedToggle.type = 'button';
+  advancedToggle.classList.add('link');
+  const advanced = document.createElement('div');
+  advanced.id = 'advanced';
+  advanced.className = 'advanced';
+  advanced.hidden = true;
+  const imapHost = ui.input({ placeholder: 'IMAP 主机' });
+  imapHost.id = 'imap_host';
+  const imapPort = ui.input({ placeholder: 'IMAP 端口', type: 'number' });
+  imapPort.id = 'imap_port';
+  const imapSecurity = ui.select({
+    options: [
+      { value: '', label: 'IMAP 安全（自动）' },
+      { value: 'ssl', label: 'SSL/TLS' },
+      { value: 'tls', label: 'STARTTLS' },
+      { value: 'plain', label: '明文' },
+    ],
   });
-  if (panels.quick) panels.quick.hidden = false;
-  if (panels.email) panels.email.hidden = true;
+  imapSecurity.id = 'imap_security';
+  const imapUser = ui.input({ placeholder: 'IMAP 用户名' });
+  imapUser.id = 'imap_user';
+  const smtpHost = ui.input({ placeholder: 'SMTP 主机' });
+  smtpHost.id = 'smtp_host';
+  const smtpPort = ui.input({ placeholder: 'SMTP 端口', type: 'number' });
+  smtpPort.id = 'smtp_port';
+  const smtpSecurity = ui.select({
+    options: [
+      { value: '', label: 'SMTP 安全（自动）' },
+      { value: 'ssl', label: 'SSL/TLS' },
+      { value: 'tls', label: 'STARTTLS' },
+      { value: 'plain', label: '明文' },
+    ],
+  });
+  smtpSecurity.id = 'smtp_security';
+  const smtpUser = ui.input({ placeholder: 'SMTP 用户名' });
+  smtpUser.id = 'smtp_user';
+  const smtpPassword = ui.input({ placeholder: 'SMTP 密码', type: 'password' });
+  smtpPassword.id = 'smtp_password';
+  advanced.append(imapHost, imapPort, imapSecurity, imapUser, smtpHost, smtpPort, smtpSecurity, smtpUser, smtpPassword);
+  const loginBtn = ui.button({ label: '登录' });
+  loginBtn.id = 'login-btn';
+  emailForm.append(email, password, advancedToggle, advanced, loginBtn);
+  form.appendChild(emailForm);
 
-  const toggle = app.querySelector<HTMLButtonElement>('#advanced-toggle');
-  const advanced = app.querySelector<HTMLElement>('#advanced');
-  if (toggle && advanced) {
-    toggle.addEventListener('click', () => {
-      advanced.hidden = !advanced.hidden;
-    });
-  }
+  const errorEl = document.createElement('div');
+  errorEl.id = 'error';
+  errorEl.className = 'error';
+  errorEl.style.display = 'none';
+  form.appendChild(errorEl);
 
-  const quickForm = app.querySelector<HTMLFormElement>('#quick-form');
-  quickForm?.addEventListener('submit', async (e) => {
+  // ── tab 切换 ──────────────────────────────────────
+  tabQuick.addEventListener('click', () => {
+    tabQuick.classList.add('active');
+    tabEmail.classList.remove('active');
+    quickForm.hidden = false;
+    emailForm.hidden = true;
+    clearError();
+  });
+  tabEmail.addEventListener('click', () => {
+    tabEmail.classList.add('active');
+    tabQuick.classList.remove('active');
+    emailForm.hidden = false;
+    quickForm.hidden = true;
+    clearError();
+  });
+
+  advancedToggle.addEventListener('click', () => {
+    advanced.hidden = !advanced.hidden;
+  });
+
+  // ── 快速开始提交 ──────────────────────────────────
+  quickForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearError();
-    const displayNameEl = app.querySelector<HTMLInputElement>('#display-name');
-    const displayName = displayNameEl?.value.trim() || '';
-    if (!displayName) return;
-    const btn = app.querySelector<HTMLButtonElement>('#quick-btn');
-    if (!btn) return;
-    btn.disabled = true;
-    btn.textContent = '创建中…';
+    const name = displayName.value.trim() || '';
+    if (!name) return;
+    quickBtn.disabled = true;
+    quickBtn.textContent = '创建中…';
     let unlisten: (() => void) | null = null;
     try {
       unlisten = await onEvent('ConfigureProgress', (p: DcEvent) => {
         const progress = p.progress as number;
-        if (progress === 0) btn.textContent = '失败…';
-        else if (progress >= 1000) btn.textContent = '成功，正在进入…';
-        else if (progress > 0) btn.textContent = `${Math.floor(progress / 10)}%`;
+        if (progress === 0) quickBtn.textContent = '失败…';
+        else if (progress >= 1000) quickBtn.textContent = '成功，正在进入…';
+        else if (progress > 0) quickBtn.textContent = `${Math.floor(progress / 10)}%`;
         if (p.comment) console.log('[configure]', p.comment);
       });
     } catch {}
     try {
-      await call('create_chatmail_account', { displayName });
+      await call('create_chatmail_account', { displayName: name });
       if (unlisten) unlisten();
       await onSuccess();
     } catch {
       if (unlisten) unlisten();
-      btn.disabled = false;
-      btn.textContent = '开始聊天';
+      quickBtn.disabled = false;
+      quickBtn.textContent = '开始聊天';
     }
   });
 
-  const emailForm = app.querySelector<HTMLFormElement>('#email-form');
-  emailForm?.addEventListener('submit', async (e) => {
+  // ── 邮箱登录提交 ──────────────────────────────────
+  emailForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearError();
-    const emailEl = app.querySelector<HTMLInputElement>('#email');
-    const passwordEl = app.querySelector<HTMLInputElement>('#password');
-    const email = emailEl?.value.trim() || '';
-    const password = passwordEl?.value || '';
-    const adv = advanced?.hasAttribute('hidden') ? null : collectAdvanced(app);
-    const btn = app.querySelector<HTMLButtonElement>('#login-btn');
-    if (!btn) return;
-    btn.disabled = true;
-    btn.textContent = '登录中…';
+    const emailVal = email.value.trim() || '';
+    const passwordVal = password.value || '';
+    const adv = advanced.hasAttribute('hidden') ? null : collectAdvanced(app);
+    loginBtn.disabled = true;
+    loginBtn.textContent = '登录中…';
     let unlisten: (() => void) | null = null;
     try {
-      unlisten = await onEvent('ConfigureProgress', (p: DcEvent) => handleProgress(btn, '登录成功，正在进入…', p));
+      unlisten = await onEvent('ConfigureProgress', (p: DcEvent) => handleProgress(loginBtn, '登录成功，正在进入…', p));
     } catch {}
     try {
-      await call('login', { email, password, advanced: adv });
+      await call('login', { email: emailVal, password: passwordVal, advanced: adv });
       if (unlisten) unlisten();
       await onSuccess();
     } catch {
       if (unlisten) unlisten();
-      btn.disabled = false;
-      btn.textContent = '登录';
+      loginBtn.disabled = false;
+      loginBtn.textContent = '登录';
     }
   });
 }

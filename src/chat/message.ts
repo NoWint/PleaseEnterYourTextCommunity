@@ -7,6 +7,7 @@ import { showInlineConfirm } from '../components/inlineConfirm.js';
 import { renderVoicePlayer, bindVoicePlayer } from '../components/voicePlayer.js';
 import { renderWebxdcCard, bindWebxdcCard } from '../components/webxdc.js';
 import { iconSvg } from '../components/icon.js';
+import { escapeHtml, escapeAttr } from '../components/escape.js';
 import hljs from 'highlight.js/lib/core';
 import rust from 'highlight.js/lib/languages/rust';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -494,7 +495,7 @@ export function bindMessageActions(container: HTMLElement): void {
       overlay.innerHTML = `<img src="${escapeAttr(full)}" class="img-fullscreen-img" />`;
       overlay.addEventListener('click', () => {
         overlay.classList.add('closing');
-        setTimeout(() => overlay.remove(), 160);
+        setTimeout(() => overlay.remove(), 210);
       });
       document.body.appendChild(overlay);
     });
@@ -844,9 +845,3 @@ function formatTs(ts: number): string {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function escapeHtml(s: unknown): string {
-  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: unknown): string {
-  return escapeHtml(s);
-}

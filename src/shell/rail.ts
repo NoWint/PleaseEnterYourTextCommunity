@@ -4,7 +4,7 @@ import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { iconSvg, type IconName } from '../components/icon.js';
-import { showDropdown } from '../components/dropdown.js';
+import { ui } from '../components/ui.js';
 import type { Page, WorkspaceDto } from '../types.js';
 
 export async function refreshWorkspaces(): Promise<void> {
@@ -128,7 +128,7 @@ function bindAvatar(): void {
 }
 
 function showUserMenu(anchor: HTMLElement): void {
-  showDropdown(anchor, [
+  ui.menu(anchor, [
     {
       label: '外观设置',
       icon: 'palette',
@@ -172,7 +172,7 @@ function showUserMenu(anchor: HTMLElement): void {
         }
       },
     },
-  ], { position: 'top-left' });
+  ], 'top-left', { closeOn: 'hover', toggle: true });
 }
 
 // 切换账号:列出全部账号,点击切换后 reload 重建 UI(新选中账号的数据)。

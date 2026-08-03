@@ -1,5 +1,6 @@
 import { call } from '../api.js';
 import { ui } from './ui.js';
+import { escapeHtml } from './escape.js';
 
 // 多设备绑定:导出本机密钥供第二台设备导入(对齐 Delta SetupMultiDevice)。
 // 导出:把本机账号密钥写入 peyt-selfkeys.tar,拷贝到第二台设备;
@@ -19,7 +20,7 @@ export async function openMultiDeviceSetup(): Promise<void> {
   const dlg = ui.dialog({
     title: '多设备绑定',
     body: `
-      <div style="font-size:13px;color:var(--text-mute);line-height:1.5;margin-bottom:14px">
+      <div style="font-size:var(--font-scale-body);color:var(--text-mute);line-height:1.5;margin-bottom:14px">
         导出本机密钥文件,在第二台设备上导入即可登录同一账号并同步数据。
       </div>
       <div class="ui-tabs" id="md-tabs" style="margin-bottom:14px">
@@ -104,6 +105,3 @@ function joinDefaultKeysPath(dir: string): string {
   return `${base}${sep}peyt-selfkeys.tar`;
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

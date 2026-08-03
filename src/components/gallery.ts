@@ -3,6 +3,7 @@
 // 样式策略:不改 styles.css,运行时注入一个 <style id="gallery-css"> 块（首次打开时挂到 <head>）。
 import { call, transformBlobURL } from '../api.js';
 import { iconSvg } from './icon.js';
+import { escapeHtml, escapeAttr } from './escape.js';
 import type { MsgDto } from '../types.js';
 
 type GalleryTab = 'Image' | 'File' | 'Video' | 'Audio';
@@ -136,12 +137,6 @@ function ensureStyles(): void {
   document.head.appendChild(style);
 }
 
-function escapeHtml(s: unknown): string {
-  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: unknown): string {
-  return escapeHtml(s);
-}
 
 function formatBytes(bytes: number | null | undefined): string {
   if (!bytes || bytes <= 0) return '';

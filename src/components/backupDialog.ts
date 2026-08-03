@@ -1,5 +1,6 @@
 import { call } from '../api.js';
 import { ui } from './ui.js';
+import { escapeHtml } from './escape.js';
 
 // 备份与恢复对话框(对齐 Delta Backup.tsx)。
 // 导出:设置加密密码后把完整数据(含密钥)导出为加密备份文件;
@@ -121,6 +122,3 @@ function dateStamp(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}

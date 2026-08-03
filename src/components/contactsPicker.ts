@@ -3,17 +3,11 @@ import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import { ui } from './ui.js';
 import { iconSvg } from './icon.js';
+import { escapeHtml, escapeAttr } from './escape.js';
 import type { ContactDto } from '../types.js';
 
 // 从通讯录添加好友:列表选择 → create_chat_by_email → 打开会话。
 // 数据来自 get_contacts(全量联系人,含已建会话的),已存在会话直接打开而非重建(命令幂等)。
-
-function letterColor(name: string): string {
-  // 由名字哈希出稳定背景色,替代无 avatar 字段时的色块
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return `hsl(${h % 360} 35% 45%)`;
-}
 
 export async function openContactsPicker(): Promise<void> {
   let contacts: ContactDto[];
@@ -48,10 +42,10 @@ export async function openContactsPicker(): Promise<void> {
       return;
     }
     listEl.innerHTML = filtered.map((c) => {
-      const letter = (c.name || c.addr || '?').charAt(0).toUpperCase() || '?';
+      const avatarHtml = ui.avatar({ name: c.name || c.addr || '?', size: 32 }).outerHTML;
       return `
         <div class="ui-list-item cp-contact" data-addr="${escapeAttr(c.addr)}" style="padding:8px 10px">
-          <div class="avatar" style="background:${letterColor(c.name || c.addr)};flex:none">${escapeHtml(letter)}</div>
+          ${avatarHtml}
           <div class="ui-list-meta">
             <div class="ui-list-title">${escapeHtml(c.name || c.addr)}</div>
             <div class="ui-list-sub">${escapeHtml(c.addr)}</div>
@@ -84,7 +78,3 @@ export async function openContactsPicker(): Promise<void> {
   searchInput?.focus();
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-function escapeAttr(s: string): string { return escapeHtml(s); }

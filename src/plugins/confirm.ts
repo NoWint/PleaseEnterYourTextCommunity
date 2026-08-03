@@ -1,4 +1,5 @@
 import { showToast } from '../toast.js';
+import { escapeHtml } from '../components/escape.js';
 
 /**
  * Lightweight floating confirm for small icon buttons (delete/uninstall).
@@ -16,7 +17,7 @@ export function showPluginConfirm(
   const existing = document.querySelector<HTMLElement>('.plugin-confirm');
   if (existing && openCardAnchor === anchor) {
     existing.classList.add('closing');
-    setTimeout(() => existing.remove(), 120);
+    setTimeout(() => existing.remove(), 150);
     openCardAnchor = null;
     return;
   }
@@ -44,7 +45,7 @@ export function showPluginConfirm(
   const close = (): void => {
     if (openCardAnchor === anchor) openCardAnchor = null;
     card.classList.add('closing');
-    setTimeout(() => card.remove(), 120);
+    setTimeout(() => card.remove(), 150);
     document.removeEventListener('click', outside);
   };
   const outside = (e: MouseEvent): void => {
@@ -66,12 +67,3 @@ export function showPluginConfirm(
   card.querySelector('.plugin-confirm-no')!.addEventListener('click', close);
 }
 
-function escapeHtml(s: string): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[c]!);
-}

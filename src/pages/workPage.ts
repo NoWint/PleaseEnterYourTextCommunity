@@ -3,6 +3,7 @@ import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { getSpaceType } from '../shell/navPanel.js';
 import { renderAvatarHtml } from '../components/avatar.js';
+import { escapeHtml } from '../components/escape.js';
 import type { ChannelDto, WorkTab } from '../types.js';
 
 export async function renderWorkPage(panel: HTMLElement): Promise<void> {
@@ -101,8 +102,4 @@ async function renderWorkChannelList(): Promise<void> {
       renderRightDrawer();
     });
   });
-}
-
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
