@@ -3502,6 +3502,32 @@ pub async fn bot_tool_result(
     Ok(())
 }
 
+/// 列出某个 bot 的活动日志(时间线,倒序)。
+#[tauri::command]
+pub async fn list_bot_activities(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    limit: Option<i64>,
+) -> AppResult<Vec<crate::dto::BotActivityDto>> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await?; // owner 校验
+    let lim = limit.unwrap_or(50).clamp(1, 500) as u32;
+    let rows = state.db.list_bot_activities(bot_id, lim).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| crate::dto::BotActivityDto {
+            id: r.id,
+            bot_id: r.bot_id,
+            kind: r.kind,
+            chat_id: r.chat_id,
+            msg_id: r.msg_id,
+            summary: r.summary,
+            detail_json: r.detail_json,
+            created_at: r.created_at,
+        })
+        .collect())
+}
+
 /// 测试 LLM 配置：用固定示例消息调用一次，返回回复文本（用于配置对话框的「测试连接」）。
 #[tauri::command]
 pub async fn test_llm_config(config: crate::dto::LlmConfigInput) -> AppResult<String> {

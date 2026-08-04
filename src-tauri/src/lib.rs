@@ -300,6 +300,7 @@ pub fn run() {
             commands::unregister_bot_tool,
             commands::list_bot_tools,
             commands::bot_tool_result,
+            commands::list_bot_activities,
             // 原生系统通知(user-notify)
             notifications::show_notification,
             notifications::get_notification_permission,
