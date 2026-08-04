@@ -134,8 +134,6 @@ html { background: var(--bg); }
   z-index: 9999;
   display: none;
   align-items: center;
-  /* 与侧栏(rail/nav)同色:panel 面,随主题明暗自适应,消除顶部与侧栏割裂 */
-  background: var(--panel);
 }
 html.window-overlay #window-drag-region,
 html.window-frame #window-drag-region { display: flex; }
@@ -409,16 +407,11 @@ html.window-overlay .wb-controls { display: none; }
    Apple §12 材料层次 —— 半透明面板 + backdrop blur,消息滚动从卡片下方穿透,
    阴影 + 内描边区分层次;文字用 --text 保持对比度。 */
 .chat-header {
-  position: absolute;
-  top: 12px; left: 14px; right: 14px;
-  z-index: 10;
+  flex-shrink: 0;
   padding: 10px 16px;
   display: flex; justify-content: space-between; align-items: center;
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--panel) 86%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  backdrop-filter: blur(18px) saturate(150%);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.20), inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
 }
 .chat-header .ch-title { font-size: var(--font-scale-page); font-weight: 600; letter-spacing: -0.3px; line-height: 1.3; }
 .chat-header .ch-members { font-size: var(--font-scale-secondary); color: var(--text-mute); font-weight: 500; margin-left: 8px; }
@@ -432,7 +425,6 @@ html.window-overlay .wb-controls { display: none; }
 .messages {
   flex: 1; overflow-y: auto;
   padding: var(--space-4) var(--space-5);
-  padding-top: 88px;
   padding-bottom: calc(var(--composer-h, 120px) + 36px);
   display: flex; flex-direction: column; gap: 10px;
   scrollbar-width: none;
