@@ -44,6 +44,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center; /* page 内容不足时垂直居中 */
             overflow-x: hidden;
         }
         /* 顶部紫色光晕 + 柔和网格(层次)。
@@ -223,10 +224,11 @@
             gap: 12px;
         }
         .qr-title {
-            font-size: 15px;
+            font-size: 17px;
             font-weight: 600;
             color: var(--text);
             align-self: center;
+            letter-spacing: -0.01em;
         }
         .qr-toggle { align-self: center; }
         .qr-toggle {
@@ -234,15 +236,15 @@
             background: var(--glass-strong);
             color: var(--text-2);
             font-family: inherit;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 500;
             cursor: pointer;
-            padding: 8px 16px;
+            padding: 10px 22px;
             border-radius: 999px;
             transition: background 120ms, color 120ms;
         }
         .qr-toggle:hover { background: var(--glass); color: var(--text); }
-        .qr-toggle svg { vertical-align: -2px; margin-right: 5px; }
+        .qr-toggle svg { vertical-align: -2px; margin-right: 6px; }
         /* 右栏:二维码(无卡片,融入背景) */
         .qr-body {
             flex: none;
@@ -293,9 +295,9 @@
             width: 100%;
             /* 无间隙:按钮与输入框同底色,视觉一体 */
             gap: 0;
-            padding: 4px 6px 4px 18px; /* 宽内边距,呼吸感 */
+            padding: 8px 8px 8px 22px; /* 更宽内边距,呼吸感 */
             border: none;
-            border-radius: 24px; /* 胶囊型大圆角 */
+            border-radius: 28px; /* 胶囊型大圆角 */
             background: rgba(255, 255, 255, 0.06); /* 微亮深灰,与背景融合 */
             transition: box-shadow 200ms var(--ease-spring), background 200ms var(--ease-spring);
             box-sizing: border-box;
@@ -307,14 +309,14 @@
         }
         .generator input {
             flex: 1;
-            min-height: 36px;
+            min-height: 44px;
             padding: 0;
             border: none;
             background: transparent; /* 融入 gen-row 底色 */
             color: var(--text);
             /* 字体与 hero「向 TA 打个招呼」一致:系统无衬线,非等宽 */
             font-family: var(--font);
-            font-size: 15px;
+            font-size: 17px;
             line-height: 1.5;
             outline: none;
             box-sizing: border-box;
@@ -326,8 +328,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 36px;
-            height: 36px;
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
             border: none;
             background: transparent;
@@ -335,7 +337,7 @@
             cursor: pointer;
             transition: border-color 120ms, color 120ms, background 120ms, transform 120ms var(--ease-spring);
         }
-        .gen-btn svg { width: 18px; height: 18px; }
+        .gen-btn svg { width: 22px; height: 22px; }
         .gen-btn:hover { color: var(--accent-2); background: rgba(106,92,255,0.12); }
         .gen-btn:active { transform: scale(0.92); }
         .gen-btn:disabled { opacity: 0.35; cursor: default; background: none; }
