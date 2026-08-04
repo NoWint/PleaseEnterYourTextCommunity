@@ -837,6 +837,12 @@ pub async fn mark_chat_seen(state: State<'_, AppState>, chat_id: u32) -> AppResu
     mark_chat_seen_impl(&ctx, chat_id).await
 }
 
+/// 把 core 生成的 `https://i.delta.chat/#...` 链接域名换成 PEYT 品牌域名。
+/// 内容(指纹/参数)不变,core 零改动;解析时前端反向替换回 i.delta.chat。
+fn to_peyt_url(s: &str) -> String {
+    s.replacen("https://i.delta.chat/", "https://peyt.yzjtiantian.cn/", 1)
+}
+
 /// Returns the user's own SecureJoin QR code (e.g. `OPENPGP4FPR:...`)
 /// that another Delta Chat user can scan to add you as a verified contact.
 /// Pass `chat_id = None` for the personal QR, or a group chat id for a group-invite QR.
@@ -848,7 +854,7 @@ pub async fn get_securejoin_qr(
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     let chat_id = chat_id.map(deltachat::chat::ChatId::new);
     let qr = securejoin::get_securejoin_qr(&ctx, chat_id).await?;
-    Ok(qr)
+    Ok(to_peyt_url(&qr))
 }
 
 /// Perform a SecureJoin by scanning a `dccontact:` / `dcgroup:` / `DCACCOUNT:` URL.
@@ -1350,7 +1356,81 @@ pub async fn get_my_qr(state: State<'_, AppState>) -> AppResult<String> {
         .ok_or(AppError::Core("no account".into()))?;
     // 传 None 返回个人 QR (verified: get_securejoin_qr(&Context, Option<ChatId>))
     let qr = securejoin::get_securejoin_qr(&ctx, None).await?;
-    Ok(qr)
+    Ok(to_peyt_url(&qr))
+}
+
+/// 解析 dclogin:/dcaccount: 登录链接,返回预填登录页所需的邮箱 + advanced 配置。
+/// 用 core check_qr 拿 Qr::Login,映射 LoginOptions::V1 → AdvancedLogin(供前端预填)。
+/// (core 的 login_param_from_login_qr 是 pub(crate),这里走公开的 check_qr。)
+#[tauri::command]
+pub async fn parse_dclogin(state: State<'_, AppState>, url: String) -> AppResult<serde_json::Value> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or(AppError::Core("no account".into()))?;
+    let qr = deltachat::qr::check_qr(&ctx, &url).await?;
+    match qr {
+        deltachat::qr::Qr::Login { address, options } => {
+            let (imap_host, imap_port, imap_security, imap_user, smtp_host, smtp_port, smtp_security, smtp_user, smtp_password) =
+                match options {
+                    deltachat::qr::LoginOptions::V1 {
+                        mail_pw,
+                        imap_host,
+                        imap_port,
+                        imap_username,
+                        imap_password,
+                        imap_security,
+                        smtp_host,
+                        smtp_port,
+                        smtp_username,
+                        smtp_password,
+                        smtp_security,
+                        ..
+                    } => {
+                        // imap_password 缺省用 mail_pw;imap_username 缺省用 address
+                        (
+                            imap_host.map(|h| h.to_string()),
+                            imap_port,
+                            imap_security.map(|s| socket_str(s)),
+                            imap_username.or(imap_password.map(|_| address.clone())),
+                            smtp_host.map(|h| h.to_string()),
+                            smtp_port,
+                            smtp_security.map(|s| socket_str(s)),
+                            smtp_username,
+                            smtp_password.or(Some(mail_pw)),
+                        )
+                    }
+                    deltachat::qr::LoginOptions::UnsuportedVersion(_) => {
+                        return Err(AppError::Core("dclogin 版本不支持".into()));
+                    }
+                };
+            Ok(serde_json::json!({
+                "email": address,
+                "advanced": {
+                    "imap_host": imap_host,
+                    "imap_port": imap_port,
+                    "imap_security": imap_security,
+                    "imap_user": imap_user,
+                    "smtp_host": smtp_host,
+                    "smtp_port": smtp_port,
+                    "smtp_security": smtp_security,
+                    "smtp_user": smtp_user,
+                    "smtp_password": smtp_password,
+                }
+            }))
+        }
+        _ => Err(AppError::Core("不是 dclogin/dcaccount 登录链接".into())),
+    }
+}
+
+/// Socket(ssl/tls/plain)→ 字符串(供 AdvancedLogin)。
+fn socket_str(s: deltachat::provider::Socket) -> String {
+    use deltachat::provider::Socket::*;
+    match s {
+        Ssl => "ssl".to_string(),
+        Starttls => "tls".to_string(),
+        Automatic | Plain => "plain".to_string(),
+    }
 }
 
 #[tauri::command]
@@ -2333,8 +2413,8 @@ pub async fn ensure_peyt_studio(state: State<'_, AppState>) -> AppResult<PeytStu
     let welcome = "👋 欢迎来到 PEYT Studio\n\n这是团队的默认协作空间。\n• 公告频道: 团队通知发布\n• 闲聊频道: 日常交流\n• 工作频道: 任务看板协作\n\n点击右上角头像可切换主题,左下角 + 可创建更多 workspace。";
     let _ = chat::send_text_msg(&ctx, master_chat_id, welcome.to_string()).await?;
     // 6. 在 master 群发送 project.invite 信封,包含其他频道 QR,供新成员自动加入
-    let general_qr = securejoin::get_securejoin_qr(&ctx, Some(general_chat)).await.unwrap_or_default();
-    let work_qr = securejoin::get_securejoin_qr(&ctx, Some(work_chat)).await.unwrap_or_default();
+    let general_qr = to_peyt_url(&securejoin::get_securejoin_qr(&ctx, Some(general_chat)).await.unwrap_or_default());
+    let work_qr = to_peyt_url(&securejoin::get_securejoin_qr(&ctx, Some(work_chat)).await.unwrap_or_default());
     let invite_payload = crate::envelope::build_envelope(
         "project.invite",
         serde_json::json!({
@@ -2344,7 +2424,7 @@ pub async fn ensure_peyt_studio(state: State<'_, AppState>) -> AppResult<PeytStu
     )?;
     let _ = chat::send_text_msg(&ctx, master_chat_id, invite_payload).await?;
     // 7. 生成 master 群的 SecureJoin QR 供首人分享
-    let invite_qr = securejoin::get_securejoin_qr(&ctx, Some(master_chat_id)).await?;
+    let invite_qr = to_peyt_url(&securejoin::get_securejoin_qr(&ctx, Some(master_chat_id)).await?);
     let ws = state.db.find_workspace_by_master_chat(master_u32).await?
         .ok_or(AppError::Core("workspace not found after insert".into()))?;
     Ok(PeytStudioDto {

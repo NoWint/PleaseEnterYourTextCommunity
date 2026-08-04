@@ -26,17 +26,24 @@ async function boot(): Promise<void> {
     // 自绘标题栏:绑定窗口控制按钮(最小化/最大化/关闭)
     void import('./shell/windowControls.js').then((m) => m.initWindowControls());
   }
+  // 深链:注册事件监听(唤起/冷启动 URL 都经 dc-event DeepLink 分发)
+  void import('./utils/deepLink.js').then(({ registerDeepLinkListener }) => registerDeepLinkListener());
+
   const configured = await call<boolean>('is_configured');
   if (configured) {
     await renderShell();
     // 已配置账号: 静默确保 PEYT Studio 存在 (existing/founder)
     await ensurePeytStudio();
+    // 冷启动补收:启动早于事件注册时的深链
+    void import('./utils/deepLink.js').then(({ processPendingDeepLink }) => processPendingDeepLink());
   } else {
     const { renderLogin } = await import('./views/login.js');
     renderLogin(async () => {
       await renderShell();
       // 首次登录: 创建 PEYT Studio, founder 显示 nav banner 欢迎指引
       await ensurePeytStudio();
+      // 登录后处理暂存的深链(dclogin 预填 / 邀请)
+      void import('./utils/deepLink.js').then(({ processPendingDeepLink }) => processPendingDeepLink());
     });
   }
 }

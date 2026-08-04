@@ -2,6 +2,7 @@ mod bot_llm;
 mod bots;
 mod commands;
 mod db;
+mod deeplink;
 mod dto;
 mod envelope;
 mod error;
@@ -29,11 +30,46 @@ pub fn run() {
         .format_timestamp_secs()
         .init();
     tauri::Builder::default()
+        // 深链插件:注册 OPENPGP4FPR/dcaccount/dclogin scheme(tauri.conf.json 配置)。
+        // single-instance:Windows 插件只在新进程读 argv,已运行实例靠它转发深链。
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // 热启动:另一个实例把 argv(含深链 URL)转发到这里 → 处理并聚焦。
+            if let Some(url) = deeplink::extract_url_from_args(args) {
+                deeplink::handle_url(app, &url);
+            }
+        }))
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
             let state = tauri::async_runtime::block_on(async move {
                 AppState::new(dir).await
             })?;
+            // 深链冷启动:get_current() 取当前实例启动时的 URL;macOS 用 on_open_url。
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                // Windows/Linux:冷启动 URL 从 get_current() 拿(读 argv)。
+                #[cfg(not(target_os = "macos"))]
+                {
+                    if let Ok(Some(urls)) = handle.deep_link().get_current() {
+                        if let Some(url) = urls.first() {
+                            deeplink::handle_url(&handle, url.as_str());
+                        }
+                    }
+                }
+                // macOS:RunEvent::Opened → on_open_url。
+                #[cfg(target_os = "macos")]
+                {
+                    let app_handle = app.handle().clone();
+                    handle
+                        .deep_link()
+                        .on_open_url(move |urls| {
+                            if let Some(url) = urls.first() {
+                                deeplink::handle_url(&app_handle, url.as_str());
+                            }
+                        });
+                }
+            }
             // 原生系统通知:注册点击回调(点击 → 聚焦窗口 + 事件给前端)。
             // app_id 用 bundle identifier (Windows AUMID)。
             let notif = notifications::Notifications::new("com.peytchat.app".into());
@@ -203,6 +239,9 @@ pub fn run() {
             notifications::show_notification,
             notifications::get_notification_permission,
             notifications::request_notification_permission,
+            // 深链:前端冷启动补收 PENDING
+            deeplink::take_pending_deeplink,
+            commands::parse_dclogin,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

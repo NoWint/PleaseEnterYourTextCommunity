@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="utf-8">
+    <title>在 PEYT 上私密沟通</title>
+    <meta name="description" content="点开邀请链接开始聊天">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="apple-itunes-app" content="app-id=YOUR_APP_ID">
+
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="在 PEYT 上私密沟通">
+    <meta property="og:url" content="https://peyt.yzjtiantian.cn">
+
+    <link rel="icon" href="logo.jpg" sizes="any">
+
+    <script src="./qrcode.min.js"></script>
+
+    <style>
+        :root {
+            --pad: 8px;
+            --peyt-color-1: rgb(88, 58, 235);
+            --peyt-color-2: rgb(30, 40, 60);
+            --peyt-gradient: linear-gradient(120deg, var(--peyt-color-1), var(--peyt-color-2));
+        }
+        body { margin: 0; font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif; font-size: 12pt; background: #f4f5f7; }
+        a { color: #1e6bb8; text-decoration: none; }
+        header { padding: var(--pad); font-size: 18pt; background: var(--peyt-gradient); box-shadow: 0 0 3px #888; }
+        header a { font-weight: bold; color: white; }
+        .logo { display: flex; align-items: center; }
+        .logo img { margin-right: var(--pad); border-radius: 6px; }
+        #box { border-radius: 16px; background: white; padding: 15px; box-shadow: 0 0 10px #ccc; max-width: 420px; margin: 32px auto; }
+        #box p { text-align: center; }
+        #box li { margin-bottom: 40px; }
+        #dc-link, .download { padding: 10px; border-radius: 30px; font-size: 10pt; font-weight: bold; text-transform: uppercase; color: white; background: var(--peyt-gradient); display: inline-block; }
+        ol { display: block; list-style: none; counter-reset: numList; }
+        ol li { display: block; position: relative; }
+        ol li:before { --circle-size: 44px; counter-increment: numList; content: counter(numList); width: var(--circle-size); height: var(--circle-size); line-height: var(--circle-size); position: absolute; left: -56px; top: -10px; border-radius: 999px; color: var(--peyt-color-2); background: #f4f4f4; font-size: 14pt; text-align: center; }
+        textarea { width: 90%; height: 4.5em; font-family: monospace; }
+        .hidden { display: none; }
+        details { margin-top: 4em; text-align: center; }
+        details summary { cursor: pointer; font-size: 11pt; }
+        details #qrcode { min-width: 200px; width: 60%; padding-top: 1em; margin: auto; }
+        .hint { color: #666; font-size: 10pt; }
+    </style>
+</head>
+<body>
+<header>
+    <a class="logo" href="https://peyt.yzjtiantian.cn">
+        <img src="logo.jpg" width="32" height="32" aria-hidden="true" />
+        <span class="logo-text">PEYT</span>
+    </a>
+</header>
+
+<div id="box">
+    <noscript>
+        <div>
+            <h2><b>向 … 打个招呼 👋</b> 你禁用了 JavaScript,没问题:</h2>
+            <ol>
+                <li><a class="download" href="https://peyt.yzjtiantian.cn/download" target="_blank">下载 PEYT</a></li>
+                <li><b>复制</b> 浏览器地址栏的完整 URL(含 # 后的所有内容)<b>到剪贴板</b></li>
+                <li>在 PEYT 里选「扫码 → 从剪贴板粘贴」,开始聊天</li>
+            </ol>
+        </div>
+    </noscript>
+
+    <form class="hidden">
+        <h2 class="form-blurb"></h2>
+        <ol>
+            <li class="step-code"></li>
+            <li>
+                <span class="step-paste"></span><br>
+                <textarea autofocus oninput="textareaInput(this.value)"></textarea>
+            </li>
+        </ol>
+    </form>
+
+    <div id="say-hello" class="hidden">
+        <h2>
+            <span id="join">向</span>
+            <b id="name">对方</b>
+            👋 打个招呼
+        </h2>
+        <ol>
+            <li><a class="download" href="https://peyt.yzjtiantian.cn/download" target="_blank">下载 PEYT</a></li>
+            <li><a id="dc-link" href="">打开 PEYT</a></li>
+        </ol>
+
+        <details>
+            <summary class="other-device">在其他设备上打开 PEYT</summary>
+            <div id="qrcode"></div>
+            <p><i class="scan-qr">扫码在另一台设备上打开对话</i></p>
+        </details>
+    </div>
+</div>
+
+<script>
+    const searchParams = new URLSearchParams(window.location.hash.substr(1));
+
+    function reactInput(inputData) {
+        const isValid = !!inputData;
+        // `<FPR>&v=3&i=...` → `OPENPGP4FPR:<FPR>#v=3&i=...`(复刻 i.delta.chat)
+        var openpgp4fprStr = "OPENPGP4FPR:" + inputData.replace(/&/, "#");
+
+        var link = document.getElementById("dc-link");
+        link.setAttribute("href", openpgp4fprStr);
+
+        document.getElementById("name").innerText = searchParams.get("g") || searchParams.get("b") || searchParams.get("n") || searchParams.get("a") || "对方";
+
+        if (isValid) {
+            // 用 qrcode 库 toCanvas 异步渲染到 #qrcode(该库无 i.delta.chat 的 renderTextToElement)
+            var qrEl = document.getElementById("qrcode");
+            qrEl.innerHTML = '';
+            var cv = document.createElement('canvas');
+            qrEl.appendChild(cv);
+            QRCode.toCanvas(cv, openpgp4fprStr, { width: 260, margin: 1 });
+            document.getElementById('say-hello').classList.remove('hidden');
+        } else {
+            document.querySelector('form').classList.remove('hidden');
+        }
+    };
+
+    // 生成器:粘贴 OPENPGP4FPR / peyt.yzjtiantian.cn / i.delta.chat 链接 → 二维码
+    function textareaInput(inputData) {
+        if (inputData.startsWith('https://peyt.yzjtiantian.cn')) {
+            inputData = inputData.replace(/https:\/\/peyt\.yzjtiantian\.cn\/?#/, '');
+        } else if (inputData.startsWith('https://i.delta.chat')) {
+            inputData = inputData.replace(/https:\/\/i\.delta\.chat\/?#/, '');
+        } else {
+            inputData = inputData.replace(/openpgp4fpr:/i, '');
+        }
+        if (inputData.indexOf('#') == -1) inputData = inputData.replace(/%23/, '#');
+        reactInput(inputData);
+    }
+
+    reactInput(window.location.hash.substr(1));
+</script>
+</body>
+</html>

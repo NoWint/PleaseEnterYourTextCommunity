@@ -102,6 +102,13 @@ pub struct EventPayload {
     pub text: Option<String>,
 }
 
+/// 深链事件载荷(仿 NotificationClickPayload):typ="DeepLink",url=唤起链接。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DeepLinkPayload {
+    pub typ: &'static str,
+    pub url: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ContactDto {
     pub id: u32,

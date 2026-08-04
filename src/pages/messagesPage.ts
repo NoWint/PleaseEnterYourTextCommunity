@@ -6,7 +6,6 @@ import { ui, colorHex } from '../components/ui.js';
 import { escapeHtml, escapeAttr } from '../components/escape.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
 import { renderMemberDetail } from '../components/memberDetail.js';
-import { isEmail, parseInviteLink } from '../utils/inviteLink.js';
 import type { ChatListItem, MemberDto } from '../types.js';
 
 let panel: HTMLElement | null = null;
@@ -308,44 +307,17 @@ function showInlineEmailInput(): void {
 function showInlineQrInput(): void {
   ui.inputDialog({
     title: '添加好友',
-    placeholder: '粘贴邮箱 / peyt:// 邀请链接 / 老 QR',
+    placeholder: '粘贴邮箱 / 邀请链接 / 老 QR',
     confirmLabel: '加入',
     onConfirm: async (input) => {
       const raw = input.trim();
       try {
-        // 依次识别:邮箱 → peyt:// 邀请链接 → 老 securejoin 链接
-        if (isEmail(raw)) {
-          const chatId = await call<number>('create_chat_by_email', { email: raw });
-          state.currentChatId = chatId;
-          saveState();
-          await renderMessagesPage(panel!);
-          const { renderMain } = await import('../shell/navPanel.js');
-          await renderMain();
-          return;
-        }
-        const peytEmail = parseInviteLink(raw);
-        if (peytEmail) {
-          const chatId = await call<number>('create_chat_by_email', { email: peytEmail });
-          state.currentChatId = chatId;
-          saveState();
-          await renderMessagesPage(panel!);
-          const { renderMain } = await import('../shell/navPanel.js');
-          await renderMain();
-          return;
-        }
-        // 兼容老 securejoin 链接 (dccontact: / dcgroup: / https://i.delta.chat/#)
-        const chatId = await call<number>('secure_join', { qr: raw });
-        try {
-          await call('accept_chat', { chatId });
-        } catch {}
-        state.currentChatId = chatId;
-        saveState();
+        // 统一走深链路由:邮箱→create_chat_by_email;peyt/i.delta.chat/OPENPGP4FPR→
+        // normalize→secure_join;dcaccount/dclogin→登录预填。(复用唤起逻辑,一处维护)
+        await import('../utils/deepLink.js').then(({ routeDeepLink }) => routeDeepLink(raw));
         await renderMessagesPage(panel!);
-        const { renderMain } = await import('../shell/navPanel.js');
-        await renderMain();
       } catch (e) {
         ui.toast(e instanceof Error ? e.message : String(e));
-        throw e;
       }
     },
   });

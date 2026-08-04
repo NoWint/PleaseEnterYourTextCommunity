@@ -30,6 +30,13 @@
       }
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["openpgp4fpr", "dcaccount", "dclogin"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

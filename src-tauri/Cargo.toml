@@ -13,6 +13,10 @@ tauri-build = { version = "2.0", features = [] }
 [dependencies]
 tauri = { version = "2.0", features = ["protocol-asset"] }
 deltachat = { path = "../core" }
+# 深链:注册自定义 URI scheme(OPENPGP4FPR/dcaccount/dclogin),复刻 i.delta.chat 唤起。
+# single-instance 用于把深链转发给已运行实例(Windows 插件只在新进程读 argv)。
+tauri-plugin-deep-link = "2.4.9"
+tauri-plugin-single-instance = "2.4.3"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
