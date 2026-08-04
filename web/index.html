@@ -70,35 +70,52 @@
             to   { opacity: 1; transform: none; }
         }
 
-        /* ── Logo:品牌符号,单一焦点 ─────────────── */
-        .logo {
-            width: 64px; height: 64px;
-            border-radius: 18px;
+        /* ── 品牌区:左 LOGO,右上 PEYT Chat,右下 Type Everything ── */
+        .brand-block {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 16px;
+        }
+        .brand-block .logo {
+            flex: none;
+            width: 56px; height: 56px;
+            border-radius: 16px;
             object-fit: cover;
-            box-shadow: 0 12px 32px rgba(106,92,255,0.35);
+            box-shadow: 0 10px 28px rgba(106,92,255,0.35);
             animation: logo-in 700ms var(--ease-spring) 80ms both;
         }
         @keyframes logo-in {
             from { opacity: 0; transform: scale(0.6) translateY(-8px); }
             to   { opacity: 1; transform: none; }
         }
+        .brand-text {
+            display: flex;
+            flex-direction: column;
+            text-align: left;
+            line-height: 1.25;
+        }
+        /* 品牌名:中等大号,主体(§15 层级主) */
+        .brand {
+            font-size: 19px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            color: var(--text);
+        }
+        /* slogan:品牌声音,安静小字在品牌名下 */
+        .slogan {
+            margin-top: 2px;
+            font-size: 12px;
+            color: var(--text-3);
+            letter-spacing: 0.03em;
+        }
 
-        /* ── 问候区:层级 = brand kicker → hero → slogan ── */
+        /* ── 问候区:hero 独立居中 ─────────────────── */
         .greeting {
             text-align: center;
-            margin: 20px 0 32px;
+            margin: 22px 0 32px;
         }
-        /* kicker:品牌锚点,小号大写拉开字距(§15 小字号正字距) */
-        .brand {
-            font-size: 12px;
-            font-weight: 600;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-            color: var(--text-2);
-        }
-        /* hero:主信息,大号负字距紧排(§15 大字号负字距) */
         .hello {
-            margin-top: 10px;
             font-size: clamp(28px, 5vw, 34px);
             font-weight: 700;
             letter-spacing: -0.022em;
@@ -109,13 +126,6 @@
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
-        }
-        /* slogan:品牌声音,安静小字(§15 body 字距归零) */
-        .slogan {
-            margin-top: 8px;
-            font-size: 14px;
-            color: var(--text-3);
-            letter-spacing: 0.01em;
         }
 
         /* ── 卡片:材料层 ─────────────────────────── */
@@ -284,13 +294,18 @@
 </head>
 <body>
     <main class="page">
-        <img class="logo" src="logo.jpg" alt="PEYT">
+        <!-- 品牌区:左 LOGO,右上 PEYT Chat,右下 Type Everything -->
+        <div class="brand-block">
+            <img class="logo" src="logo.jpg" alt="PEYT">
+            <div class="brand-text">
+                <div class="brand">PEYT Chat</div>
+                <p class="slogan">Type Everything</p>
+            </div>
+        </div>
 
-        <!-- 层级:品牌 kicker → hero 问候 → slogan -->
+        <!-- 问候:hero 独立居中 -->
         <div class="greeting">
-            <div class="brand">PEYT Chat</div>
             <h1 class="hello">向 <b id="name">TA</b> 打个招呼 👋</h1>
-            <p class="slogan">Type Everything</p>
         </div>
 
         <div class="card" id="card">
