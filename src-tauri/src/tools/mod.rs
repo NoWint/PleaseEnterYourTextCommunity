@@ -2,6 +2,7 @@ pub mod bridge;
 pub mod builtins;
 pub mod file;
 pub mod net;
+pub mod plugin;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,8 +17,8 @@ use crate::tools::bridge::ToolBridge;
 
 #[async_trait]
 pub trait Tool: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
     fn parameters(&self) -> serde_json::Value; // JSON Schema
     /// 该工具是否默认开放给 LLM(危险工具如写文件/建卡片设为 false)
     fn is_safe(&self) -> bool {
@@ -51,7 +52,7 @@ impl ToolRegistry {
         self.tools.push(t);
     }
 
-    pub fn names(&self) -> Vec<&'static str> {
+    pub fn names(&self) -> Vec<&str> {
         self.tools.iter().map(|t| t.name()).collect()
     }
 
