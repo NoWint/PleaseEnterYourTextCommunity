@@ -206,29 +206,29 @@
         .download:hover { background: var(--glass); color: var(--text); transform: translateY(-1px); }
         .download svg { width: 14px; height: 14px; }
 
-        /* ── 二维码区:横向布局(合理利用空间)────────── */
+        /* ── 二维码区:纵向布局(生成器在上,二维码在下)────────── */
         .qr-wrap {
             margin-top: 20px;
-            padding-top: 20px;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 24px;
+            gap: 20px;
         }
-        /* 左栏:标题 + 切换 + 生成器。align-items:stretch 让子项(含 textarea)撑满,
-           内容内部靠左 */
+        /* 生成器区:纵向,子项撑满(generator 拉宽),标题/切换自居中 */
         .qr-left {
-            flex: 1 1 210px;
-            min-width: 210px;
+            width: 100%;
             display: flex;
             flex-direction: column;
             align-items: stretch;
-            gap: 10px;
+            gap: 12px;
         }
         .qr-title {
             font-size: 15px;
             font-weight: 600;
             color: var(--text);
+            align-self: center;
         }
+        .qr-toggle { align-self: center; }
         .qr-toggle {
             border: none;
             background: var(--glass-strong);
@@ -285,10 +285,12 @@
             align-self: stretch; /* 撑满左栏,textarea 才能 100% */
         }
         .generator.open { display: block; animation: qr-in 320ms var(--ease-spring) both; }
-        /* 横排胶囊容器:输入框 + 按钮融为一体(§12 材料克制,无边/微融合) */
+        /* 胶囊容器:输入框 + 按钮融为一体(§12 材料克制,无边/微融合)。
+           纵向布局下占满宽,居中显示 */
         .gen-row {
             display: flex;
             align-items: center;
+            width: 100%;
             /* 无间隙:按钮与输入框同底色,视觉一体 */
             gap: 0;
             padding: 4px 6px 4px 18px; /* 宽内边距,呼吸感 */
