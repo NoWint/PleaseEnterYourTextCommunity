@@ -48,6 +48,10 @@ export async function renderRail(): Promise<void> {
     ${iconSvg('bug', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
+  const githubIconHtml = `<div class="rail-icon ${state.currentPage === 'github' ? 'active' : ''}" data-page="github" title="GitHub">
+    ${iconSvg('git-branch', { width: 24, height: 24, strokeWidth: 1.5 })}
+  </div>`;
+
   const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" title="设置">
     ${iconSvg('settings', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
@@ -60,6 +64,7 @@ export async function renderRail(): Promise<void> {
     ${debugIconHtml}
     <div class="rail-separator"></div>
     <div class="rail-flex"></div>
+    ${githubIconHtml}
     ${settingsIconHtml}
     <div class="rail-avatar" id="rail-avatar">${avatarHtml}</div>
   `;

@@ -74,6 +74,7 @@ interface ProjectContext {
   chat_ids: number[];
   description?: string | null;
   repo_path?: string | null;
+  github_token?: string | null;
 }
 
 interface BotConfig {
@@ -847,7 +848,20 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
 
   // ── 项目上下文区 ──
   const pcDescArea = ui.textarea({ placeholder: '项目一句话描述(如:PEYT Chat 桌面端,基于 Tauri 2 + deltachat)', rows: 2 });
-  const repoPathInput = ui.input({ placeholder: 'Git 仓库路径(预留:D1 GitHub 集成用)', value: getCfg()?.project_context?.repo_path || '' });
+  const repoPathInput = ui.input({ placeholder: 'owner/repo(如 octocat/Hello-World)', value: getCfg()?.project_context?.repo_path || '' });
+  const githubTokenInput = ui.input({ type: 'password', placeholder: 'GitHub Token(可选,优先于全局 token)', value: getCfg()?.project_context?.github_token || '' });
+  // 已绑定仓库下拉:选择后填入 repo_path(help 选 repo_path)
+  let boundRepos: Array<{ id: number; full_name: string }> = [];
+  try {
+    boundRepos = await call<Array<{ id: number; full_name: string }>>('list_github_repos');
+  } catch { /* 未配置 GitHub 或后端无此命令时忽略 */ }
+  const repoPathSelect = ui.select({
+    options: boundRepos.length
+      ? [{ value: '', label: '选择已绑定仓库…' }, ...boundRepos.map((r) => ({ value: r.full_name, label: r.full_name }))]
+      : [{ value: '', label: '暂无已绑定仓库' }],
+    value: getCfg()?.project_context?.repo_path || '',
+    onChange: (v) => { repoPathInput.value = v; },
+  });
   let pcChats: ChatDto[] = [];
   try {
     pcChats = await call<ChatDto[]>('bot_get_chatlist', { botId: bot.id });
@@ -895,7 +909,9 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
     pcSectionTitle,
     ui.field({ label: '项目描述', children: pcDescArea, help: '有值时会注入一条 system 消息「项目背景:…」' }),
     ui.field({ label: '关联频道', children: chatListEl, help: '勾选后 Bot 回复会参考这些频道的最近消息' }),
-    ui.field({ label: 'Repo 路径', children: repoPathInput, help: '预留:Git 仓库路径(D1 GitHub 集成用)' }),
+    ui.field({ label: 'Repo 路径', children: repoPathSelect, help: '从已绑定仓库选择(D1 GitHub 集成),也可手动输入 owner/repo' }),
+    ui.field({ label: 'Repo 路径(手动)', children: repoPathInput, help: 'GitHub 仓库标识 owner/repo' }),
+    ui.field({ label: 'GitHub Token', children: githubTokenInput, help: '每 Bot 独立 token,留空则回退全局设置 token' }),
     testLabel,
     (() => { const a = document.createElement('div'); a.style.cssText = 'display:flex;gap:8px'; a.appendChild(testBtn); a.appendChild(saveBtn); return a; })(),
   ]);
@@ -928,6 +944,7 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
   const pc = getCfg()?.project_context ?? null;
   if (pc) {
     if (pc.description) pcDescArea.value = pc.description;
+    if (pc.github_token) githubTokenInput.value = pc.github_token;
   }
 
   function collectConfig(): LlmConfig {
@@ -977,6 +994,7 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
           chat_ids: [...selectedChatIds],
           description: pcDescArea.value.trim() || null,
           repo_path: repoPathInput.value.trim() || null,
+          github_token: githubTokenInput.value.trim() || null,
         },
       };
       await call('update_bot_config', { botId: bot.id, config: merged });

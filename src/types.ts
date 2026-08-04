@@ -1,5 +1,5 @@
-export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'settings' | 'debug';
-export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about';
+export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'settings' | 'debug' | 'github';
+export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about' | 'github';
 export type PluginsTab = 'market' | 'installed';
 
 /** Plugin permission keys — gate which plugin API surfaces are usable. */

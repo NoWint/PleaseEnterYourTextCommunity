@@ -227,6 +227,29 @@ Bot 是应用级后台服务(以独立 deltachat 账号运行),所有 bot 命令
 
 > **`get_bot_config` / `update_bot_config`**:除 `llm` 外还涵盖 `limits` / `tools` / `rule` / `persona` / `project_context`(前端 LLM Tab「项目上下文」区配置 `project_context`,LLM 驱动会把 `description` 与关联频道 `chat_ids` 的最近消息注入为 system 消息)。
 
+### 2.12 GitHub 集成(D1)
+
+GitHub 访问层:`src-tauri/src/github/`(`client.rs` 共享 HTTP 客户端 + `api.rs` 纯函数端点 + `types.rs` 响应 DTO)。命令层全部使用**全局 token**(`github_settings.token`),无 token 时公开只读;`search_code` 等需 token 的命令无 token 时 reject `Core("需要 GitHub token")`。
+
+| 命令 | 参数(camelCase) | 返回 | 说明 |
+|---|---|---|---|
+| `get_github_settings` | 无 | `GithubSettingsDto` | 全局 GitHub 设置(token) |
+| `set_github_token` | `token?: string` | `()` | 设置/更新全局 token;`token: null` 清除 |
+| `list_github_repos` | 无 | `GithubRepoDto[]` | 已绑定仓库列表 |
+| `add_github_repo` | `owner: string`<br>`repo: string` | `GithubRepoDto` | 绑定仓库(校验:非空、不含 `/`、仅 `[A-Za-z0-9._-]`) |
+| `remove_github_repo` | `id: i64` | `()` | 解除绑定 |
+| `github_repo` | `owner: string`<br>`repo: string` | `RepoDto` | 仓库详情 |
+| `github_list_issues` | `owner: string`<br>`repo: string`<br>`state?: string` | `IssueDto[]` | Issue 列表(`state`: `open` / `closed` / `all`,默认全部;已过滤混入的 PR) |
+| `github_get_issue` | `owner: string`<br>`repo: string`<br>`number: i64` | `IssueDto` | Issue 详情 |
+| `github_list_pulls` | `owner: string`<br>`repo: string`<br>`state?: string` | `PullDto[]` | PR 列表 |
+| `github_list_commits` | `owner: string`<br>`repo: string`<br>`path?: string` | `CommitDto[]` | Commit 列表(可限定路径) |
+| `github_search_repo` | `query: string` | `SearchRepoDto[]` | 仓库搜索 |
+| `github_search_code` | `query: string` | `SearchCodeDto[]` | 代码搜索(**需 token**) |
+| `github_list_events` | `owner: string`<br>`repo: string` | `EventDto[]` | 仓库动态事件 |
+| `github_get_content` | `owner: string`<br>`repo: string`<br>`path: string` | `ContentDto[]` | 仓库内容:目录返回条目数组;单文件返回 1 项(带 base64 `content`);`path` 传空串取根目录 |
+
+> 错误路径:假/过期 token → `GitHubAuth`;不存在仓库/资源 → `GitHubNotFound`;限速(429/403)→ `GitHubRateLimit`(附 reset 提示);5xx → `GitHubServer`(见 §3)。
+
 ---
 
 ## 3. 错误模型
@@ -248,6 +271,10 @@ Bot 是应用级后台服务(以独立 deltachat 账号运行),所有 bot 命令
 | `Io(String)` | 文件系统错误 |
 | `Db(String)` | SQLite 错误 |
 | `Plugin(String)` | 插件相关错误(安装/解析/下载) |
+| `GitHubRateLimit(String)` | GitHub 限速(429/403),错误消息附 `X-RateLimit-Reset` 换算的等待秒数提示 |
+| `GitHubAuth(String)` | GitHub 认证失败(401),提示检查 token |
+| `GitHubServer(String)` | GitHub 服务器错误(5xx) |
+| `GitHubNotFound(String)` | GitHub 资源不存在(404,仓库/文件/Issue 等) |
 
 > **bot 所有权校验**:所有 bot 命令会先校验 bot 归属当前账号。bot 不存在或不属于当前账号时,统一 reject `Core("bot not found")`(例如跨账号访问他人 bot、`get_bot_stats` / `list_bot_activities` / `bot_list_schedules` / `bot_get_*` 等)。
 
@@ -424,14 +451,15 @@ unsub(); // 退订
 | `persona` | `string \| null` | 人设 id |
 | `project_context` | `ProjectContext \| null` | 项目上下文(预留,D1-D3 地基) |
 
-### ProjectContext(项目上下文预留)
+### ProjectContext(项目上下文)
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `workspace_id` | `number \| null` | 关联工作区 id(预留) |
 | `chat_ids` | `number[]` | 关联频道;LLM 驱动回复时会注入这些频道最近消息作为对话背景 |
 | `description` | `string?` | 项目一句话描述;有值注入为 system 消息「项目背景:…」 |
-| `repo_path` | `string?` | 预留:Git 仓库路径(D1 GitHub 集成用) |
+| `repo_path` | `string?` | GitHub 仓库标识 `owner/repo`(如 `octocat/Hello-World`),纯 API 访问,无本地克隆 |
+| `github_token` | `string?` | 每 Bot 的 GitHub token;工具调用时**优先**使用,回退全局 settings token |
 
 ### BotLimits
 
@@ -518,3 +546,107 @@ unsub(); // 退订
 | `summary` | `string` | 摘要 |
 | `detail_json` | `string \| null` | 附加详情(JSON 字符串) |
 | `created_at` | `number` | 时间戳 |
+
+### GithubSettingsDto(全局 GitHub 设置)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `token` | `string?` | 全局 GitHub token;`null` = 公开只读 |
+
+### GithubRepoDto(已绑定仓库)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | `number` | 绑定记录 ID |
+| `owner` | `string` | owner(校验:非空、不含 `/`、仅 `[A-Za-z0-9._-]`) |
+| `repo` | `string` | repo 名(同上) |
+| `full_name` | `string` | `owner/repo` 标识,唯一 |
+
+### RepoDto(仓库详情,`github_repo`)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `full_name` | `string` | `owner/repo` |
+| `description` | `string \| null` | 仓库描述 |
+| `language` | `string \| null` | 主要语言 |
+| `stargazers_count` | `number` | 星标数 |
+| `forks_count` | `number` | fork 数 |
+| `open_issues_count` | `number` | open issue 数 |
+| `default_branch` | `string` | 默认分支 |
+| `html_url` | `string` | GitHub 页面 URL |
+
+### IssueDto(Issue 列表/详情)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `number` | `number` | 编号 |
+| `title` | `string` | 标题 |
+| `state` | `string` | `open` / `closed` |
+| `user` | `string` | 提交者 login |
+| `created_at` | `string` | 创建时间(ISO) |
+| `updated_at` | `string` | 更新时间(ISO) |
+| `labels` | `string[]` | 标签名列表 |
+| `body` | `string \| null` | 正文 |
+| `html_url` | `string` | GitHub 页面 URL |
+
+### PullDto(PR 列表/详情)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `number` | `number` | 编号 |
+| `title` | `string` | 标题 |
+| `state` | `string` | `open` / `closed` |
+| `user` | `string` | 提交者 login |
+| `created_at` | `string` | 创建时间(ISO) |
+| `updated_at` | `string` | 更新时间(ISO) |
+| `merged_at` | `string \| null` | 合并时间 |
+| `additions` | `number` | 新增行数 |
+| `deletions` | `number` | 删除行数 |
+| `html_url` | `string` | GitHub 页面 URL |
+
+### CommitDto(Commit 列表项)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `sha` | `string` | 完整 SHA |
+| `message` | `string` | 首行消息(截断 80 字符) |
+| `author` | `string \| null` | 作者名 |
+| `date` | `string \| null` | 提交时间(ISO) |
+
+### EventDto(仓库动态)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `typ` | `string` | 事件类型(如 `PushEvent` / `IssuesEvent`) |
+| `actor` | `string \| null` | 触发者 login |
+| `created_at` | `string` | 时间(ISO) |
+| `summary` | `string` | 摘要(如「3 次提交」「opened: Bug in UI」) |
+
+### ContentDto(仓库内容:文件或目录)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `name` | `string` | 名称 |
+| `path` | `string` | 相对仓库根路径 |
+| `typ` | `string` | `file` / `dir` |
+| `size` | `number` | 字节数(目录为 0) |
+| `content` | `string \| null` | 文件 base64 内容(仅单文件请求时;目录为 `null`) |
+
+### SearchRepoDto(仓库搜索结果)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `full_name` | `string` | `owner/repo` |
+| `description` | `string \| null` | 描述 |
+| `stargazers_count` | `number` | 星标数 |
+| `language` | `string \| null` | 主要语言 |
+| `html_url` | `string` | GitHub 页面 URL |
+
+### SearchCodeDto(代码搜索结果)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `name` | `string` | 文件名 |
+| `path` | `string` | 仓库内路径 |
+| `repo_full_name` | `string` | 所属仓库 `owner/repo` |
+| `html_url` | `string` | GitHub 页面 URL |

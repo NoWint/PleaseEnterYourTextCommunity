@@ -41,7 +41,7 @@ export function clearSpaceTypeCache(): void {
 }
 
 // 这些页面主区已承载全部内容,中间栏 (nav-panel) 纯占位 → 隐藏,让主区占满。
-const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'bots']);
+const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'bots', 'github']);
 
 export async function renderNavPanel(): Promise<void> {
   const panel = document.getElementById('channel-tree');
@@ -73,6 +73,12 @@ export async function renderNavPanel(): Promise<void> {
       case 'inbox': {
         // 中间栏已隐藏,通知完全主区化 (renderInboxMain)
         panel.innerHTML = '';
+        break;
+      }
+      case 'github': {
+        // 中间栏已隐藏,GitHub 完全主区化 (renderGithubMain)
+        const { renderGithubNav } = await import('../pages/githubPage.js');
+        await renderGithubNav(panel);
         break;
       }
       case 'plugins': {
@@ -147,6 +153,16 @@ export async function renderMain(): Promise<void> {
       await renderDebugMain(main);
     } catch {
       main.innerHTML = `<div class="empty">调试页加载失败</div>`;
+    }
+    return;
+  }
+
+  if (state.currentPage === 'github') {
+    try {
+      const { renderGithubMain } = await import('../pages/githubPage.js');
+      await renderGithubMain(main);
+    } catch {
+      main.innerHTML = `<div class="empty">GitHub 页加载失败</div>`;
     }
     return;
   }
