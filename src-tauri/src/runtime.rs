@@ -41,6 +41,8 @@ pub async fn spawn(
     let global = Arc::new(Semaphore::new(GLOBAL_MAX_CONCURRENT));
     let per_bot: Arc<Mutex<HashMap<u32, (u32, Arc<Semaphore>)>>> = Arc::new(Mutex::new(HashMap::new()));
     let rate: Arc<RateLimiter> = Arc::new(RateLimiter::new());
+    // Bot 间互动轮数:(bot 账号 id, chat id) → 连续 bot→bot 回复计数
+    let bot_rounds: Arc<Mutex<HashMap<(u32, u32), u32>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // 事件循环:接收所有账号 IncomingMsg,命中 bot_ids 后快速 spawn 处理任务
     let event_loop = async {
@@ -65,6 +67,7 @@ pub async fn spawn(
             let global = global.clone();
             let per_bot = per_bot.clone();
             let rate = rate.clone();
+            let bot_rounds = bot_rounds.clone();
             tokio::spawn(async move {
                 // 未抢到全局 permit 的事件直接丢弃(不排队,避免任务无界堆积)
                 let Ok(_permit) = global.try_acquire() else {
@@ -73,7 +76,7 @@ pub async fn spawn(
                 };
                 handle_bot_message(
                     &accounts, &db, &bot_ids, &activity, &registry, &per_bot, &rate,
-                    &data_dir, account_id, chat_id, msg_id,
+                    &bot_rounds, &data_dir, account_id, chat_id, msg_id,
                 )
                 .await;
             });
@@ -101,6 +104,7 @@ async fn handle_bot_message(
     registry: &DriverRegistry,
     per_bot: &Arc<Mutex<HashMap<u32, (u32, Arc<Semaphore>)>>>,
     rate: &Arc<RateLimiter>,
+    bot_rounds: &Arc<Mutex<HashMap<(u32, u32), u32>>>,
     data_dir: &PathBuf,
     account_id: u32,
     chat_id: ChatId,
@@ -204,19 +208,35 @@ async fn handle_bot_message(
         }
     };
 
-    // 防循环:发送者是另一个 bot → 跳过
+    // Bot 间互动:发送者是另一个 bot → 条件放行(开关 + 轮数上限),否则跳过
     if is_bot_addr(&from_addr, &collect_bot_addrs(accounts, bot_ids).await) {
-        activity
-            .record(
-                bot_id,
-                act::REPLY_SKIPPED,
-                Some(chat_id.to_u32()),
-                Some(msg_id.to_u32()),
-                "跳过回复(发送者是另一个 Bot)",
-                None,
-            )
-            .await;
-        return;
+        let max = config.limits.interaction_max_rounds;
+        let allow = config.limits.allow_bot_interaction;
+        let mut rounds = bot_rounds.lock().await;
+        let key = (account_id, chat_id.to_u32());
+        let cur = *rounds.entry(key).or_insert(0);
+        match interaction_step(cur, max, allow) {
+            Some(next) => {
+                rounds.insert(key, next);
+            }
+            None => {
+                drop(rounds);
+                activity
+                    .record(
+                        bot_id,
+                        act::REPLY_SKIPPED,
+                        Some(chat_id.to_u32()),
+                        Some(msg_id.to_u32()),
+                        "跳过回复(Bot 互动关闭或达轮数上限)",
+                        None,
+                    )
+                    .await;
+                return;
+            }
+        }
+    } else {
+        // 非 Bot 消息重置该会话的互动计数
+        bot_rounds.lock().await.retain(|&(_, c), _| c != chat_id.to_u32());
     }
 
     // 每会话回复间隔限流(is_allowed 纯检查,不占槽;发送成功后才 stamp)
@@ -411,6 +431,19 @@ async fn collect_bot_addrs(
     addrs
 }
 
+/// 互动轮数门控:返回 Some(新轮数) 表示允许,None 表示拒绝。
+/// allow=false 一律拒绝;轮数达到上限拒绝。
+pub fn interaction_step(rounds: u32, max_rounds: u32, allow: bool) -> Option<u32> {
+    if !allow {
+        return None;
+    }
+    let max = max_rounds.max(1);
+    if rounds >= max {
+        return None;
+    }
+    Some(rounds + 1)
+}
+
 /// 判断地址是否属于某个 bot 账号(用于阻止 bot 之间互聊)。
 fn is_bot_addr(addr: &str, bot_addrs: &HashSet<String>) -> bool {
     bot_addrs.contains(addr)
@@ -502,6 +535,15 @@ mod tests {
         assert!(is_bot_addr("bot2@example.com", &addrs));
         assert!(!is_bot_addr("alice@example.com", &addrs));
         assert!(!is_bot_addr("", &addrs));
+    }
+
+    #[test]
+    fn test_interaction_step() {
+        assert_eq!(interaction_step(0, 3, true), Some(1));
+        assert_eq!(interaction_step(3, 3, true), None);
+        assert_eq!(interaction_step(2, 3, true), Some(3));
+        assert_eq!(interaction_step(0, 3, false), None);
+        assert_eq!(interaction_step(0, 0, true), Some(1));
     }
 
     #[test]
