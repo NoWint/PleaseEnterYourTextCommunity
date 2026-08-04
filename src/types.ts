@@ -52,6 +52,8 @@ export interface MsgDto {
   chat_id: number;
   from_id: number;
   from_name: string;
+  from_avatar: string | null;
+  from_color: number | null;
   text: string;
   ts: number;
   state: MsgState;
@@ -63,6 +65,8 @@ export interface MsgDto {
   quote_text: string | null;
   quote_from: string | null;
   reactions: Record<string, number[]> | null;
+  /** 系统消息(群成员变更/群资料变更/加密状态等),渲染为居中信息行 */
+  is_info: boolean;
 }
 
 export interface CardDto {
@@ -175,4 +179,22 @@ export interface ContactDto {
   addr: string;
   avatar: string | null;
   color: number | null;
+}
+
+/** get_chat_info 返回结构(群/单聊/邮件列表/广播通用) */
+export interface ChatInfoDto {
+  chat_id: number;
+  name: string;
+  is_group: boolean;
+  is_contact_request: boolean;
+  is_self_talk: boolean;
+  chat_type: string;
+  is_encrypted: boolean;
+  members: MemberDto[];
+  description: string;
+  avatar: string | null;
+  color: number | null;
+  past_members: MemberDto[];
+  can_send: boolean;
+  self_in_group: boolean;
 }

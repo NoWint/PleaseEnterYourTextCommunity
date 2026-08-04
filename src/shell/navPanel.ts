@@ -94,6 +94,11 @@ export async function renderNavPanel(): Promise<void> {
   } catch {
     panel.innerHTML = `<div class="empty">页面加载失败</div>`;
   }
+  // macOS 顶栏:页面/工作区变化后更新上下文面包屑 + 搜索定位
+  try {
+    const { updateTitlebar } = await import('./titlebar.js');
+    updateTitlebar();
+  } catch {}
 }
 
 export async function renderMain(): Promise<void> {
@@ -194,6 +199,11 @@ export async function renderMain(): Promise<void> {
   try {
     const { renderChatView } = await import('../chat/chatView.js');
     await renderChatView(state.currentChatId);
+    // macOS 顶栏:频道切换后刷新面包屑(工作区 › 页面 › 频道)
+    try {
+      const { updateTitlebar } = await import('./titlebar.js');
+      updateTitlebar();
+    } catch {}
   } catch {
     main.innerHTML = `<div class="empty">聊天视图加载失败</div>`;
   }

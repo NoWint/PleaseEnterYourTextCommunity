@@ -218,6 +218,38 @@ export function renderLogin(onSuccess: () => void | Promise<void>): void {
   });
 }
 
+// 深链登录预填:切到邮箱 tab,填入 parse_dclogin 返回的 email + advanced 配置。
+export function applyPendingDclogin(info: { email: string; advanced: Record<string, unknown> }): void {
+  const email = document.getElementById('email') as HTMLInputElement | null;
+  if (!email) return;
+  // 切到邮箱 tab
+  const tabEmail = document.querySelector<HTMLButtonElement>('.tab[data-tab="email"]');
+  if (tabEmail) tabEmail.click();
+  email.value = info.email || '';
+  const adv = info.advanced || {};
+  const setVal = (id: string, v: unknown): void => {
+    const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+    if (el && v != null && v !== '') {
+      el.value = String(v);
+    }
+  };
+  setVal('imap_host', adv.imap_host);
+  setVal('imap_port', adv.imap_port);
+  setVal('imap_security', adv.imap_security);
+  setVal('imap_user', adv.imap_user);
+  setVal('smtp_host', adv.smtp_host);
+  setVal('smtp_port', adv.smtp_port);
+  setVal('smtp_security', adv.smtp_security);
+  setVal('smtp_user', adv.smtp_user);
+  setVal('smtp_password', adv.smtp_password);
+  // 有 advanced 配置 → 展开高级设置
+  if (adv.imap_host || adv.smtp_host) {
+    const toggle = document.getElementById('advanced-toggle') as HTMLButtonElement | null;
+    toggle?.click();
+  }
+  email.focus();
+}
+
 function collectAdvanced(root: HTMLElement | Document): AdvancedConfig {
   const get = (id: string): string | null => {
     const el = root.querySelector<HTMLInputElement>(`#${id}`);

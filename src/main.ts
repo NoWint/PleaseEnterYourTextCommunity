@@ -15,21 +15,35 @@ interface EnsurePeytResult {
 async function boot(): Promise<void> {
   initTheme();
   initFontScale();
-  // macOS Overlay 标题栏:原生三色按钮浮在内容上,标记 <html> 以便 CSS 预留拖拽区与顶部间距
-  if (/(Macintosh|Mac OS X|MacIntel)/.test(navigator.userAgent)) {
+  // 无边框窗口平台标记(决定 CSS 显示哪种标题栏):
+  // - macOS: titleBarStyle Overlay → 原生红绿灯悬浮,只留纯拖拽区(window-overlay)
+  // - Windows/Linux: decorations:false → 自绘标题栏(标题 + 最小化/最大化/关闭)(window-frame)
+  const ua = navigator.userAgent;
+  if (/(Macintosh|Mac OS X|MacIntel)/.test(ua)) {
     document.documentElement.classList.add('window-overlay');
+  } else if (/(Win|Windows)/.test(ua) || /(Linux|X11)/.test(ua)) {
+    document.documentElement.classList.add('window-frame');
+    // 自绘标题栏:绑定窗口控制按钮(最小化/最大化/关闭)
+    void import('./shell/windowControls.js').then((m) => m.initWindowControls());
   }
+  // 深链:注册事件监听(唤起/冷启动 URL 都经 dc-event DeepLink 分发)
+  void import('./utils/deepLink.js').then(({ registerDeepLinkListener }) => registerDeepLinkListener());
+
   const configured = await call<boolean>('is_configured');
   if (configured) {
     await renderShell();
     // 已配置账号: 静默确保 PEYT Studio 存在 (existing/founder)
     await ensurePeytStudio();
+    // 冷启动补收:启动早于事件注册时的深链
+    void import('./utils/deepLink.js').then(({ processPendingDeepLink }) => processPendingDeepLink());
   } else {
     const { renderLogin } = await import('./views/login.js');
     renderLogin(async () => {
       await renderShell();
       // 首次登录: 创建 PEYT Studio, founder 显示 nav banner 欢迎指引
       await ensurePeytStudio();
+      // 登录后处理暂存的深链(dclogin 预填 / 邀请)
+      void import('./utils/deepLink.js').then(({ processPendingDeepLink }) => processPendingDeepLink());
     });
   }
 }

@@ -177,6 +177,16 @@ export async function renderChatView(chatId: number): Promise<void> {
       currentChatIsSelfTalk = chat?.is_self_talk === true;
       // 群聊标记存 state(message.ts 渲染气泡时也读):单聊隐藏 name/role tag
       state.currentChatIsGroup = chat?.is_group === true;
+      // 群聊 → 头部补「群信息」按钮(此时 headerEl 已存在,currentChatIsGroup 才赋值)。
+      // 对齐 Delta ChatView 头部 ViewGroup 入口。
+      if (state.currentChatIsGroup && headerEl && !headerEl.querySelector('[data-group-info]')) {
+        const groupBtn = ui.iconButton({ icon: 'users', title: '群信息' });
+        groupBtn.dataset.groupInfo = '1';
+        groupBtn.addEventListener('click', () => {
+          void import('../components/group/viewGroupDialog.js').then(({ openViewGroupDialog }) => openViewGroupDialog(chatId));
+        });
+        headerEl.appendChild(groupBtn);
+      }
     } catch {
       currentChatUnread = 0;
       currentChatIsSelfTalk = false;
@@ -188,7 +198,12 @@ export async function renderChatView(chatId: number): Promise<void> {
     // 打开聊天 = 已读:标记 seen(清未读徽标 + 向对方发送已读回执)。
     // 不能用 mark_chat_noticed —— 那只是 InFresh→InNoticed,core 不会发 MDN,
     // 对方永远看不到「已读」。
-    try { await call('mark_chat_seen', { chatId }); } catch {}
+    try {
+      await call('mark_chat_seen', { chatId });
+      // 已读 → 未读分隔线清零:避免 currentChatUnread 快照陈旧导致 dividerIndex
+      // 随 msgs.length 增长漂移,把分隔线插进同人连续组里破坏圆角/头像/缩进。
+      currentChatUnread = 0;
+    } catch {}
     saveState();
     // 监听 message.js reply 按钮 dispatch 的事件
     if (!main.dataset.replyListenerBound) {
@@ -250,7 +265,11 @@ export async function appendNewMessages(chatId: number): Promise<void> {
       box.scrollTop = box.scrollHeight;
       // 用户看到了新消息 → 标记 seen 并触发 MDN,让发送方显示已读。
       // (mark_chat_noticed 不触发 MDN,对方看不到已读。)
-      try { await call('mark_chat_seen', { chatId }); } catch {}
+      try {
+        await call('mark_chat_seen', { chatId });
+        // 已读 → 清空未读分隔线计数,下次渲染不再出现(否则快照陈旧分隔线漂移错乱)
+        currentChatUnread = 0;
+      } catch {}
     }
   } catch (e) {
     console.error('appendNewMessages failed:', e);
@@ -464,10 +483,15 @@ function computeGroupRole(m: MsgDto, absIdx: number, dividerIndex: number, dateS
   const isPending = m.state === 'pending' || m.state === 'failed';
   const prev = state.messages[absIdx - 1];
   const next = state.messages[absIdx + 1];
+  // 未读分隔线插在 dividerIndex 消息「之前」。因此:
+  // - 消息 absIdx 正上方有分隔线 ⟺ absIdx === dividerIndex(它不与该分隔线上方的消息成组)
+  // - 消息 absIdx 正下方有分隔线 ⟺ absIdx === dividerIndex - 1(它不与分隔线下方的消息成组)
+  // 此前 prev 判断用了 (absIdx-1)!==dividerIndex(即 absIdx===dividerIndex+1),差一位 → 分隔线
+  // 不能正确打断分组 → 上下同人消息错误折叠/拆开 → 圆角、头像、缩进错乱。
   const prevIsSame = !!prev && prev.from_id === m.from_id && !isPending
     && prev.state !== 'pending' && prev.state !== 'failed'
     && formatDate(new Date(prev.ts * 1000)) === dateStr
-    && (absIdx - 1) !== dividerIndex;
+    && absIdx !== dividerIndex;
   const nextIsSame = !!next && next.from_id === m.from_id && !isPending
     && next.state !== 'pending' && next.state !== 'failed'
     && formatDate(new Date(next.ts * 1000)) === dateStr
@@ -492,7 +516,9 @@ function applyGroupRole(
   for (const r of ['solo', 'first', 'middle', 'last'] as const) {
     el.classList.remove(`msg-group-${r}`, 'collapsed');
   }
-  if (role !== 'solo') el.classList.add('collapsed');
+  // 折叠条件必须与 renderMessage 完全一致:middle/last 折叠(隐藏头像),solo/first 展开。
+  // 之前用 role!=='solo' 把 first 也折叠了 → 重渲染后组首头像被错误隐藏(头像显示错乱)。
+  if (role === 'middle' || role === 'last') el.classList.add('collapsed');
   el.classList.add(`msg-group-${role}`);
 }
 

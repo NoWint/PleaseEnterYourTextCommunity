@@ -57,6 +57,12 @@ pub struct ChatInfoDto {
     pub chat_type: String,
     pub is_encrypted: bool,
     pub members: Vec<MemberDto>,
+    pub description: String,
+    pub avatar: Option<String>,
+    pub color: Option<u32>,
+    pub past_members: Vec<MemberDto>,
+    pub can_send: bool,
+    pub self_in_group: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -64,6 +70,8 @@ pub struct MsgDto {
     pub msg_id: u32,
     pub from_id: u32,
     pub from_name: String,
+    pub from_avatar: Option<String>, // 发送者头像(blobdir 绝对路径),对齐 Delta authorProfileImage
+    pub from_color: Option<u32>,     // 发送者头像颜色
     pub text: String,
     pub ts: i64,
     pub is_out: bool,
@@ -79,6 +87,7 @@ pub struct MsgDto {
     pub height: Option<i32>,
     pub download_state: String, // "Done"|"Available"|"Failure"|"InProgress"|"Undecipherable"
     pub subject: Option<String>,
+    pub is_info: bool, // 系统消息标记(对齐 core Message::is_info)
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -91,6 +100,13 @@ pub struct EventPayload {
     pub comment: Option<String>,
     // IncomingMsg 事件携带消息摘要,供通知使用(无需再调一次 get_chat_msgs)
     pub text: Option<String>,
+}
+
+/// 深链事件载荷(仿 NotificationClickPayload):typ="DeepLink",url=唤起链接。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DeepLinkPayload {
+    pub typ: &'static str,
+    pub url: String,
 }
 
 #[derive(Debug, Serialize)]

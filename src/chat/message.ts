@@ -126,6 +126,12 @@ function getRoleName(contactId: number): string {
 export type GroupRole = 'solo' | 'first' | 'middle' | 'last';
 
 export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): Promise<string> {
+  // 系统消息(群成员变更/群资料变更/加密状态等,对齐 Delta MessageSystemInfo):
+  // 渲染为居中胶囊信息行,无头像/名字/气泡/meta。core 的 is_info() 文本已本地化拼接
+  // (如「X 加入了群组」「群组已加密」),直接展示 msg.text 即可。
+  if (m.is_info) {
+    return `<div class="msg-system" data-msg="${m.msg_id}"><span>${escapeHtml(m.text || '')}</span></div>`;
+  }
   const msg = m as RenderableMsg;
   // 自己发的消息:乐观消息用 is_out 字段,真实消息按 from_id 等于自我推断
   const isOut = msg.is_out ?? (state.self ? msg.from_id === state.self.id : false);
@@ -151,11 +157,14 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
       </div>`
     : '';
   const textHtml = renderText(msg.text);
-  // Task 13: sender avatar — lookup member by from_id in state.currentMembers.
-  // Fallback: first letter + default background var(--border-strong).
+  // 发送者头像:优先用消息自带的 from_avatar/from_color(后端已解析,对齐 Delta
+  // authorProfileImage)—— 不再依赖 state.currentMembers 反查,根治「显示用户名却无头像」
+  // (成员列表缺失/不匹配时头像静默回退成首字母)。
+  // 兜底:state.currentMembers 反查(旧路径)。
   const member = state.currentMembers?.find((mm) => mm.contact_id === msg.from_id);
-  const avatarUrl = member?.avatar ? await transformBlobURL(member.avatar) : null;
-  const bg = colorHex(member?.color);
+  const msgAvatar = msg.from_avatar ?? member?.avatar ?? null;
+  const avatarUrl = msgAvatar ? await transformBlobURL(msgAvatar) : null;
+  const bg = colorHex(msg.from_color ?? member?.color);
   const letter = (msg.from_name || '?').charAt(0).toUpperCase() || '?';
   const avatarHtml = avatarUrl
     ? `<img src="${escapeHtml(avatarUrl)}" class="msg-avatar" alt="" />`
@@ -242,9 +251,10 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
     ? `<span class="msg-resend" data-msg-id="${msg.msg_id}">重发</span>`
     : '';
   const isOutAttr = isOut ? ' data-is-out="1"' : '';
-  // 折叠时:头像隐藏(气泡式紧凑流),名字隐藏;名字/时间都放进气泡 meta 行
-  // 单聊:始终不显示顶部 username(已在聊天头,Delta 单聊行为)
-  const avatarDisplay = collapsed ? '' : avatarHtml;
+  // 折叠时:头像隐藏改为由 CSS 的 .collapsed 类控制(见 styles.css .msg.collapsed .msg-avatar)——
+  // 这样 applyGroupRole 只改类,头像/圆角即时同步,不会出现"类已折叠但头像还在"的错乱。
+  // 头像始终渲染在 DOM,折叠/展开只切类。
+  const avatarDisplay = avatarHtml;
   const nameDisplay = (collapsed || isSingle)
     ? ''
     : `<span class="msg-name">${escapeHtml(msg.from_name)}</span>`;

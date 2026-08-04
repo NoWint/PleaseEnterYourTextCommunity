@@ -24,7 +24,9 @@ export type IconName =
   // 语音: 播放/暂停/录音 (TDesign 缺失, 在 tdesignIcons.ts 补充标准路径)
   | 'play' | 'pause' | 'mic'
   // Bot 管理页
-  | 'robot';
+  | 'robot'
+  // 微信式输入框展开按钮
+  | 'chevrons-up-down';
 
 export interface IconOpts {
   width?: number;

@@ -1,18 +1,27 @@
+import { call } from '../api.js';
 import { state } from '../state.js';
 import { ui } from './ui.js';
 import { escapeHtml } from './escape.js';
-import { buildInviteLink } from '../utils/inviteLink.js';
 
-// 分享我的邀请:显示 PEYT 短邀请链接 + 复制按钮。
-// 链接 = peyt://invite/<base64url邮箱>?n=<名字>,对方粘贴后前端解码 → create_chat_by_email。
+// 分享我的邀请:显示 PEYT 邀请链接(https://peyt.yzjtiantian.cn/#<token>)+ 复制按钮。
+// 链接由后端 get_securejoin_qr 生成并替换成 peyt 品牌域名;对方粘贴/点开唤起即处理。
 
-export function openInviteDialog(): void {
-  const email = state.self?.addr || '';
-  if (!email) {
+export async function openInviteDialog(): Promise<void> {
+  if (!state.self?.addr) {
     ui.toast('无法生成邀请链接:缺少账号邮箱');
     return;
   }
-  const link = buildInviteLink(email, state.self?.name);
+  let link = '';
+  try {
+    link = await call<string>('get_securejoin_qr', { chatId: null });
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  if (!link) {
+    ui.toast('无法生成邀请链接');
+    return;
+  }
 
   const copyBtn = ui.button({
     label: '复制链接',
@@ -31,7 +40,7 @@ export function openInviteDialog(): void {
     title: '分享我的邀请',
     body: `
       <div style="font-size:var(--font-scale-body);color:var(--text-mute);line-height:1.5;margin-bottom:12px">
-        分享下方链接,对方在 PEYT 里粘贴即可加你为好友。
+        分享下方链接,对方在 PEYT 里粘贴即可加你为好友;对方装 PEYT 后点开也能唤起。
       </div>
       <div class="ui-dialog-section">
         <div style="color:var(--text);word-break:break-all;font-family:var(--font-mono);font-size:var(--font-scale-body);line-height:1.6;user-select:all">${escapeHtml(link)}</div>

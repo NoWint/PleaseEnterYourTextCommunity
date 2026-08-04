@@ -359,6 +359,23 @@ pub async fn get_chatlist(
     build_chatlist(&ctx, archived_only).await
 }
 
+/// 联系人 → MemberDto(群成员/历史成员共用)。
+async fn member_to_dto(ctx: &Context, cid: ContactId) -> AppResult<MemberDto> {
+    let c = Contact::get_by_id(ctx, cid).await?;
+    let avatar = c
+        .get_profile_image(ctx)
+        .await?
+        .map(|p| p.to_string_lossy().to_string());
+    Ok(MemberDto {
+        contact_id: cid.to_u32(),
+        name: c.get_display_name().to_string(),
+        addr: c.get_addr().to_string(),
+        is_self: cid == ContactId::SELF,
+        avatar,
+        color: Some(c.get_color()),
+    })
+}
+
 #[tauri::command]
 pub async fn get_chat_info(
     state: State<'_, AppState>,
@@ -376,26 +393,12 @@ pub async fn get_chat_info(
 
     let mut members = Vec::new();
     for cid in chat::get_chat_contacts(&ctx, chat_id).await? {
-        let c = Contact::get_by_id(&ctx, cid).await?;
-        let avatar = c
-            .get_profile_image(&ctx)
-            .await?
-            .map(|p| p.to_string_lossy().to_string());
-        let color = Some(c.get_color());
-        members.push(MemberDto {
-            contact_id: cid.to_u32(),
-            name: c.get_display_name().to_string(),
-            addr: c.get_addr().to_string(),
-            is_self: cid == ContactId::SELF,
-            avatar,
-            color,
-        });
+        members.push(member_to_dto(&ctx, cid).await?);
     }
     // For 1:1 chats, get_chat_contacts does NOT include SELF; add the other
     // side's info is already there, but if list is empty (self-talk), we still
     // want to show self.
     if members.is_empty() && is_self_talk {
-        let self_id = ctx.get_id();
         let name = ctx.get_config(Config::Displayname).await?.unwrap_or_default();
         let addr = ctx.get_config(Config::ConfiguredAddr).await?.unwrap_or_default();
         let self_contact = Contact::get_by_id(&ctx, ContactId::SELF).await?;
@@ -403,17 +406,29 @@ pub async fn get_chat_info(
             .get_profile_image(&ctx)
             .await?
             .map(|p| p.to_string_lossy().to_string());
-        let color = Some(self_contact.get_color());
         members.push(MemberDto {
             contact_id: 1, // SELF is always 1
             name,
             addr,
             is_self: true,
             avatar,
-            color,
+            color: Some(self_contact.get_color()),
         });
-        let _ = self_id; // suppress unused warning
     }
+
+    // 历史成员(曾被加入后被移出/退群的人),供群信息弹窗展示。
+    let mut past_members = Vec::new();
+    for cid in chat::get_past_chat_contacts(&ctx, chat_id).await? {
+        past_members.push(member_to_dto(&ctx, cid).await?);
+    }
+    let description = chat::get_chat_description(&ctx, chat_id).await?;
+    let avatar = chat
+        .get_profile_image(&ctx)
+        .await?
+        .map(|p| p.to_string_lossy().to_string());
+    let color = Some(chat.get_color(&ctx).await?);
+    let can_send = chat.can_send(&ctx).await?;
+    let self_in_group = chat.is_self_in_chat(&ctx).await?;
 
     // chat_type 字符串:single/group/mailinglist/broadcast/self_talk/device
     let chat_type = chat_type_str(&chat, is_self_talk);
@@ -428,6 +443,12 @@ pub async fn get_chat_info(
         chat_type,
         is_encrypted,
         members,
+        description,
+        avatar,
+        color,
+        past_members,
+        can_send,
+        self_in_group,
     })
 }
 
@@ -443,6 +464,25 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
             .get_display_name()
             .to_string()
     };
+    // 发送者头像/颜色随消息下发(对齐 Delta authorProfileImage/authorColor):
+    // 前端不再依赖 state.currentMembers 反查 —— 该反查在成员列表缺失/不匹配时
+    // 会让头像静默回退成首字母,导致「显示用户名却没有头像」。
+    // 注意:对非 key contact,core 的 get_profile_image 返回"未加密信封图标",
+    // 这是 Delta 同款语义(未建立 E2EE 前不展示真实头像)。
+    let from_sender = if from_id == deltachat::contact::ContactId::SELF {
+        None
+    } else {
+        Contact::get_by_id(ctx, from_id).await.ok()
+    };
+    let from_avatar = if let Some(c) = from_sender.as_ref() {
+        match c.get_profile_image(ctx).await {
+            Ok(Some(p)) => Some(p.to_string_lossy().to_string()),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let from_color = from_sender.as_ref().map(|c| c.get_color());
     let (quote_from, quote_text) = match m.quoted_message(ctx).await? {
         Some(q) => {
             let q_from_id = q.get_from_id();
@@ -474,6 +514,8 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
         msg_id: msg_id.to_u32(),
         from_id: from_id.to_u32(),
         from_name,
+        from_avatar,
+        from_color,
         text: m.get_text(),
         ts: m.get_timestamp(),
         is_out: m.get_state().is_outgoing(),
@@ -489,6 +531,7 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
         height: if height > 0 { Some(height) } else { None },
         download_state,
         subject,
+        is_info: m.is_info(),
     })
 }
 
@@ -566,7 +609,16 @@ pub async fn send_text(
 #[tauri::command]
 pub async fn get_contacts(state: State<'_, AppState>) -> AppResult<Vec<ContactDto>> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
-    let ids = Contact::get_all(&ctx, 0, None).await?;
+    // 联系人列表须同时包含 key-contacts(有公钥指纹)与地址联系人(纯邮箱/未加密)。
+    // core 的 get_all 里 DC_GCL_ADDRESS 是「地址联系人替代密钥联系人」(二选一),
+    // 需两次调用合并 —— 否则 create_chat_by_email 单方面添加的未加密联系人
+    // (fingerprint='')会被 `(fingerprint='')=?` 条件过滤,导致「加群/通讯录看不见联系人」。
+    let mut ids = Contact::get_all(&ctx, 0, None).await?;
+    let addr_ids = Contact::get_all(&ctx, deltachat::constants::DC_GCL_ADDRESS, None).await?;
+    ids.extend(addr_ids);
+    // 去重(key-contact 与地址联系人集合无交集,此处仅防御;保持 key-contacts 在前)。
+    let mut seen = std::collections::HashSet::new();
+    ids.retain(|id| seen.insert(*id));
     let mut out = Vec::new();
     for id in ids {
         if id == ContactId::SELF || id == ContactId::INFO || id == ContactId::DEVICE {
@@ -594,9 +646,23 @@ pub async fn create_group(
     state: State<'_, AppState>,
     name: String,
     member_emails: Vec<String>,
+    member_contact_ids: Vec<u32>,
+    description: Option<String>,
+    avatar_path: Option<String>,
 ) -> AppResult<u32> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     let chat_id = chat::create_group(&ctx, &name).await?;
+    // 建群后立即写群描述/头像:core 会生成对应系统消息并随群同步消息发给对端。
+    if let Some(desc) = description.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        chat::set_chat_description(&ctx, chat_id, desc).await?;
+    }
+    if let Some(p) = avatar_path.as_deref().filter(|s| !s.is_empty()) {
+        chat::set_chat_profile_image(&ctx, chat_id, p).await?;
+    }
+    // 先按 contact_id 加(成员选择器精确匹配,不重复建联系人),再按邮箱加(手输邮箱)。
+    for cid in member_contact_ids {
+        chat::add_contact_to_chat(&ctx, chat_id, ContactId::new(cid)).await?;
+    }
     for email in member_emails {
         let email = email.trim();
         if email.is_empty() {
@@ -613,10 +679,15 @@ pub async fn add_group_member(
     state: State<'_, AppState>,
     chat_id: u32,
     email: String,
+    contact_id: Option<u32>,
 ) -> AppResult<u32> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     let chat_id = deltachat::chat::ChatId::new(chat_id);
-    let cid = Contact::create(&ctx, "", &email).await?;
+    // 有 contact_id 直接精确加人(成员选择器);否则按邮箱建联系人再加。
+    let cid = match contact_id {
+        Some(id) => ContactId::new(id),
+        None => Contact::create(&ctx, "", &email).await?,
+    };
     chat::add_contact_to_chat(&ctx, chat_id, cid).await?;
     Ok(cid.to_u32())
 }
@@ -674,6 +745,57 @@ pub async fn leave_group(state: State<'_, AppState>, chat_id: u32) -> AppResult<
     Ok(())
 }
 
+/// 从群聊移除成员(contact_id = SELF 即退群,core 允许)。
+/// core 触发 MemberRemovedFromGroup 系统消息 + ChatModified 事件,对端经群同步消息更新。
+#[tauri::command]
+pub async fn remove_group_member(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    contact_id: u32,
+) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    chat::remove_contact_from_chat(&ctx, chat_id, ContactId::new(contact_id)).await?;
+    Ok(())
+}
+
+/// 修改群名称(core 触发 GroupNameChanged 系统消息 + ChatModified 事件)。
+#[tauri::command]
+pub async fn rename_group(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    name: String,
+) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    chat::set_chat_name(&ctx, deltachat::chat::ChatId::new(chat_id), &name).await?;
+    Ok(())
+}
+
+/// 设置群描述(空字符串 = 清除)。core 触发 GroupDescriptionChanged 系统消息。
+#[tauri::command]
+pub async fn set_group_description(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    description: String,
+) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    chat::set_chat_description(&ctx, deltachat::chat::ChatId::new(chat_id), &description).await?;
+    Ok(())
+}
+
+/// 设置群头像(空字符串 = 移除)。path 为 blobdir 绝对路径(经 save_avatar_from_bytes 产生)。
+/// core 触发 GroupImageChanged 系统消息。
+#[tauri::command]
+pub async fn set_group_avatar(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    path: String,
+) -> AppResult<()> {
+    let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
+    chat::set_chat_profile_image(&ctx, deltachat::chat::ChatId::new(chat_id), &path).await?;
+    Ok(())
+}
+
 /// 标记聊天已读（供 mark_chat_noticed 与 bot_mark_chat_noticed 复用）。
 async fn mark_chat_noticed_impl(ctx: &Context, chat_id: u32) -> AppResult<()> {
     let chat_id = deltachat::chat::ChatId::new(chat_id);
@@ -715,6 +837,12 @@ pub async fn mark_chat_seen(state: State<'_, AppState>, chat_id: u32) -> AppResu
     mark_chat_seen_impl(&ctx, chat_id).await
 }
 
+/// 把 core 生成的 `https://i.delta.chat/#...` 链接域名换成 PEYT 品牌域名。
+/// 内容(指纹/参数)不变,core 零改动;解析时前端反向替换回 i.delta.chat。
+fn to_peyt_url(s: &str) -> String {
+    s.replacen("https://i.delta.chat/", "https://peyt.yzjtiantian.cn/", 1)
+}
+
 /// Returns the user's own SecureJoin QR code (e.g. `OPENPGP4FPR:...`)
 /// that another Delta Chat user can scan to add you as a verified contact.
 /// Pass `chat_id = None` for the personal QR, or a group chat id for a group-invite QR.
@@ -726,7 +854,7 @@ pub async fn get_securejoin_qr(
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     let chat_id = chat_id.map(deltachat::chat::ChatId::new);
     let qr = securejoin::get_securejoin_qr(&ctx, chat_id).await?;
-    Ok(qr)
+    Ok(to_peyt_url(&qr))
 }
 
 /// Perform a SecureJoin by scanning a `dccontact:` / `dcgroup:` / `DCACCOUNT:` URL.
@@ -1228,7 +1356,81 @@ pub async fn get_my_qr(state: State<'_, AppState>) -> AppResult<String> {
         .ok_or(AppError::Core("no account".into()))?;
     // 传 None 返回个人 QR (verified: get_securejoin_qr(&Context, Option<ChatId>))
     let qr = securejoin::get_securejoin_qr(&ctx, None).await?;
-    Ok(qr)
+    Ok(to_peyt_url(&qr))
+}
+
+/// 解析 dclogin:/dcaccount: 登录链接,返回预填登录页所需的邮箱 + advanced 配置。
+/// 用 core check_qr 拿 Qr::Login,映射 LoginOptions::V1 → AdvancedLogin(供前端预填)。
+/// (core 的 login_param_from_login_qr 是 pub(crate),这里走公开的 check_qr。)
+#[tauri::command]
+pub async fn parse_dclogin(state: State<'_, AppState>, url: String) -> AppResult<serde_json::Value> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or(AppError::Core("no account".into()))?;
+    let qr = deltachat::qr::check_qr(&ctx, &url).await?;
+    match qr {
+        deltachat::qr::Qr::Login { address, options } => {
+            let (imap_host, imap_port, imap_security, imap_user, smtp_host, smtp_port, smtp_security, smtp_user, smtp_password) =
+                match options {
+                    deltachat::qr::LoginOptions::V1 {
+                        mail_pw,
+                        imap_host,
+                        imap_port,
+                        imap_username,
+                        imap_password,
+                        imap_security,
+                        smtp_host,
+                        smtp_port,
+                        smtp_username,
+                        smtp_password,
+                        smtp_security,
+                        ..
+                    } => {
+                        // imap_password 缺省用 mail_pw;imap_username 缺省用 address
+                        (
+                            imap_host.map(|h| h.to_string()),
+                            imap_port,
+                            imap_security.map(|s| socket_str(s)),
+                            imap_username.or(imap_password.map(|_| address.clone())),
+                            smtp_host.map(|h| h.to_string()),
+                            smtp_port,
+                            smtp_security.map(|s| socket_str(s)),
+                            smtp_username,
+                            smtp_password.or(Some(mail_pw)),
+                        )
+                    }
+                    deltachat::qr::LoginOptions::UnsuportedVersion(_) => {
+                        return Err(AppError::Core("dclogin 版本不支持".into()));
+                    }
+                };
+            Ok(serde_json::json!({
+                "email": address,
+                "advanced": {
+                    "imap_host": imap_host,
+                    "imap_port": imap_port,
+                    "imap_security": imap_security,
+                    "imap_user": imap_user,
+                    "smtp_host": smtp_host,
+                    "smtp_port": smtp_port,
+                    "smtp_security": smtp_security,
+                    "smtp_user": smtp_user,
+                    "smtp_password": smtp_password,
+                }
+            }))
+        }
+        _ => Err(AppError::Core("不是 dclogin/dcaccount 登录链接".into())),
+    }
+}
+
+/// Socket(ssl/tls/plain)→ 字符串(供 AdvancedLogin)。
+fn socket_str(s: deltachat::provider::Socket) -> String {
+    use deltachat::provider::Socket::*;
+    match s {
+        Ssl => "ssl".to_string(),
+        Starttls => "tls".to_string(),
+        Automatic | Plain => "plain".to_string(),
+    }
 }
 
 #[tauri::command]
@@ -2211,8 +2413,8 @@ pub async fn ensure_peyt_studio(state: State<'_, AppState>) -> AppResult<PeytStu
     let welcome = "👋 欢迎来到 PEYT Studio\n\n这是团队的默认协作空间。\n• 公告频道: 团队通知发布\n• 闲聊频道: 日常交流\n• 工作频道: 任务看板协作\n\n点击右上角头像可切换主题,左下角 + 可创建更多 workspace。";
     let _ = chat::send_text_msg(&ctx, master_chat_id, welcome.to_string()).await?;
     // 6. 在 master 群发送 project.invite 信封,包含其他频道 QR,供新成员自动加入
-    let general_qr = securejoin::get_securejoin_qr(&ctx, Some(general_chat)).await.unwrap_or_default();
-    let work_qr = securejoin::get_securejoin_qr(&ctx, Some(work_chat)).await.unwrap_or_default();
+    let general_qr = to_peyt_url(&securejoin::get_securejoin_qr(&ctx, Some(general_chat)).await.unwrap_or_default());
+    let work_qr = to_peyt_url(&securejoin::get_securejoin_qr(&ctx, Some(work_chat)).await.unwrap_or_default());
     let invite_payload = crate::envelope::build_envelope(
         "project.invite",
         serde_json::json!({
@@ -2222,7 +2424,7 @@ pub async fn ensure_peyt_studio(state: State<'_, AppState>) -> AppResult<PeytStu
     )?;
     let _ = chat::send_text_msg(&ctx, master_chat_id, invite_payload).await?;
     // 7. 生成 master 群的 SecureJoin QR 供首人分享
-    let invite_qr = securejoin::get_securejoin_qr(&ctx, Some(master_chat_id)).await?;
+    let invite_qr = to_peyt_url(&securejoin::get_securejoin_qr(&ctx, Some(master_chat_id)).await?);
     let ws = state.db.find_workspace_by_master_chat(master_u32).await?
         .ok_or(AppError::Core("workspace not found after insert".into()))?;
     Ok(PeytStudioDto {
@@ -2617,6 +2819,20 @@ pub async fn get_chat_media(
                     .get_display_name()
                     .to_string()
             };
+            let from_sender = if from_id == deltachat::contact::ContactId::SELF {
+                None
+            } else {
+                Contact::get_by_id(&ctx, from_id).await.ok()
+            };
+            let from_avatar = if let Some(c) = from_sender.as_ref() {
+                match c.get_profile_image(&ctx).await {
+                    Ok(Some(p)) => Some(p.to_string_lossy().to_string()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let from_color = from_sender.as_ref().map(|c| c.get_color());
             let (quote_from, quote_text) = match m.quoted_message(&ctx).await? {
                 Some(q) => {
                     let q_from_id = q.get_from_id();
@@ -2648,6 +2864,8 @@ pub async fn get_chat_media(
                 msg_id: msg_id.to_u32(),
                 from_id: from_id.to_u32(),
                 from_name,
+                from_avatar,
+                from_color,
                 text: m.get_text(),
                 ts: m.get_timestamp(),
                 is_out: m.get_state().is_outgoing(),
@@ -2663,6 +2881,7 @@ pub async fn get_chat_media(
                 height: if height > 0 { Some(height) } else { None },
                 download_state,
                 subject,
+                is_info: m.is_info(),
             });
         }
     }

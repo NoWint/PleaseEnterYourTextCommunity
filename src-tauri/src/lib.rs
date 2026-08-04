@@ -2,15 +2,19 @@ mod activity;
 mod bots;
 mod commands;
 mod db;
+mod deeplink;
 mod drivers;
 mod dto;
 mod envelope;
 mod error;
 mod events;
 mod llm;
+mod notifications;
 mod plugins;
 mod runtime;
 mod state;
+#[cfg(target_os = "windows")]
+mod titlebar;
 mod tools;
 
 use tauri::Manager;
@@ -19,15 +23,71 @@ use crate::state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
+    // 默认过滤:全局 info(压掉第三方 pgp:: 等 debug 刷屏),
+    // 但 peytchat 自身保持 debug(事件转发/命令日志排查用)。
+    // 覆盖规则:全局 info,peytchat=debug,pgp=warn(密钥解析只留警告)。
+    // 用户可通过 RUST_LOG 环境变量覆盖。
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info,peytchat=debug,pgp=warn"),
+    )
         .format_timestamp_secs()
         .init();
     tauri::Builder::default()
+        // 深链插件:注册 OPENPGP4FPR/dcaccount/dclogin scheme(tauri.conf.json 配置)。
+        // single-instance:Windows 插件只在新进程读 argv,已运行实例靠它转发深链。
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // 热启动:另一个实例把 argv(含深链 URL)转发到这里 → 处理并聚焦。
+            if let Some(url) = deeplink::extract_url_from_args(args) {
+                deeplink::handle_url(app, &url);
+            }
+        }))
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
             let state = tauri::async_runtime::block_on(async move {
                 AppState::new(dir).await
             })?;
+            // 深链冷启动:get_current() 取当前实例启动时的 URL;macOS 用 on_open_url。
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                // Windows/Linux:冷启动 URL 从 get_current() 拿(读 argv)。
+                #[cfg(not(target_os = "macos"))]
+                {
+                    if let Ok(Some(urls)) = handle.deep_link().get_current() {
+                        if let Some(url) = urls.first() {
+                            deeplink::handle_url(&handle, url.as_str());
+                        }
+                    }
+                }
+                // macOS:RunEvent::Opened → on_open_url。
+                #[cfg(target_os = "macos")]
+                {
+                    let app_handle = app.handle().clone();
+                    handle
+                        .deep_link()
+                        .on_open_url(move |event| {
+                            if let Some(url) = event.urls().first() {
+                                deeplink::handle_url(&app_handle, url.as_str());
+                            }
+                        });
+                }
+            }
+            // 原生系统通知:注册点击回调(点击 → 聚焦窗口 + 事件给前端)。
+            // app_id 用 bundle identifier (Windows AUMID)。
+            let notif = notifications::Notifications::new("com.peytchat.app".into());
+            notif.initialize(app.handle().clone());
+            app.manage(notif);
+            // Windows 无边框窗口:子类化窗口过程,让最大化/还原按钮区域返回 HTMAXBUTTON,
+            // 从而在悬停时显示 Win11 原生 snap layout 分组弹窗(系统处理最大化/还原)。
+            #[cfg(target_os = "windows")]
+            if let Some(win) = app.get_webview_window("main") {
+                if let Ok(hwnd) = win.hwnd() {
+                    if let Err(e) = titlebar::install(hwnd) {
+                        log::warn!("titlebar: failed to install wndproc: {e}");
+                    }
+                }
+            }
             let handle = app.handle().clone();
             // 绑定 bot 账号 id 集合的 Arc，再传给事件转发器(过滤 bot 账号事件)
             let bot_ids = state.bots.bot_ids();
@@ -95,6 +155,10 @@ pub fn run() {
             commands::block_chat,
             commands::delete_chat,
             commands::leave_group,
+            commands::remove_group_member,
+            commands::rename_group,
+            commands::set_group_description,
+            commands::set_group_avatar,
             commands::mark_chat_noticed,
             commands::mark_chat_seen,
             commands::get_securejoin_qr,
@@ -208,6 +272,13 @@ pub fn run() {
             commands::list_accounts,
             commands::switch_account,
             commands::add_bot_to_chat,
+            // 原生系统通知(user-notify)
+            notifications::show_notification,
+            notifications::get_notification_permission,
+            notifications::request_notification_permission,
+            // 深链:前端冷启动补收 PENDING
+            deeplink::take_pending_deeplink,
+            commands::parse_dclogin,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -6,7 +6,6 @@ import { ui, colorHex } from '../components/ui.js';
 import { escapeHtml, escapeAttr } from '../components/escape.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
 import { renderMemberDetail } from '../components/memberDetail.js';
-import { isEmail, parseInviteLink } from '../utils/inviteLink.js';
 import type { ChatListItem, MemberDto } from '../types.js';
 
 let panel: HTMLElement | null = null;
@@ -47,25 +46,33 @@ async function renderSavedMessagesEntry(list: HTMLElement): Promise<void> {
 
 export async function renderMessagesPage(panelEl: HTMLElement): Promise<void> {
   panel = panelEl;
-  // 每次重建 panel 都重置入口标记,确保「保存的消息」入口总是渲染
-  savedEntryRendered = false;
-  panelEl.innerHTML = `
-    <div class="nav-header">
-      <div class="nav-title">消息</div>
-      <div class="nav-subtitle">私聊与群组</div>
-      <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
-    </div>
-    <div class="nav-list" id="messages-list"></div>
-    <div class="nav-meta-footer">
-      <button class="nav-meta-link" id="messages-archive-toggle" title="${showArchived ? '返回消息列表' : '查看已归档的会话'}">${showArchived ? '返回消息' : '已归档'}</button>
-      <button class="nav-meta-link" id="messages-blocked-toggle" title="被屏蔽的联系人">屏蔽列表</button>
-    </div>
-  `;
+  // 面板结构首次渲染;后续(MsgsChanged → refreshSidebar → renderNavPanel)跳过
+  // innerHTML 重建 —— 否则整个 nav panel 全量销毁重建,列表闪烁。
+  // 结构不变只刷新列表(renderMessageList 内部 diff)。
+  const alreadyRendered = panelEl.dataset.messagesRendered === '1'
+    && panelEl.querySelector('#messages-list')
+    && panelEl.querySelector('#messages-add');
+  if (!alreadyRendered) {
+    panelEl.dataset.messagesRendered = '1';
+    panelEl.innerHTML = `
+      <div class="nav-header">
+        <div class="nav-title">消息</div>
+        <div class="nav-subtitle">私聊与群组</div>
+        <button class="nav-add-btn" id="messages-add" title="新建">${iconSvg('plus', { width: 18, height: 18 })}</button>
+      </div>
+      <div class="nav-list" id="messages-list"></div>
+      <div class="nav-meta-footer">
+        <button class="nav-meta-link" id="messages-archive-toggle" title="${showArchived ? '返回消息列表' : '查看已归档的会话'}">${showArchived ? '返回消息' : '已归档'}</button>
+        <button class="nav-meta-link" id="messages-blocked-toggle" title="被屏蔽的联系人">屏蔽列表</button>
+      </div>
+    `;
+    // 按钮只在首次渲染时绑定,避免重复 addEventListener
+    bindAddButton();
+    bindArchiveToggle();
+    bindBlockedToggle();
+  }
 
   await renderMessageList();
-  bindAddButton();
-  bindArchiveToggle();
-  bindBlockedToggle();
 }
 
 function bindArchiveToggle(): void {
@@ -139,15 +146,23 @@ async function renderMessageList(): Promise<void> {
   } catch {
     chats = [];
   }
-  // 按会话类型过滤,而非 chat_id 集合:workspace 主群/频道都是群(排除),
-  // 保留单聊(1:1 会话)。用类型判断避免 chat_id 与 securejoin 会话冲突时误伤。
-  // showArchived 分流:已归档视图只看 is_archived 会话,常规视图隐藏它们。
+  // 过滤:排除 workspace 频道群(在 state.channels 里,由 groupsPage 管理),
+  // 保留单聊 + 用户手动创建的 core 群(不在 channels → 消息列表显示)。
+  // 修复:原来用 !c.is_group 会把 core 群也排除,导致创建群后列表无入口。
+  const wsChannelIds = new Set(state.channels.map((ch) => ch.chat_id));
+  const isWsChannel = (c: ChatListItem): boolean => wsChannelIds.has(c.chat_id);
   const requests = chats.filter((c) => !showArchived && c.is_contact_request);
   const messages = chats.filter((c) =>
     showArchived
-      ? c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
-      : !c.is_archived && !c.is_group && !c.is_self_talk && !c.is_contact_request
+      ? c.is_archived && !isWsChannel(c) && !c.is_self_talk && !c.is_contact_request
+      : !c.is_archived && !isWsChannel(c) && !c.is_self_talk && !c.is_contact_request
   );
+
+  // 清掉每次刷新都要重建的节点:请求区 / 保存入口 / 空态。
+  // (真正会话项走下方 data-id diff,不在此列 —— 避免重复渲染导致闪烁。)
+  list.querySelectorAll<HTMLElement>(':scope > .nav-request-section, :scope > .saved-messages-entry, :scope > .ui-empty')
+    .forEach((el) => el.remove());
+  savedEntryRendered = false;
 
   // 陌生人来信:「新请求」分区置顶,接受/拒绝 (修复 contact request 被过滤不可见的 bug)
   if (!showArchived) await renderRequestSection(list, requests);
@@ -160,17 +175,39 @@ async function renderMessageList(): Promise<void> {
     return;
   }
 
-  for (const c of messages) {
-    const trailing = document.createElement('div');
-    trailing.className = 'nav-item-trailing';
-    if (c.last_ts) {
-      const t = document.createElement('span');
-      t.className = 'nav-chat-time';
-      t.textContent = formatTime(c.last_ts);
-      trailing.appendChild(t);
-    }
-    if (c.unread > 0) trailing.appendChild(ui.badge({ text: String(c.unread) }));
+  // 会话列表 diff:发消息触发 MsgsChanged → refreshSidebar → 本函数。
+  // 若每次都重建节点,整列会闪烁(元素销毁/重建 → 重排重绘)。
+  // 改为:已有节点按 data-id 复用,只更新标题/摘要/未读/时间/激活态;
+  // 新会话才创建节点,消失的会话才移除 —— 普通发消息时列表零重建,不闪。
+  const existingEls = new Map<string, HTMLElement>();
+  for (const el of Array.from(list.querySelectorAll<HTMLElement>('.ui-list-item'))) {
+    const id = el.dataset.id;
+    if (id) existingEls.set(id, el);
+  }
+  const desiredIds = new Set(messages.map((c) => String(c.chat_id)));
+  for (const [id, el] of existingEls) {
+    if (!desiredIds.has(id)) el.remove();
+  }
 
+  for (const c of messages) {
+    const cid = String(c.chat_id);
+    const existing = existingEls.get(cid);
+    if (existing) {
+      // 复用节点:更新标题/摘要/未读/时间/激活态,不重建。
+      const titleEl = existing.querySelector('.ui-list-title');
+      const subEl = existing.querySelector('.ui-list-sub');
+      if (titleEl) titleEl.textContent = c.name;
+      if (subEl) subEl.textContent = c.last_msg?.slice(0, 40) || '';
+      // 重建 trailing(未读数/时间) —— 尾部内容小,重建成本低
+      let trailing = existing.querySelector('.nav-item-trailing');
+      if (trailing) trailing.remove();
+      trailing = buildTrailing(c);
+      if (trailing) existing.appendChild(trailing);
+      existing.classList.toggle('active', state.currentChatId === c.chat_id);
+      continue;
+    }
+
+    const trailing = buildTrailing(c) ?? undefined;
     const item = ui.listItem({
       title: c.name,
       subtitle: c.last_msg?.slice(0, 40) || '',
@@ -207,7 +244,7 @@ async function renderMessageList(): Promise<void> {
       const titleEl = item.querySelector('.ui-list-title');
       if (titleEl) titleEl.innerHTML = typeMark + escapeHtml(c.name);
     }
-    item.dataset.id = String(c.chat_id);
+    item.dataset.id = cid;
     if (state.currentChatId === c.chat_id) item.classList.add('active');
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -215,6 +252,21 @@ async function renderMessageList(): Promise<void> {
     });
     list.appendChild(item);
   }
+}
+
+// 构建会话尾部(时间 + 未读数徽标),diff 复用时重建尾部
+function buildTrailing(c: ChatListItem): HTMLElement | null {
+  if (!c.last_ts && c.unread <= 0) return null;
+  const trailing = document.createElement('div');
+  trailing.className = 'nav-item-trailing';
+  if (c.last_ts) {
+    const t = document.createElement('span');
+    t.className = 'nav-chat-time';
+    t.textContent = formatTime(c.last_ts);
+    trailing.appendChild(t);
+  }
+  if (c.unread > 0) trailing.appendChild(ui.badge({ text: String(c.unread) }));
+  return trailing;
 }
 
 function bindAddButton(): void {
@@ -255,81 +307,25 @@ function showInlineEmailInput(): void {
 function showInlineQrInput(): void {
   ui.inputDialog({
     title: '添加好友',
-    placeholder: '粘贴邮箱 / peyt:// 邀请链接 / 老 QR',
+    placeholder: '粘贴邮箱 / 邀请链接 / 老 QR',
     confirmLabel: '加入',
     onConfirm: async (input) => {
       const raw = input.trim();
       try {
-        // 依次识别:邮箱 → peyt:// 邀请链接 → 老 securejoin 链接
-        if (isEmail(raw)) {
-          const chatId = await call<number>('create_chat_by_email', { email: raw });
-          state.currentChatId = chatId;
-          saveState();
-          await renderMessagesPage(panel!);
-          const { renderMain } = await import('../shell/navPanel.js');
-          await renderMain();
-          return;
-        }
-        const peytEmail = parseInviteLink(raw);
-        if (peytEmail) {
-          const chatId = await call<number>('create_chat_by_email', { email: peytEmail });
-          state.currentChatId = chatId;
-          saveState();
-          await renderMessagesPage(panel!);
-          const { renderMain } = await import('../shell/navPanel.js');
-          await renderMain();
-          return;
-        }
-        // 兼容老 securejoin 链接 (dccontact: / dcgroup: / https://i.delta.chat/#)
-        const chatId = await call<number>('secure_join', { qr: raw });
-        try {
-          await call('accept_chat', { chatId });
-        } catch {}
-        state.currentChatId = chatId;
-        saveState();
+        // 统一走深链路由:邮箱→create_chat_by_email;peyt/i.delta.chat/OPENPGP4FPR→
+        // normalize→secure_join;dcaccount/dclogin→登录预填。(复用唤起逻辑,一处维护)
+        await import('../utils/deepLink.js').then(({ routeDeepLink }) => routeDeepLink(raw));
         await renderMessagesPage(panel!);
-        const { renderMain } = await import('../shell/navPanel.js');
-        await renderMain();
       } catch (e) {
         ui.toast(e instanceof Error ? e.message : String(e));
-        throw e;
       }
     },
   });
 }
 
 function showInlineGroupInput(): void {
-  ui.inputDialog({
-    title: '创建群',
-    placeholder: '输入群名称',
-    confirmLabel: '创建',
-    onConfirm: async (name) => {
-      const emails = await promptMemberEmails();
-      const chatId = emails.length > 0
-        ? await call<number>('create_group', { name, memberEmails: emails })
-        : await call<number>('create_group_chat', { name });
-      state.currentChatId = chatId;
-      saveState();
-      await renderMessagesPage(panel!);
-      const { renderMain } = await import('../shell/navPanel.js');
-      await renderMain();
-    },
-  });
-}
-
-/** 可选:输入群成员邮箱(逗号/空格分隔),为空返回 []。 */
-function promptMemberEmails(): Promise<string[]> {
-  return new Promise((resolve) => {
-    ui.inputDialog({
-      title: '添加成员（可跳过）',
-      placeholder: '邮箱,用逗号或空格分隔',
-      confirmLabel: '创建群',
-      onConfirm: (v) => {
-        const emails = v.split(/[,，\s]+/).map((e) => e.trim()).filter(Boolean);
-        resolve(emails);
-      },
-    });
-  });
+  // 仿 Delta CreateGroup:名称/描述/头像/成员选择器统一在群创建对话框完成。
+  void import('../components/group/createGroupDialog.js').then(({ openCreateGroupDialog }) => openCreateGroupDialog());
 }
 
 async function joinPeytStudio(): Promise<void> {
