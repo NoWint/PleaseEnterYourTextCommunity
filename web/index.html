@@ -31,12 +31,14 @@
             --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { background: var(--bg-0); } /* html 兜底:渐变未覆盖区域也是深色,不露白 */
         body {
             font-family: var(--font);
             color: var(--text);
-            /* 背景渐变撑满(120% 120%),避免 60% 处截断产生顶部/底部明暗分界 */
-            background: radial-gradient(120% 120% at 50% 0%, #1b1b2a 0%, var(--bg-0) 70%);
-            min-height: 100%;
+            /* min-height:100vh 让 body 至少撑满整个视口;渐变 120% 相对 body 铺满,
+               不会出现 body 只占一部分、下方露出 html 背景的"两段" */
+            background: radial-gradient(120% 100vh at 50% 0%, #1b1b2a 0%, var(--bg-0) 72%);
+            min-height: 100vh;
             -webkit-font-smoothing: antialiased;
             display: flex;
             flex-direction: column;
