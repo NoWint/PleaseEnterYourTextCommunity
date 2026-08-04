@@ -245,7 +245,7 @@
         }
         .qr-toggle:hover { background: var(--glass); color: var(--text); }
         .qr-toggle svg { vertical-align: -2px; margin-right: 5px; }
-        /* 右栏:码卡 + 提示 */
+        /* 右栏:二维码(无卡片,融入背景) */
         .qr-body {
             flex: none;
             display: none;
@@ -257,21 +257,9 @@
             from { opacity: 0; transform: scale(0.94) translateY(6px); }
             to   { opacity: 1; transform: none; }
         }
-        /* 二维码卡:白底"悬浮码卡"(§12 材料/§7 锚定),圆角 + 柔和多层阴影 */
-        .qr-card {
-            display: inline-flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-            padding: 18px;
-            background: #fff;
-            border-radius: 20px;
-            box-shadow:
-                0 2px 4px rgba(0,0,0,0.12),
-                0 12px 32px rgba(0,0,0,0.28);
-        }
+        /* 二维码 canvas:白底保证可扫,无卡片包裹、融入背景 */
         #qrcode { display: inline-flex; }
-        #qrcode canvas { display: block; border-radius: 4px; }
+        #qrcode canvas { display: block; border-radius: 10px; }
         /* 码下方的小标签:扫码打开提示(§16 直接具体文案) */
         .qr-label {
             display: inline-flex;
@@ -279,7 +267,8 @@
             gap: 6px;
             font-size: 12px;
             font-weight: 500;
-            color: #4a4a55;
+            color: var(--text-2);
+            margin-top: 10px;
         }
         .qr-label svg { width: 14px; height: 14px; color: #6a5cff; }
         .qr-hint { margin-top: 10px; font-size: 12px; color: var(--text-3); text-align: center; }
@@ -298,55 +287,59 @@
             align-self: stretch; /* 撑满左栏,textarea 才能 100% */
         }
         .generator.open { display: block; animation: qr-in 320ms var(--ease-spring) both; }
-        /* 横排:无边框输入框 + 右侧极简线条按钮 */
+        /* 横排胶囊容器:输入框 + 按钮融为一体(§12 材料克制,无边/微融合) */
         .gen-row {
             display: flex;
             align-items: center;
-            gap: 12px;
+            /* 无间隙:按钮与输入框同底色,视觉一体 */
+            gap: 0;
+            padding: 4px 6px 4px 18px; /* 宽内边距,呼吸感 */
+            border: none;
+            border-radius: 24px; /* 胶囊型大圆角 */
+            background: rgba(255, 255, 255, 0.06); /* 微亮深灰,与背景融合 */
+            transition: box-shadow 200ms var(--ease-spring), background 200ms var(--ease-spring);
+            box-sizing: border-box;
+        }
+        /* focus-within:容器整体泛起紫色光晕(输入框或按钮获得焦点时) */
+        .gen-row:focus-within {
+            background: rgba(255, 255, 255, 0.09);
+            box-shadow: 0 0 0 3px rgba(106, 92, 255, 0.35), 0 0 24px rgba(106, 92, 255, 0.18);
         }
         .generator textarea {
             flex: 1;
-            min-height: 44px;
+            min-height: 36px;
             resize: none;
-            /* 无边框融合:比背景稍亮的深灰黑,无实体边框(§12 材料克制) */
-            padding: 10px 18px;
+            padding: 0;
             border: none;
-            border-radius: 22px; /* 胶囊型大圆角 */
-            background: rgba(255, 255, 255, 0.06); /* 微亮深灰,与背景融合 */
+            background: transparent; /* 融入 gen-row 底色 */
             color: var(--text);
             font-family: ui-monospace, "SF Mono", Menlo, monospace;
             font-size: 13px;
             line-height: 1.5;
             outline: none;
-            transition: box-shadow 200ms var(--ease-spring), background 200ms var(--ease-spring);
             scrollbar-width: none;
             box-sizing: border-box;
         }
         .generator textarea::-webkit-scrollbar { display: none; }
-        /* focus:平滑过渡到轻盈紫色光晕(§1 即时反馈,§12 材料浮现) */
-        .generator textarea:focus {
-            background: rgba(255, 255, 255, 0.09);
-            box-shadow: 0 0 0 3px rgba(106, 92, 255, 0.35), 0 0 24px rgba(106, 92, 255, 0.18);
-        }
-        /* 极简线条确认按钮:透明 + 细边框 + 箭头图标 */
+        /* 极简确认按钮:透明无边框,与输入框同底色融合,仅图标 */
         .gen-btn {
             flex: none;
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 44px;
-            height: 44px;
+            width: 36px;
+            height: 36px;
             border-radius: 50%;
-            border: 1px solid var(--stroke-strong);
+            border: none;
             background: transparent;
             color: var(--text-2);
             cursor: pointer;
             transition: border-color 120ms, color 120ms, background 120ms, transform 120ms var(--ease-spring);
         }
         .gen-btn svg { width: 18px; height: 18px; }
-        .gen-btn:hover { border-color: var(--accent-2); color: var(--accent-2); background: rgba(106,92,255,0.08); }
+        .gen-btn:hover { color: var(--accent-2); background: rgba(106,92,255,0.12); }
         .gen-btn:active { transform: scale(0.92); }
-        .gen-btn:disabled { opacity: 0.35; cursor: default; background: none; border-color: var(--stroke); }
+        .gen-btn:disabled { opacity: 0.35; cursor: default; background: none; }
 
         /* ── 响应式 ─────────────────────────────── */
         @media (max-width: 480px) {
@@ -410,15 +403,13 @@
                         </div>
                     </div>
                 </div>
-                <!-- 右栏:二维码卡 -->
+                <!-- 右栏:二维码(无卡片包裹,直接融入背景) -->
                 <div class="qr-body" id="qr-body">
-                    <div class="qr-card">
-                        <div id="qrcode"></div>
-                        <span class="qr-label">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h2v2H7zM11 7h2v2h-2zM15 7h2v2h-2zM7 11h2v2H7zM15 11h2v2h-2zM7 15h2v2H7zM11 15h2v2h-2zM15 15h2v2h-2z"/></svg>
-                            扫码打开对话
-                        </span>
-                    </div>
+                    <div id="qrcode"></div>
+                    <span class="qr-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h2v2H7zM11 7h2v2h-2zM15 7h2v2h-2zM7 11h2v2H7zM15 11h2v2h-2zM7 15h2v2H7zM11 15h2v2h-2zM15 15h2v2h-2z"/></svg>
+                        扫码打开对话
+                    </span>
                     <p class="qr-hint">在另一台设备扫码,打开这段对话</p>
                 </div>
             </div>
