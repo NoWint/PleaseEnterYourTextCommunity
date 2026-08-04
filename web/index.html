@@ -431,6 +431,9 @@
             if (searchParams.get("g") || searchParams.get("b")) {
                 hintEl.textContent = '点开加入群聊,或扫码在另一台设备打开';
             }
+            // 生成 QR 后隐藏问候语,位置让给二维码
+            var greeting = document.querySelector('.greeting');
+            if (greeting) greeting.style.display = 'none';
             // 二维码
             qrEl.innerHTML = '';
             var cv = document.createElement('canvas');
