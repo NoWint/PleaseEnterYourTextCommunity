@@ -19,6 +19,16 @@ const MAX_TOOL_ROUNDS: usize = 5;
 /// 单条回复的最大字符数(超长按句边界拆分)。
 const MAX_REPLY_LEN: usize = 400;
 
+/// 项目上下文注入上限(控制 system 消息大小,避免爆 LLM 上下文窗口):
+/// - 每频道最多取最近 PC_MAX_MSGS_PER_CHAT 条消息;
+/// - 每条消息文本截断到 PC_MAX_MSG_CHARS 字符;
+/// - 最多注入 PC_MAX_CHATS 个关联频道(跳过当前会话,避免与主 history 重复);
+/// - 累计字符数达 PC_MAX_TOTAL_CHARS 后停止注入后续频道。
+const PC_MAX_CHATS: usize = 5;
+const PC_MAX_MSGS_PER_CHAT: usize = 10;
+const PC_MAX_MSG_CHARS: usize = 200;
+const PC_MAX_TOTAL_CHARS: usize = 4000;
+
 /// LLM 自动回复驱动:读取 BotConfig.llm,用聊天历史 + 系统提示词调用 LLM 返回回复。
 /// 支持最多 5 轮工具调用往返;长回复按句边界拆分为多条消息。
 pub struct LlmDriver {
@@ -76,7 +86,7 @@ impl BotDriver for LlmDriver {
             });
         }
         // 项目上下文注入:system prompt 之后、history 之前
-        append_project_context(&mut messages, bot).await;
+        append_project_context(&mut messages, bot, msg.chat_id).await;
         messages.extend(history);
 
         let enabled = bot.config.tools.as_deref();
@@ -141,7 +151,14 @@ impl BotDriver for LlmDriver {
 /// 项目上下文注入:Bot 配置了 project_context 时,把项目描述与关联频道最近消息
 /// 拼成 system 消息,插在 system prompt 之后、对话 history 之前。
 /// 单频道失败跳过,不影响其他频道注入。
-async fn append_project_context(messages: &mut Vec<ChatMessage>, bot: &BotRuntime<'_>) {
+///
+/// 注入大小受控(见 PC_* 常量):跳过当前会话(已作为主 history 注入),
+/// 每频道最近消息截断到上限、频道数与累计字符数均有上限。
+async fn append_project_context(
+    messages: &mut Vec<ChatMessage>,
+    bot: &BotRuntime<'_>,
+    current_chat_id: ChatId,
+) {
     let Some(pc) = bot.config.project_context.as_ref() else {
         return;
     };
@@ -161,22 +178,23 @@ async fn append_project_context(messages: &mut Vec<ChatMessage>, bot: &BotRuntim
         return;
     }
     let mut lines: Vec<String> = Vec::new();
-    for &cid in &pc.chat_ids {
+    let mut budget: usize = PC_MAX_TOTAL_CHARS;
+    for cid in select_context_chat_ids(&pc.chat_ids, current_chat_id) {
         let chat_id = ChatId::new(cid);
         let chat_name = match chat::Chat::load_from_db(bot.dc, chat_id).await {
             Ok(c) => c.get_name().to_string(),
             Err(_) => continue,
         };
-        let history = match build_history(bot.dc, chat_id).await {
+        let history = match build_history_n(bot.dc, chat_id, PC_MAX_MSGS_PER_CHAT).await {
             Ok(h) if !h.is_empty() => h,
             _ => continue,
         };
-        let text = history
-            .into_iter()
-            .map(|m| m.content)
-            .collect::<Vec<_>>()
-            .join("\n");
-        lines.push(format_chat_context_line(&chat_name, &text));
+        let (line, used) = render_chat_context_line(&chat_name, &history, budget);
+        let Some(line) = line else {
+            break; // 剩余预算不足,停止注入后续频道
+        };
+        budget -= used;
+        lines.push(line);
     }
     if !lines.is_empty() {
         messages.push(ChatMessage {
@@ -187,9 +205,55 @@ async fn append_project_context(messages: &mut Vec<ChatMessage>, bot: &BotRuntim
     }
 }
 
+/// 决定要注入的关联频道 id 顺序:跳过当前会话(避免与主 history 重复),
+/// 保持配置顺序,最多取 PC_MAX_CHATS 个。
+fn select_context_chat_ids(chat_ids: &[u32], current_chat_id: ChatId) -> Vec<u32> {
+    chat_ids
+        .iter()
+        .copied()
+        .filter(|&cid| ChatId::new(cid) != current_chat_id)
+        .take(PC_MAX_CHATS)
+        .collect()
+}
+
+/// 截断单条消息文本到 PC_MAX_MSG_CHARS 字符(UTF-8 安全;未超限原样返回)。
+fn truncate_pc_msg(text: &str) -> String {
+    if text.chars().count() <= PC_MAX_MSG_CHARS {
+        text.to_string()
+    } else {
+        text.chars().take(PC_MAX_MSG_CHARS).collect()
+    }
+}
+
 /// 单条关联频道上下文行:「{chat_name}: {text}」。
 fn format_chat_context_line(chat_name: &str, text: &str) -> String {
     format!("{chat_name}: {text}")
+}
+
+/// 从某频道最近消息渲染单行上下文(名称前缀 + 逐条截断文本)。
+/// `budget_left` 为剩余字符预算;行文本(含名称)超过预算时返回 (None, 0) 表示停止注入。
+/// 返回 (行文本, 行字符数)。
+fn render_chat_context_line(
+    chat_name: &str,
+    messages: &[ChatMessage],
+    budget_left: usize,
+) -> (Option<String>, usize) {
+    if messages.is_empty() {
+        return (None, 0);
+    }
+    let body = messages
+        .iter()
+        .map(|m| truncate_pc_msg(&m.content))
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let line = format_chat_context_line(chat_name, &body);
+    let used = line.chars().count();
+    if used > budget_left {
+        (None, 0)
+    } else {
+        (Some(line), used)
+    }
 }
 
 /// 拼装「其他频道上下文」system 消息内容。
@@ -445,5 +509,63 @@ mod tests {
         assert!(block.contains("群A: hi"));
         assert!(block.contains("群B: yo"));
         assert!(block.contains('\n'));
+    }
+
+    #[test]
+    fn test_truncate_pc_msg_boundary() {
+        // 恰好 PC_MAX_MSG_CHARS 字符不截断
+        let exact: String = "x".repeat(PC_MAX_MSG_CHARS);
+        assert_eq!(truncate_pc_msg(&exact), exact);
+        // 超 1 字符截断到上限(UTF-8 安全,不产生半字符)
+        let long: String = "字".repeat(PC_MAX_MSG_CHARS + 1);
+        let t = truncate_pc_msg(&long);
+        assert_eq!(t.chars().count(), PC_MAX_MSG_CHARS);
+        assert_eq!(t, "字".repeat(PC_MAX_MSG_CHARS));
+        // 空串原样返回
+        assert_eq!(truncate_pc_msg(""), "");
+    }
+
+    #[test]
+    fn test_render_chat_context_line_budget_boundary() {
+        let msgs = vec![
+            ChatMessage { role: "user".into(), content: "y".repeat(100), ..Default::default() },
+            ChatMessage { role: "user".into(), content: "z".repeat(100), ..Default::default() },
+        ];
+        // 预算充足 → 注入,行 = 名称 + 截断后的消息体
+        let (line, used) = render_chat_context_line("群A", &msgs, usize::MAX);
+        let line = line.expect("budget 充足时应注入");
+        assert!(line.starts_with("群A: "));
+        assert_eq!(used, line.chars().count());
+        // 每条消息超长被截断到 PC_MAX_MSG_CHARS
+        let huge = vec![ChatMessage { role: "user".into(), content: "q".repeat(500), ..Default::default() }];
+        let (line, _) = render_chat_context_line("群B", &huge, usize::MAX);
+        let line = line.unwrap();
+        assert!(line.ends_with(&"q".repeat(PC_MAX_MSG_CHARS)));
+        assert!(!line.contains(&"q".repeat(PC_MAX_MSG_CHARS + 1)));
+        // 预算不足 → (None, 0) 表示停止注入
+        let (none, used0) = render_chat_context_line("群C", &msgs, 0);
+        assert!(none.is_none());
+        assert_eq!(used0, 0);
+        // 空消息列表 → 不注入
+        let (none, _) = render_chat_context_line("群D", &[], usize::MAX);
+        assert!(none.is_none());
+    }
+
+    #[test]
+    fn test_select_context_chat_ids_skips_current_and_caps() {
+        let current = ChatId::new(42);
+        let ids = vec![42, 7, 9, 11, 13, 15];
+        let sel = select_context_chat_ids(&ids, current);
+        // 跳过当前会话,且注入数受 PC_MAX_CHATS 限制
+        assert!(!sel.contains(&42));
+        assert_eq!(sel.len(), PC_MAX_CHATS);
+        assert_eq!(sel, vec![7, 9, 11, 13, 15]);
+        // 当前会话不在列表中:原样取前 PC_MAX_CHATS 个
+        let sel2 = select_context_chat_ids(&ids, ChatId::new(999));
+        assert_eq!(sel2.len(), PC_MAX_CHATS);
+        assert_eq!(sel2, vec![42, 7, 9, 11, 13]);
+        // 少于上限时全取(除当前会话)
+        let sel3 = select_context_chat_ids(&vec![1, 2], current);
+        assert_eq!(sel3, vec![1, 2]);
     }
 }

@@ -383,18 +383,18 @@ unsub(); // 退订
 
 ## 7. 附录:DTO 定义
 
-> 字段名以 camelCase 表示(前端视角);命令参数与后端返回 JSON 经 Tauri 自动转换 snake_case ↔ camelCase。`i64` / `u32` / `i32` 在前端均以 `number` 表示。
+> 字段名为后端 Rust DTO 序列化后的 **snake_case**(命令返回值、事件 payload 均按原字段名输出)。Tauri 仅对命令**参数**做 camelCase → snake_case 转换(见 §1.1);响应/事件**不做** camelCase 转换,前端按 snake_case 消费。`i64` / `u32` / `i32` 在前端均以 `number` 表示。
 
 ### BotDto
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | `number` | bot 记录 ID |
-| `botAccountId` | `number` | 关联的 deltachat 账号 id |
-| `displayName` | `string` | 显示名 |
+| `bot_account_id` | `number` | 关联的 deltachat 账号 id |
+| `display_name` | `string` | 显示名 |
 | `addr` | `string \| null` | bot 邮箱地址 |
-| `ioRunning` | `boolean` | IO 是否在运行 |
-| `createdAt` | `number` | 创建时间戳 |
+| `io_running` | `boolean` | IO 是否在运行 |
+| `created_at` | `number` | 创建时间戳 |
 
 ### LlmConfig(结构化 LLM 配置)
 
@@ -402,16 +402,16 @@ unsub(); // 退订
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `systemPrompt` | `string?` | 系统提示词 |
-| `baseUrl` | `string?` | API 地址 |
-| `apiKey` | `string?` | API 密钥 |
+| `system_prompt` | `string?` | 系统提示词 |
+| `base_url` | `string?` | API 地址 |
+| `api_key` | `string?` | API 密钥 |
 | `model` | `string?` | 模型名 |
 | `provider` | `string?` | 供应商 |
 | `temperature` | `number` | 默认 `0.7` |
-| `maxTokens` | `number?` | 最大输出 token |
-| `topP` | `number?` | 采样参数 |
-| `timeoutSecs` | `number` | 默认 `120` |
-| `maxRetries` | `number` | 默认 `2` |
+| `max_tokens` | `number?` | 最大输出 token |
+| `top_p` | `number?` | 采样参数 |
+| `timeout_secs` | `number` | 默认 `120` |
+| `max_retries` | `number` | 默认 `2` |
 
 ### BotConfig(完整结构化配置,存于 `bots.config_json`)
 
@@ -422,25 +422,25 @@ unsub(); // 退订
 | `tools` | `string[] \| null` | 显式启用的工具名集合;`null` = 使用默认安全工具集 |
 | `rule` | `RuleConfig \| null` | 规则驱动配置 |
 | `persona` | `string \| null` | 人设 id |
-| `projectContext` | `ProjectContext \| null` | 项目上下文(预留,D1-D3 地基) |
+| `project_context` | `ProjectContext \| null` | 项目上下文(预留,D1-D3 地基) |
 
 ### ProjectContext(项目上下文预留)
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `workspaceId` | `number \| null` | 关联工作区 id(预留) |
-| `chatIds` | `number[]` | 关联频道;LLM 驱动回复时会注入这些频道最近消息作为对话背景 |
+| `workspace_id` | `number \| null` | 关联工作区 id(预留) |
+| `chat_ids` | `number[]` | 关联频道;LLM 驱动回复时会注入这些频道最近消息作为对话背景 |
 | `description` | `string?` | 项目一句话描述;有值注入为 system 消息「项目背景:…」 |
-| `repoPath` | `string?` | 预留:Git 仓库路径(D1 GitHub 集成用) |
+| `repo_path` | `string?` | 预留:Git 仓库路径(D1 GitHub 集成用) |
 
 ### BotLimits
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `maxConcurrent` | `number` | 默认 `2` |
-| `replyMinIntervalSecs` | `number` | 最小回复间隔秒数,默认 `3` |
-| `allowBotInteraction` | `boolean` | 是否允许 Bot 与 Bot 对话,默认 `false` |
-| `interactionMaxRounds` | `number` | 互动最大轮数,默认 `3` |
+| `max_concurrent` | `number` | 默认 `2` |
+| `reply_min_interval_secs` | `number` | 最小回复间隔秒数,默认 `3` |
+| `allow_bot_interaction` | `boolean` | 是否允许 Bot 与 Bot 对话,默认 `false` |
+| `interaction_max_rounds` | `number` | 互动最大轮数,默认 `3` |
 
 ### RuleConfig / RuleDef(规则驱动)
 
@@ -458,7 +458,7 @@ unsub(); // 退订
 |---|---|---|
 | `id` | `number` | 规则 ID |
 | `pattern` | `string` | 关键词子串或正则 |
-| `isRegex` | `boolean` | 是否为正则 |
+| `is_regex` | `boolean` | 是否为正则 |
 | `replies` | `string[]` | 候选回复(随机取一条) |
 | `enabled` | `boolean` | 是否启用 |
 
@@ -467,28 +467,28 @@ unsub(); // 退订
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | `number` | 任务 ID |
-| `botId` | `number` | 所属 bot |
-| `chatId` | `number` | 目标会话 |
+| `bot_id` | `number` | 所属 bot |
+| `chat_id` | `number` | 目标会话 |
 | `minute` | `number` | 分(-1 = 任意) |
 | `hour` | `number` | 时(-1 = 任意) |
-| `dayOfWeek` | `number` | 星期(-1 = 任意) |
+| `day_of_week` | `number` | 星期(-1 = 任意) |
 | `message` | `string` | 要发送的消息 |
 | `enabled` | `boolean` | 是否启用 |
-| `nextRunAt` | `number` | 下次运行时间戳 |
+| `next_run_at` | `number` | 下次运行时间戳 |
 
 ### BotStatsDto(活动统计,按 `kind` 聚合)
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `totalActivities` | `number` | 活动总数 |
-| `replySent` | `number` | 已回复 |
-| `ruleReply` | `number` | 规则回复 |
-| `scheduleSent` | `number` | 定时发送 |
-| `toolCalled` | `number` | 工具调用 |
-| `llmError` | `number` | LLM 错误 |
-| `rateLimited` | `number` | 被限流 |
-| `lastActivityAt` | `number \| null` | 最近活动时间 |
-| `firstSeenAt` | `number \| null` | 首次活动时间 |
+| `total_activities` | `number` | 活动总数 |
+| `reply_sent` | `number` | 已回复 |
+| `rule_reply` | `number` | 规则回复 |
+| `schedule_sent` | `number` | 定时发送 |
+| `tool_called` | `number` | 工具调用 |
+| `llm_error` | `number` | LLM 错误 |
+| `rate_limited` | `number` | 被限流 |
+| `last_activity_at` | `number \| null` | 最近活动时间 |
+| `first_seen_at` | `number \| null` | 首次活动时间 |
 
 ### PersonaDto(人设模板,不含 `system_prompt`)
 
@@ -511,10 +511,10 @@ unsub(); // 退订
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | `number` | 活动 ID |
-| `botId` | `number` | 所属 bot |
+| `bot_id` | `number` | 所属 bot |
 | `kind` | `string` | 活动类型(见 §4.3) |
-| `chatId` | `number \| null` | 相关会话 |
-| `msgId` | `number \| null` | 相关消息 |
+| `chat_id` | `number \| null` | 相关会话 |
+| `msg_id` | `number \| null` | 相关消息 |
 | `summary` | `string` | 摘要 |
-| `detailJson` | `string \| null` | 附加详情(JSON 字符串) |
-| `createdAt` | `number` | 时间戳 |
+| `detail_json` | `string \| null` | 附加详情(JSON 字符串) |
+| `created_at` | `number` | 时间戳 |

@@ -13,7 +13,7 @@ use deltachat::EventType;
 use tokio::sync::{Mutex, Semaphore};
 
 use crate::activity::ActivityLog;
-use crate::db::Db;
+use crate::db::{BotRow, Db};
 use crate::dto::{BotConfig, bot_activity_kind as act};
 use crate::drivers::{BotDriver, BotRuntime, DriverRegistry, IncomingMsg, driver_kind_label};
 
@@ -351,6 +351,8 @@ async fn dispatch_drivers(
 
 /// 定时 tick 循环:每 30s 对每个 running bot 逐个驱动调 on_tick,
 /// 收集 ScheduledSend → 用 bot ctx chat::send_msg 发送 → 记录 SCHEDULE_SENT 活动。
+/// 每个 bot 的 tick pass 以独立 task 运行(见 run_tick_pass),单个 bot panic 不影响
+/// tick 循环与其他 bot。
 async fn tick_loop(
     accounts: Arc<Mutex<Accounts>>,
     db: Arc<Db>,
@@ -367,63 +369,119 @@ async fn tick_loop(
                 continue;
             }
         };
-        for row in rows {
-            if row.status != "running" {
+        run_tick_pass(
+            accounts.clone(),
+            db.clone(),
+            activity.clone(),
+            registry.clone(),
+            data_dir.clone(),
+            rows,
+        )
+        .await;
+    }
+}
+
+/// 一次 tick pass:遍历全部 running bot,每个 bot 以独立 task 运行,逐个 await。
+/// 单个 bot 的 on_tick panic 会被 task 边界捕获(JoinHandle 返回 Err),仅该 bot 失败,
+/// 循环继续处理后续 bot。返回 (成功数, panic/失败数)。
+async fn run_tick_pass(
+    accounts: Arc<Mutex<Accounts>>,
+    db: Arc<Db>,
+    activity: ActivityLog,
+    registry: DriverRegistry,
+    data_dir: PathBuf,
+    rows: Vec<BotRow>,
+) -> (usize, usize) {
+    let mut ok = 0usize;
+    let mut failed = 0usize;
+    for row in rows {
+        if row.status != "running" {
+            continue;
+        }
+        let result = tokio::task::spawn(tick_one_bot(
+            accounts.clone(),
+            db.clone(),
+            activity.clone(),
+            registry.clone(),
+            data_dir.clone(),
+            row.id,
+            row.bot_account_id,
+        ))
+        .await;
+        match result {
+            Ok(()) => ok += 1,
+            Err(e) => {
+                // JoinError::is_panic() 时 panic 已在该 bot 的 task 内被隔离
+                log::error!("tick: bot {} 的 tick pass 失败(已隔离): {e}", row.id);
+                failed += 1;
+            }
+        }
+    }
+    (ok, failed)
+}
+
+/// 单个 bot 的一次 tick pass:查配置 → 取账号 ctx → 逐个驱动 on_tick → 发送定时消息。
+/// 由 run_tick_pass 以独立 task 运行,panic 被隔离在 task 边界内。
+async fn tick_one_bot(
+    accounts: Arc<Mutex<Accounts>>,
+    db: Arc<Db>,
+    activity: ActivityLog,
+    registry: DriverRegistry,
+    data_dir: PathBuf,
+    bot_id: i64,
+    bot_account_id: u32,
+) {
+    let config_json = match db.get_bot_config_by_id(bot_id).await {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("tick: config failed: {e}");
+            return;
+        }
+    };
+    let Some(config) = BotConfig::parse(config_json.as_deref()) else {
+        return;
+    };
+    let ctx = { accounts.lock().await.get_account(bot_account_id) };
+    let Some(ctx) = ctx else {
+        return;
+    };
+    let runtime = BotRuntime {
+        bot_id,
+        account_id: bot_account_id,
+        dc: &ctx,
+        config: &config,
+        db: &db,
+        activity: &activity,
+        data_dir: &data_dir,
+    };
+    for driver in registry.drivers() {
+        let sends = match driver.on_tick(&runtime).await {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!(
+                    "tick: driver {} failed: {e}",
+                    driver_kind_label(driver.kind())
+                );
                 continue;
             }
-            let config_json = match db.get_bot_config_by_id(row.id).await {
-                Ok(v) => v,
-                Err(e) => {
-                    log::warn!("tick: config failed: {e}");
-                    continue;
+        };
+        for s in sends {
+            let mut out = Message::new(Viewtype::Text);
+            out.set_text(s.text.clone());
+            match chat::send_msg(&ctx, ChatId::new(s.chat_id), &mut out).await {
+                Ok(_) => {
+                    activity
+                        .record(
+                            bot_id,
+                            act::SCHEDULE_SENT,
+                            Some(s.chat_id),
+                            None,
+                            format!("定时消息 → {}", truncate(&s.text, 40)),
+                            None,
+                        )
+                        .await;
                 }
-            };
-            let Some(config) = BotConfig::parse(config_json.as_deref()) else {
-                continue;
-            };
-            let ctx = { accounts.lock().await.get_account(row.bot_account_id) };
-            let Some(ctx) = ctx else {
-                continue;
-            };
-            let runtime = BotRuntime {
-                bot_id: row.id,
-                account_id: row.bot_account_id,
-                dc: &ctx,
-                config: &config,
-                db: &db,
-                activity: &activity,
-                data_dir: &data_dir,
-            };
-            for driver in registry.drivers() {
-                let sends = match driver.on_tick(&runtime).await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::warn!(
-                            "tick: driver {} failed: {e}",
-                            driver_kind_label(driver.kind())
-                        );
-                        continue;
-                    }
-                };
-                for s in sends {
-                    let mut out = Message::new(Viewtype::Text);
-                    out.set_text(s.text.clone());
-                    match chat::send_msg(&ctx, ChatId::new(s.chat_id), &mut out).await {
-                        Ok(_) => {
-                            activity
-                                .record(
-                                    row.id,
-                                    act::SCHEDULE_SENT,
-                                    Some(s.chat_id),
-                                    None,
-                                    format!("定时消息 → {}", truncate(&s.text, 40)),
-                                    None,
-                                )
-                                .await;
-                        }
-                        Err(e) => log::warn!("tick: send failed: {e}"),
-                    }
-                }
+                Err(e) => log::warn!("tick: send failed: {e}"),
             }
         }
     }
@@ -549,7 +607,7 @@ mod tests {
     use deltachat::chat::ChatId;
     use deltachat::message::{MsgId, Viewtype};
 
-    use crate::drivers::{BotDriver, DriverKind};
+    use crate::drivers::{BotDriver, DriverKind, ScheduledSend};
     use crate::error::AppResult;
 
     /// 测试用假驱动:reply 为 None 返回空(不命中),Some 返回单条回复;记录调用次数。
@@ -605,6 +663,145 @@ mod tests {
         let config = crate::dto::BotConfig::default();
         let data_dir = tmp.path().to_path_buf();
         (tmp, ctx, db, activity, config, data_dir, account_id)
+    }
+
+    /// on_tick 仅在指定 bot_id 上 panic 的驱动(用于验证 tick panic 隔离)。
+    struct PanicOnTickBot {
+        panic_bot: i64,
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl BotDriver for PanicOnTickBot {
+        fn kind(&self) -> DriverKind {
+            DriverKind::Rule
+        }
+
+        async fn on_message(
+            &self,
+            _bot: &BotRuntime<'_>,
+            _msg: &IncomingMsg<'_>,
+        ) -> AppResult<Vec<String>> {
+            Ok(vec![])
+        }
+
+        async fn on_tick(&self, bot: &BotRuntime<'_>) -> AppResult<Vec<ScheduledSend>> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if bot.bot_id == self.panic_bot {
+                panic!("tick panic for bot {}", bot.bot_id);
+            }
+            Ok(vec![])
+        }
+    }
+
+    /// on_tick 计数驱动(验证正常 bot 的 tick 仍会执行)。
+    struct CountOnTickBot {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl BotDriver for CountOnTickBot {
+        fn kind(&self) -> DriverKind {
+            DriverKind::Schedule
+        }
+
+        async fn on_message(
+            &self,
+            _bot: &BotRuntime<'_>,
+            _msg: &IncomingMsg<'_>,
+        ) -> AppResult<Vec<String>> {
+            Ok(vec![])
+        }
+
+        async fn on_tick(&self, _bot: &BotRuntime<'_>) -> AppResult<Vec<ScheduledSend>> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(vec![])
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tick_panic_is_isolated_per_bot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let accounts = Arc::new(Mutex::new(
+            Accounts::new(tmp.path().join("accounts"), true).await.unwrap(),
+        ));
+        let account_id = accounts.lock().await.add_account().await.unwrap();
+        let db = Arc::new(
+            crate::db::Db::new(tmp.path().join("test.db"))
+                .await
+                .unwrap(),
+        );
+        db.migrate().await.unwrap();
+        let activity = crate::activity::ActivityLog::new(db.clone());
+        let data_dir = tmp.path().to_path_buf();
+
+        // 两个 running bot 共享同一账号 ctx;bot1 命中 panic 驱动, bot2 正常
+        let b1 = db.insert_bot(1, account_id, "bot1", 0).await.unwrap();
+        let b2 = db.insert_bot(2, account_id, "bot2", 0).await.unwrap();
+        let cfg_json = serde_json::to_string(&crate::dto::BotConfig::default()).unwrap();
+        db.set_bot_config_by_id(b1, Some(&cfg_json)).await.unwrap();
+        db.set_bot_config_by_id(b2, Some(&cfg_json)).await.unwrap();
+
+        let panic_calls = Arc::new(AtomicUsize::new(0));
+        let count_calls = Arc::new(AtomicUsize::new(0));
+        let mut registry = DriverRegistry::new();
+        registry.register(Arc::new(PanicOnTickBot {
+            panic_bot: b1,
+            calls: panic_calls.clone(),
+        }));
+        registry.register(Arc::new(CountOnTickBot {
+            calls: count_calls.clone(),
+        }));
+
+        let rows = db.list_all_bots().await.unwrap();
+        assert_eq!(rows.len(), 2);
+
+        // 一次 tick pass:bot1 panic 被隔离, bot2 仍正常执行
+        let (ok, failed) = run_tick_pass(accounts, db, activity, registry, data_dir, rows).await;
+        assert_eq!(ok, 1, "正常 bot 的 tick 应执行成功");
+        assert_eq!(failed, 1, "panic 的 bot 应被隔离并计数失败");
+        assert_eq!(count_calls.load(Ordering::Relaxed), 1, "bot2 的 on_tick 应执行");
+        assert_eq!(panic_calls.load(Ordering::Relaxed), 2, "panic 驱动对两个 bot 均被调用");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tick_one_bot_panic_is_caught_by_task_boundary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let accounts = Arc::new(Mutex::new(
+            Accounts::new(tmp.path().join("accounts"), true).await.unwrap(),
+        ));
+        let account_id = accounts.lock().await.add_account().await.unwrap();
+        let db = Arc::new(
+            crate::db::Db::new(tmp.path().join("test.db"))
+                .await
+                .unwrap(),
+        );
+        db.migrate().await.unwrap();
+        let activity = crate::activity::ActivityLog::new(db.clone());
+        let data_dir = tmp.path().to_path_buf();
+        let b1 = db.insert_bot(1, account_id, "bot1", 0).await.unwrap();
+        let cfg_json = serde_json::to_string(&crate::dto::BotConfig::default()).unwrap();
+        db.set_bot_config_by_id(b1, Some(&cfg_json)).await.unwrap();
+
+        let mut registry = DriverRegistry::new();
+        registry.register(Arc::new(PanicOnTickBot {
+            panic_bot: b1,
+            calls: Arc::new(AtomicUsize::new(0)),
+        }));
+
+        // spawn 后 await JoinHandle:panic 以 Err(JoinError) 返回而非向上传播
+        let handle = tokio::task::spawn(tick_one_bot(
+            accounts.clone(),
+            db.clone(),
+            activity.clone(),
+            registry.clone(),
+            data_dir.clone(),
+            b1,
+            account_id,
+        ));
+        let res = handle.await;
+        assert!(res.is_err(), "panic 应被 task 边界捕获");
+        assert!(res.err().unwrap().is_panic(), "JoinError 应为 panic 类型");
     }
 
     fn test_incoming<'a>(text: Option<&'a str>) -> IncomingMsg<'a> {

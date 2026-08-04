@@ -224,10 +224,10 @@ function handleBotActivity(a: BotActivityDto): void {
       setBadge(badge, running ? '运行中' : '已停止', running ? 'success' : 'muted');
     }
   }
-  // 详情态-对话:打字指示器 + 实时刷新
+  // 详情态-对话:打字指示器 + 实时刷新(仅匹配当前打开的会话)
   if (chatCtx && chatCtx.botId === a.bot_id) {
     if (a.kind === 'thinking') {
-      chatCtx.showTyping();
+      if (a.chat_id != null && chatCtx.activeChatId() === a.chat_id) chatCtx.showTyping();
     } else if (a.kind === 'reply_sent' || a.kind === 'llm_error') {
       chatCtx.hideTyping();
       if (a.chat_id != null && chatCtx.activeChatId() === a.chat_id) void chatCtx.reloadChat();
@@ -928,7 +928,6 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
   const pc = getCfg()?.project_context ?? null;
   if (pc) {
     if (pc.description) pcDescArea.value = pc.description;
-    if (pc.repo_path) repoPathInput.value = pc.repo_path;
   }
 
   function collectConfig(): LlmConfig {
@@ -1135,7 +1134,7 @@ async function renderScheduleTab(bot: BotDto, content: HTMLElement): Promise<voi
 
   const body = scrollContent([
     ui.field({ label: '发送到会话', children: chatSelect }),
-    ui.field({ label: '时间(分钟 / 小时 / 星期)', children: timeRow, help: '留空或 -1 表示任意;dayOfWeek 0=周日' }),
+    ui.field({ label: '时间(UTC 时区 · 分钟 / 小时 / 星期)', children: timeRow, help: '小时按 UTC(协调世界时)计:例如 UTC+8 的本地 17:00 应填 9。留空或 -1 表示任意;dayOfWeek 0=周日' }),
     ui.field({ label: '消息内容', children: messageInput }),
     addBtn,
     (() => { const t = document.createElement('div'); t.style.cssText = 'font-size:13px;font-weight:600'; t.textContent = '已设定时'; return t; })(),
@@ -1198,7 +1197,7 @@ async function renderScheduleTab(bot: BotDto, content: HTMLElement): Promise<voi
       mTitle.textContent = s.message;
       const mSub = document.createElement('div');
       mSub.style.cssText = 'font-size:12px;color:var(--text-mute)';
-      mSub.textContent = `下次: ${new Date(s.next_run_at * 1000).toLocaleString()} · ${cronLabel(s.minute, s.hour, s.day_of_week)}`;
+      mSub.textContent = `下次(本地时间): ${new Date(s.next_run_at * 1000).toLocaleString()} · 规则(UTC): ${cronLabel(s.minute, s.hour, s.day_of_week)}`;
       meta.appendChild(mTitle);
       meta.appendChild(mSub);
       row.appendChild(meta);
@@ -1226,10 +1225,10 @@ async function renderScheduleTab(bot: BotDto, content: HTMLElement): Promise<voi
 }
 
 function cronLabel(minute: number, hour: number, dow: number): string {
-  const m = minute < 0 ? '*' : String(minute);
-  const h = hour < 0 ? '*' : String(hour);
+  const m = minute < 0 ? '*' : String(minute).padStart(2, '0');
+  const h = hour < 0 ? '*' : String(hour).padStart(2, '0');
   const d = dow < 0 ? '*' : `周${['日', '一', '二', '三', '四', '五', '六'][dow] ?? dow}`;
-  return `${m}:${h} ${d}`;
+  return `${m}:${h} ${d} UTC`;
 }
 
 // ── Tab:工具 ───────────────────────────────────────────────────────
