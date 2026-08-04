@@ -215,12 +215,14 @@
             align-items: center;
             gap: 24px;
         }
-        /* 左栏:标题 + 切换按钮 */
+        /* 左栏:标题 + 切换 + 生成器。align-items:stretch 让子项(含 textarea)撑满,
+           内容内部靠左 */
         .qr-left {
-            flex: 1;
+            flex: 1 1 210px;
+            min-width: 210px;
             display: flex;
             flex-direction: column;
-            align-items: flex-start;
+            align-items: stretch;
             gap: 10px;
         }
         .qr-title {
@@ -287,15 +289,19 @@
             .qr-left { align-items: center; text-align: center; }
         }
 
-        /* ── 生成器(无 #token)────────────── */
-        .generator { display: none; }
+        /* ── 生成器(并入左栏)────────────── */
+        .generator {
+            display: none;
+            width: 100%;
+            margin-top: 6px;
+            align-self: stretch; /* 撑满左栏,textarea 才能 100% */
+        }
         .generator.open { display: block; animation: qr-in 320ms var(--ease-spring) both; }
         .generator textarea {
             width: 100%;
-            min-height: 96px;
+            min-height: 88px;
             resize: vertical;
-            margin-top: 12px;
-            padding: 14px;
+            padding: 12px 14px;
             border-radius: var(--radius-md);
             background: var(--bg-1);
             border: 1px solid var(--stroke);
@@ -310,11 +316,10 @@
         .generator textarea::-webkit-scrollbar { display: none; }
         .generator textarea:focus { border-color: var(--accent); }
         .gen-btn {
-            /* 右对齐(块级 + margin-left:auto 推到右侧) */
+            /* 左对齐(与左栏文本一致) */
             display: block;
-            margin-left: auto;
-            margin-top: 14px;
-            padding: 12px 18px;
+            margin-top: 12px;
+            padding: 11px 18px;
             border: none;
             border-radius: var(--radius-md);
             background: linear-gradient(120deg, var(--accent), var(--accent-2));
@@ -375,13 +380,20 @@
             </a>
 
             <div class="qr-wrap">
+                <!-- 左栏:标题 + 切换 + 生成器(输入框 + 按钮) -->
                 <div class="qr-left">
                     <div class="qr-title">在另一台设备打开</div>
                     <button class="qr-toggle" id="qr-toggle">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
                         <span id="qr-toggle-text">显示二维码</span>
                     </button>
+                    <!-- 生成器:粘贴链接 → 生成二维码 -->
+                    <div class="generator" id="generator">
+                        <textarea id="gen-input" placeholder="粘贴邀请链接,生成二维码"></textarea>
+                        <button class="gen-btn" id="gen-btn">生成二维码</button>
+                    </div>
                 </div>
+                <!-- 右栏:二维码卡 -->
                 <div class="qr-body" id="qr-body">
                     <div class="qr-card">
                         <div id="qrcode"></div>
@@ -392,13 +404,6 @@
                     </div>
                     <p class="qr-hint">在另一台设备扫码,打开这段对话</p>
                 </div>
-            </div>
-
-            <!-- 生成器(无 #token) -->
-            <div class="generator" id="generator">
-                <p class="slogan" style="margin:0">粘贴一条 PEYT / Delta 邀请链接,生成二维码</p>
-                <textarea id="gen-input" placeholder="粘贴 https://peyt.yzjtiantian.cn/#… 或 OPENPGP4FPR:…"></textarea>
-                <button class="gen-btn" id="gen-btn">生成二维码</button>
             </div>
         </div>
     </main>
@@ -444,11 +449,13 @@
         if (token) {
             renderInvite(token);
         } else {
-            // 无 token:隐藏 CTA/下载/二维码,只留生成器
+            // 无 token:隐藏 CTA/下载/标题/切换/右栏二维码,只留左栏生成器
             hintEl.style.display = 'none';
             ctaEl.style.display = 'none';
             downloadEl.style.display = 'none';
-            qrWrap.style.display = 'none';
+            document.querySelector('.qr-title').style.display = 'none';
+            document.querySelector('.qr-toggle').style.display = 'none';
+            qrBody.style.display = 'none';
             genEl.classList.add('open');
         }
 
@@ -464,10 +471,9 @@
             else v = v.replace(/openpgp4fpr:/i, '');
             if (v.indexOf('#') === -1) v = v.replace(/%23/, '#');
             if (!v) { genBtn.disabled = true; return; }
-            // 生成器路径下 qr-wrap 初始是 hidden,这里恢复显示,二维码才能看到
-            qrWrap.style.display = '';
+            // 生成器路径下右栏 qr-body 被隐藏,这里恢复显示,二维码才能看到
+            qrBody.style.display = '';
             qrBody.classList.add('open');
-            if (qrToggleText) qrToggleText.textContent = '收起二维码';
             renderInvite(v);
         });
         genInput.addEventListener('input', function () {
