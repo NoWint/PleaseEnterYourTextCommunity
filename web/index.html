@@ -206,28 +206,50 @@
         .download:hover { background: var(--glass); color: var(--text); transform: translateY(-1px); }
         .download svg { width: 14px; height: 14px; }
 
-        /* ── 二维码区(其他设备)────────────────── */
+        /* ── 二维码区:横向布局(合理利用空间)────────── */
         .qr-wrap {
             margin-top: 20px;
             padding-top: 20px;
             border-top: 1px solid var(--stroke);
-            text-align: center;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+        /* 左栏:标题 + 切换按钮 */
+        .qr-left {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        .qr-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
         }
         .qr-toggle {
             border: none;
-            background: none;
+            background: var(--glass-strong);
             color: var(--text-2);
             font-family: inherit;
             font-size: 13px;
+            font-weight: 500;
             cursor: pointer;
-            padding: 6px 10px;
-            border-radius: 8px;
-            transition: color 120ms, background 120ms;
+            padding: 8px 16px;
+            border-radius: 999px;
+            transition: background 120ms, color 120ms;
         }
-        .qr-toggle:hover { color: var(--text); background: var(--glass-strong); }
-        .qr-toggle svg { vertical-align: -2px; margin-right: 4px; }
-        .qr-body { display: none; margin-top: 16px; }
-        .qr-body.open { display: block; animation: qr-in 320ms var(--ease-spring) both; }
+        .qr-toggle:hover { background: var(--glass); color: var(--text); }
+        .qr-toggle svg { vertical-align: -2px; margin-right: 5px; }
+        /* 右栏:码卡 + 提示 */
+        .qr-body {
+            flex: none;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+        }
+        .qr-body.open { display: flex; animation: qr-in 320ms var(--ease-spring) both; }
         @keyframes qr-in {
             from { opacity: 0; transform: scale(0.94) translateY(6px); }
             to   { opacity: 1; transform: none; }
@@ -257,7 +279,13 @@
             color: #4a4a55;
         }
         .qr-label svg { width: 14px; height: 14px; color: #6a5cff; }
-        .qr-hint { margin-top: 12px; font-size: 12px; color: var(--text-3); }
+        .qr-hint { margin-top: 10px; font-size: 12px; color: var(--text-3); text-align: center; }
+
+        /* 窄屏:退回纵向堆叠 */
+        @media (max-width: 380px) {
+            .qr-wrap { flex-direction: column; gap: 16px; }
+            .qr-left { align-items: center; text-align: center; }
+        }
 
         /* ── 生成器(无 #token)────────────── */
         .generator { display: none; }
@@ -347,10 +375,13 @@
             </a>
 
             <div class="qr-wrap">
-                <button class="qr-toggle" id="qr-toggle">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                    在另一台设备上打开
-                </button>
+                <div class="qr-left">
+                    <div class="qr-title">在另一台设备打开</div>
+                    <button class="qr-toggle" id="qr-toggle">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                        <span id="qr-toggle-text">显示二维码</span>
+                    </button>
+                </div>
                 <div class="qr-body" id="qr-body">
                     <div class="qr-card">
                         <div id="qrcode"></div>
@@ -387,9 +418,10 @@
         var qrWrap = document.querySelector('.qr-wrap');
         var genEl = document.getElementById('generator');
 
+        var qrToggleText = document.getElementById('qr-toggle-text');
         qrToggle.addEventListener('click', function () {
             qrBody.classList.toggle('open');
-            qrToggle.textContent = qrBody.classList.contains('open') ? '收起二维码' : '在另一台设备上打开';
+            if (qrToggleText) qrToggleText.textContent = qrBody.classList.contains('open') ? '收起二维码' : '显示二维码';
         });
 
         function renderInvite(token) {
@@ -435,6 +467,7 @@
             // 生成器路径下 qr-wrap 初始是 hidden,这里恢复显示,二维码才能看到
             qrWrap.style.display = '';
             qrBody.classList.add('open');
+            if (qrToggleText) qrToggleText.textContent = '收起二维码';
             renderInvite(v);
         });
         genInput.addEventListener('input', function () {
