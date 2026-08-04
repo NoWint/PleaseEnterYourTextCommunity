@@ -1581,6 +1581,21 @@ html.window-overlay .wb-controls { display: none; }
 }
 .rd-pin-unpin:hover { background: var(--surface-hover); color: var(--danger); }
 
+/* Task 2: GitHub 数据抽屉 — 富行 + 状态色 + mono + 可横向滚动 tab 条 */
+.rd-tabs-gh { overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; flex-wrap: nowrap; }
+.rd-tabs-gh::-webkit-scrollbar { display: none; }
+.rd-gh-row { padding: 8px 16px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; transition: background var(--anim-duration) var(--anim-ease); }
+.rd-gh-row:hover { background: var(--capsule); }
+.rd-gh-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rd-gh-title-text { font-size: var(--font-scale-body); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-gh-title .ui-badge { flex-shrink: 0; }
+.rd-gh-event-icon { flex-shrink: 0; color: var(--text-weak); }
+.rd-gh-sub { font-size: var(--font-scale-secondary); color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-gh-mono { font-family: var(--font-mono); color: var(--text-mute); flex-shrink: 0; }
+.rd-gh-pos { color: var(--success); }
+.rd-gh-neg { color: var(--danger); }
+.rd-gh-sep { height: 1px; background: color-mix(in srgb, var(--border) 55%, transparent); }
+
 /* Task 13: 头像样式 — 各处头像统一规则(图片用 object-fit: cover;字母用 flex 居中)。
    尺寸:app-avatar 36px / msg-avatar 32px(聊天消息头像,2026-08 由 28px 放大)/
    home-avatar 32px / rd-avatar 24px / member-detail-avatar 80px / settings-avatar 64px。

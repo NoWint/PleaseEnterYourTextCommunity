@@ -349,19 +349,23 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     updateSelectionHighlight();
     updateOpenWebBtn();
     if (!repo) {
-      // 清理 github 残留 tab,避免泄漏到消息页(messages/groups 只认 members/pin)
+      // 清理 github 残留 tab/仓库,避免泄漏到消息页(messages/groups 只认 members/pin)
       state.detailTab = 'members';
       state.detailPanelOpen = false;
       state.rightDrawerOpen = false;
+      state.currentGithubRepo = null;
+      state.githubTab = 'issues';
       saveState();
       void openRightDrawer();
       return;
     }
-    // 打开 rightDrawer 展示仓库数据;detailTab 由 Task 2 扩展类型
+    // 打开 rightDrawer 展示仓库数据;detailTab='github' 由 rightDrawer 的 github 分支渲染
     state.currentPage = 'github';
     state.detailPanelOpen = true;
-    state.detailTab = 'github' as any; // Task 2 扩展 detailTab 类型,届时移除 as any
+    state.detailTab = 'github';
     state.rightDrawerOpen = true;
+    state.currentGithubRepo = { owner: repo.owner, repo: repo.repo };
+    state.githubTab = 'issues';
     saveState();
     void openRightDrawer();
   }
@@ -532,6 +536,8 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     state.detailTab = 'members';
     state.detailPanelOpen = false;
     state.rightDrawerOpen = false;
+    state.currentGithubRepo = null;
+    state.githubTab = 'issues';
     if (drawerOpen) {
       saveState();
       void openRightDrawer();

@@ -19,6 +19,8 @@ export const state: AppState = {
   rightDrawerOpen: false,
   detailPanelOpen: true,
   detailTab: 'members',
+  currentGithubRepo: null,
+  githubTab: 'issues',
   self: null,
   roles: [],
   wsMembers: {},
