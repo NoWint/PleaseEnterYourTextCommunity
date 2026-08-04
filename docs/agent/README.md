@@ -9,10 +9,10 @@
 | 文件 | 内容 | 何时读 |
 |---|---|---|
 | **[README.md](README.md)**(本文件) | 总览、技术栈、快速开始、仓库结构、架构与数据流 | 刚接触项目 / 想了解全貌 |
-| **[frontend.md](frontend.md)** | 前端 63 个 TS 文件的地图:启动、状态/类型、持久化、路由、页面、聊天、卡片、组件、插件前端、主题、动效、模块依赖 | 改前端任何功能 |
-| **[backend.md](backend.md)** | 后端 13 个 Rust 文件:启动、AppState、115 个命令分组、bot 系统、卡片命令详解、插件后端、错误处理、配置 | 改 Tauri 命令 / 后端逻辑 |
+| **[frontend.md](frontend.md)** | 前端 70 个 TS 文件的地图:启动、状态/类型、持久化、路由、页面、聊天、卡片、组件、插件前端、主题、顶栏、动效、模块依赖 | 改前端任何功能 |
+| **[backend.md](backend.md)** | 后端 16 个 Rust 文件:启动、AppState、129 个命令分组、bot 系统、原生通知、深链、卡片命令详解、插件后端、错误处理、配置 | 改 Tauri 命令 / 后端逻辑 |
 | **[database.md](database.md)** | 9 张表完整 schema、全部 DTO、卡片数据模型与同步机制 | 动数据库 / 加表 / 改字段 |
-| **[events.md](events.md)** | deltachat 核心 → 前端的事件流(22 个事件 + 前端处理) | 实时更新 / 事件处理 |
+| **[events.md](events.md)** | deltachat 核心 → 前端的事件流(23 个事件 + 前端处理) | 实时更新 / 事件处理 |
 | **[conventions.md](conventions.md)** | 跨切面机制([CARD]/[PEYT_INVITE] 前缀、插件系统、TDesign 图标两处同步、主题+字体缩放、动效、styles.css 陷阱)+ 开发约定 + 常见任务 + 坑 | 动手前必读,特别是新功能 |
 
 ---
@@ -27,6 +27,9 @@
 - **好友邀请系统**:选择联系人 / 通过邮箱添加 / 粘贴 peyt:// 邀请链接 / 分享我的邀请链接(contactsPicker.ts / inviteDialog.ts / utils/inviteLink.ts)。
 - **插件系统**:从 GitHub Pages 市场安装,`new Function` 直执行,注入 `peytchat` 全局对象。
 - **信封协议(`[PEYT]`)**:发送端把结构化数据(卡片/项目邀请等)封装成 `[PEYT]{...}` JSON 消息(envelope.rs),复用加密传输层跨设备同步。**接收端目前不解析**,信封消息原样渲染为普通消息(方便调试)。
+- **原生系统通知**:`notifications.rs` + 前端通知中心,`show_notification` / 权限查询请求命令。
+- **深链(Deep Link)**:`deeplink.rs` + `src/utils/deepLink.ts` 注册监听,唤起/冷启动 URL 都经 `DeepLink` 事件分发(登录预填 / 邀请 / QR)。capabilities 需 `deep-link:default`。
+- **无边框窗口标题栏**:macOS `titleBarStyle: Overlay`(原生红绿灯,`window-overlay` 类);Windows/Linux `decorations: false` + 自绘标题栏(`window-frame` 类,logo + 标题 + 最小化/最大化/关闭,`titlebar.rs` / `windowControls.ts`)。顶栏有 VSCode 式居中全局搜索条(`titlebar.ts`)。
 - **Delta Chat 对齐(进行中)**:按 `docs/superpowers/specs/2026-08-03-delta-alignment-roadmap.md` 分批次对齐 Delta 桌面端功能(批次 1-4 已完成:归档/保存/草稿/搜索/相册/语音/webxdc/通知/保护/多设备/备份)。后续 stub 陆续落地(资料/已读回执/取消保存/转发/静音/置顶/群成员添加/角色/我的 QR/webxdc blob)。
 - **无框架**:前端是 Vanilla TypeScript + Vite,无状态管理库、无路由库。
 
@@ -43,6 +46,8 @@
 | 网络 | reqwest 0.12(插件市场 / 登录 / bot LLM 调用) |
 | 前端 | Vanilla TS + Vite 5,`@tauri-apps/api` |
 | 图标 | **TDesign**(`tdesignIcons.ts` vendored paths,stroke 模式 24 viewBox;自绘 SVG 序列化,替代原 lucide) |
+| 通知 | 原生系统通知(notifications.rs,user-notify) |
+| 深链 | Tauri deep-link plugin(`deep-link:default` 权限) |
 | 其他 | highlight.js(代码高亮)、qrcode(登录/邀请二维码) |
 
 **注意**:`socket2` 显式开启 `all` feature——deltachat 的传递依赖 netwatch(经 iroh)需要它,否则编译失败。`chrono` 需 `clock` feature。
@@ -75,7 +80,7 @@ npx tsc --noEmit                    # 唯一的静态校验(无测试、无 lint
 │   └── superpowers/
 │       ├── specs/             # 设计规格(改功能前先读)
 │       └── plans/             # 实施计划(与 spec 成对)
-├── src/                       # 前端(63 个 TS 文件)
+├── src/                       # 前端(70 个 TS 文件)
 │   ├── main.ts                # 入口 boot():initTheme + initFontScale + 判断登录
 │   ├── state.ts               # 全局可变状态 AppState 单例
 │   ├── types.ts               # 全部共享类型(Page 含 'bots')
@@ -83,33 +88,37 @@ npx tsc --noEmit                    # 唯一的静态校验(无测试、无 lint
 │   ├── api.ts                 # call() invoke 封装 + onEvent()(单一事件桥)
 │   ├── theme.ts               # data-theme 主题(11 套)+ FontScale 字体缩放
 │   ├── toast.ts               # showToast 单例
-│   ├── styles.css             # 全部样式(~2959 行,单文件)
-│   ├── shell/                 # 三栏骨架:shell / rail / navPanel / rightDrawer / columnResizer
+│   ├── styles.css             # 全部样式(~3757 行,单文件)
+│   ├── shell/                 # 三栏骨架 + 顶栏:shell / rail / navPanel / rightDrawer / columnResizer / titlebar / windowControls
 │   ├── pages/                 # 顶级页:messages / groups / inbox / bots / settings / work / debug
 │   ├── chat/                  # chatView(Delta 式全量 DOM 渲染)/ composer(含语音录音)/ message
 │   ├── work/                  # 卡片:kanban / list / calendar / timeline / cardDetail / activity
 │   ├── components/            # 见 frontend.md;含 contactsPicker / inviteDialog / escape / tdesignIcons
 │   ├── plugins/               # 插件系统前端:manager / api / permissions / settings / storage / view / confirm / types
-│   ├── utils/inviteLink.ts    # peyt:// 邀请链接编解码
+│   ├── utils/                 # inviteLink.ts(peyt:// 编解码)、deepLink.ts(深链监听/路由)
 │   └── views/login.ts         # 登录页
-└── src-tauri/                 # 后端(13 个 Rust 文件)
+└── src-tauri/                 # 后端(16 个 Rust 文件)
     ├── src/
     │   ├── main.rs            # 入口 → peytchat_lib::run()
-    │   ├── lib.rs             # Tauri builder,注册全部 115 个命令 + 事件转发
+    │   ├── lib.rs             # Tauri builder,注册全部 129 个命令 + 事件转发
     │   ├── state.rs           # AppState(accounts / db / plugins / bots / data_dir)
     │   ├── commands.rs        # 全部业务命令(~2900 行)
     │   ├── bots.rs            # Bot 账号管理(create/list/delete/set_io/start_all)
     │   ├── bot_llm.rs         # Bot LLM 运行时(自动回帖、事件过滤、anti-loop)
     │   ├── llm.rs             # LLM 客户端(DeepSeek/OpenAI/Claude 等 providers)
+    │   ├── notifications.rs   # 原生系统通知(show / permission)
+    │   ├── deeplink.rs        # 深链:URL 解析 + take_pending_deeplink
+    │   ├── titlebar.rs        # 无边框窗口标题栏(install,Windows/Linux 自绘)
     │   ├── envelope.rs        # [PEYT] 信封协议发送端构建器
     │   ├── db.rs              # SQLite 封装 + migrate() 建 9 张表
-    │   ├── dto.rs             # 全部 DTO(含 BotDto / LlmConfigInput / AccountInfoDto)
-    │   ├── events.rs          # dc-event 事件转发器(22 个变体)
+    │   ├── dto.rs             # 全部 DTO(含 BotDto / LlmConfigInput / DeepLinkPayload)
+    │   ├── events.rs          # dc-event 事件转发器(23 个变体)
     │   ├── plugins.rs         # 插件注册表 / 安装 / 启停
     │   └── error.rs           # AppError
     ├── capabilities/
-    │   └── default.json       # Tauri v2 ACL:允许事件监听(realtime 关键)
-    ├── tauri.conf.json        # 窗口 / 构建 / asset 协议
+    │   └── default.json       # Tauri v2 ACL:事件监听 + 窗口控制 + deep-link
+    ├── tauri.conf.json        # 窗口(macOS Overlay)+ 构建 / asset 协议
+    ├── tauri.windows.conf.json / tauri.linux.conf.json   # decorations:false + shadow
     └── Cargo.toml
 ```
 

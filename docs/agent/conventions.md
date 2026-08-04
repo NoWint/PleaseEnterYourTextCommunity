@@ -86,9 +86,17 @@ GitHub Pages 市场 → Rust PluginManager（安装/卸载/启停，文件系统
 - **弹窗（苹果式）**：`.ui-overlay` 用轻量毛玻璃遮罩（`rgba(0,0,0,0.20)` + `blur(10px)`，**不要厚重黑幕**）；`.ui-dialog` 表面 `var(--surface)` 94% 实心 + `blur(24px)`、顶部边缘高光（`border-top-color` 提亮）+ `inset 0 1px 0` 顶部内高光、圆角 `var(--radius-md)`（12px）、标题 15px semibold、内距 18px/20px、gap 12px。**布局无标题栏 ✕**（`ui.dialog` 的 `closeable` 默认关闭，opt-in；靠动作按钮 / 点外部关闭）——苹果弹窗不是「窗口 + ✕」。
 - 主题颜色优先保留，只调结构性 token（圆角/阴影/动效/间距/背景填充）。
 
+### 无边框窗口 / 顶栏（平台约定）
+- **平台类**：`html.window-overlay`(macOS,原生红绿灯)、`html.window-frame`(Windows/Linux,自绘标题栏)。由 `main.ts` boot 按 UA 加。改标题栏样式时按这两个类区分。
+- **顶栏 34px**:`#app` padding-top、`#window-drag-region` 高度、`#titlebar-tools` 高度三者一致。
+- **居中搜索条**：`#titlebar-search`(440px,VSCode 式),容器 `pointer-events:none` 不拦拖拽,仅搜索按钮 `pointer-events:auto`。点击 → `openSearch()`(Cmd+K)。
+- **窗口控制**：macOS 用原生红绿灯(不动);Windows/Linux 用 `#wb-min/max/close`(`windowControls.ts` 绑定),`-webkit-app-region: no-drag` 防误拖。
+- **深链**：`utils/deepLink.ts` 监听 `DeepLink` 事件(capabilities 需 `deep-link:default`);改登录/邀请流程时同步 `routeDeepLink`。
+- **原生通知**：`notifications.rs` 命令;前端通知中心收 `IncomingMsg` 等事件触发。
+
 ## 7. styles.css 结构与「重复选择器陷阱」
 
-styles.css ~2959 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 2150 行往后是 Task 17 区；**行号会随改动漂移，以 `grep` 最后一次出现为准**）：
+styles.css ~3757 行。**很多选择器定义了两次：前面的旧规则是死代码，后面 Task 17 的规则是活的**（CSS 后者覆盖前者）。改样式时**永远改后面的**（约 2650 行往后是 Task 17 区；**行号会随改动漂移，以 `grep` 最后一次出现为准**）：
 
 | 选择器 | 旧（死）行 | 新（活）行 |
 |---|---|---|
