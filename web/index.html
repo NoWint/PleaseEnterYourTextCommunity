@@ -134,15 +134,14 @@
         }
 
         /* ── 卡片:材料层 ─────────────────────────── */
+        /* 主容器:无卡片包裹,整体融入背景(无背景/边框/圆角/阴影) */
         .card {
             width: 100%;
-            background: var(--glass);
-            border: 1px solid var(--stroke);
-            border-radius: var(--radius-xl);
-            padding: 28px 24px;
-            backdrop-filter: blur(24px) saturate(160%);
-            -webkit-backdrop-filter: blur(24px) saturate(160%);
-            box-shadow: var(--shadow-lg);
+            padding: 0;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
             animation: card-in 600ms var(--ease-spring) 180ms both;
         }
         @keyframes card-in {
@@ -211,7 +210,6 @@
         .qr-wrap {
             margin-top: 20px;
             padding-top: 20px;
-            border-top: 1px solid var(--stroke);
             display: flex;
             align-items: center;
             gap: 24px;
