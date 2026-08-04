@@ -44,7 +44,7 @@ pub fn run() {
         }))
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
-            let state = tauri::async_runtime::block_on(async move {
+            let mut state = tauri::async_runtime::block_on(async move {
                 AppState::new(dir).await
             })?;
             // 深链冷启动:get_current() 取当前实例启动时的 URL;macOS 用 on_open_url。
@@ -129,8 +129,8 @@ pub fn run() {
             built.register(Arc::new(crate::tools::app::SearchHistoryTool));
             built.register(Arc::new(crate::tools::app::CreateCardTool));
             built.register(Arc::new(crate::tools::app::SetReminderTool));
-            // 从 db 加载插件工具
-            let rows = state.db.list_plugin_tools().await?;
+            // 从 db 加载插件工具(setup 闭包非 async,用 block_on)
+            let rows = tauri::async_runtime::block_on(state.db.list_plugin_tools())?;
             built.reload_plugin_tools(&rows);
             let tool_registry = Arc::new(built);
             state.bot_tools = tool_registry.clone();

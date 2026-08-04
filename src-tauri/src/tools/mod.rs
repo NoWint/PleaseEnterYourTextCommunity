@@ -16,7 +16,6 @@ use deltachat::context::Context;
 use crate::db::Db;
 use crate::db::PluginToolRow;
 use crate::error::{AppError, AppResult};
-use crate::tools::bridge::ToolBridge;
 pub use bridge::ToolBridge;
 pub use plugin::PluginTool;
 
@@ -67,18 +66,16 @@ impl ToolRegistry {
                 std::sync::Arc::new(crate::tools::plugin::PluginTool::from_row(
                     r,
                     self.bridge.clone(),
-                ))
+                )) as Arc<dyn Tool>
             })
             .collect();
     }
 
-    pub fn names(&self) -> Vec<&str> {
+    pub fn names(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.tools.iter().map(|t| t.name().to_string()).collect();
         let plugins = self.plugins.read().unwrap();
-        self.tools
-            .iter()
-            .map(|t| t.name())
-            .chain(plugins.iter().map(|t| t.name()))
-            .collect()
+        out.extend(plugins.iter().map(|t| t.name().to_string()));
+        out
     }
 
     /// enabled = None → 仅 is_safe() 的默认工具集;Some(names) → 恰好这些出现在注册表中的工具
@@ -107,15 +104,18 @@ impl ToolRegistry {
         arguments: &str,
         ctx: &ToolContext<'_>,
     ) -> AppResult<String> {
-        let plugins = self.plugins.read().unwrap();
-        let tool = self
-            .tools
-            .iter()
-            .chain(plugins.iter())
-            .find(|t| t.name() == name)
-            .ok_or_else(|| AppError::Core(format!("未知工具: {name}")))?;
         let args: serde_json::Value = serde_json::from_str(arguments)
             .map_err(|_| AppError::Core("工具参数非法 JSON".into()))?;
+        // 短持有读锁取出 Arc,避免锁跨 await(非 Send)
+        let tool = {
+            let plugins = self.plugins.read().unwrap();
+            self.tools
+                .iter()
+                .chain(plugins.iter())
+                .find(|t| t.name() == name)
+                .cloned()
+                .ok_or_else(|| AppError::Core(format!("未知工具: {name}")))?
+        };
         tool.execute(args, ctx).await
     }
 

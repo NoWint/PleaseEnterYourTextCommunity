@@ -59,11 +59,17 @@ pub fn next_cron(now: i64, minute: i32, hour: i32, day_of_week: i32) -> Option<i
         return None;
     }
     // 从 base 所在日的 00:00 起逐小时推进(最多 8 天),直到候选匹配所有固定字段且严格晚于 now。
+    // 仅按星期几触发且时分都通配时固定 00:00(午夜),否则逐小时。
+    let hours: Vec<u32> = if hour == -1 && minute == -1 && day_of_week != -1 {
+        vec![0]
+    } else {
+        (0..24u32).collect()
+    };
     for offset_days in 0..8u32 {
         let day = base.date() + chrono::Days::new(offset_days as u64);
-        for h in 0..24u32 {
+        for h in &hours {
             let m = if minute == -1 { 0 } else { minute };
-            let cand = day.and_hms_opt(h, m as u32, 0)?;
+            let cand = day.and_hms_opt(*h, m as u32, 0)?;
             if cand > base && matches(cand, minute, hour, day_of_week) {
                 return Some(cand.timestamp());
             }
@@ -127,7 +133,7 @@ mod tests {
         // 挑一个落在当天 09:00 之后的时间点:09:30 UTC。
         let base_day = chrono::DateTime::<chrono::Utc>::from_timestamp(now, 0).unwrap();
         let at = base_day
-            .date()
+            .date_naive()
             .and_hms_opt(9, 30, 0)
             .unwrap()
             .and_utc()
@@ -136,9 +142,10 @@ mod tests {
         let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(nx, 0).unwrap();
         assert_eq!(dt.hour(), 9);
         assert_eq!(dt.minute(), 0);
+        let tomorrow = base_day.date_naive() + chrono::Days::new(1);
         assert_eq!(
-            chrono::Duration::seconds(nx - at).num_days(),
-            1,
+            dt.date_naive(),
+            tomorrow,
             "next 09:00 after 09:30 must be tomorrow"
         );
     }

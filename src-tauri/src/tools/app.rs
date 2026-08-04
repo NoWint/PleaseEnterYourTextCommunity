@@ -257,6 +257,7 @@ mod tests {
             let id = accounts.add_account().await.unwrap();
             let dc = accounts.get_account(id).unwrap();
             let db = Db::new(tmp.path().join("app.db")).await.unwrap();
+            db.migrate().await.unwrap();
             let data_dir = tmp.path().to_path_buf();
             Self {
                 _tmp: tmp,
