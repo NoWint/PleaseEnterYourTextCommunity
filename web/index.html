@@ -303,22 +303,21 @@
             background: rgba(255, 255, 255, 0.09);
             box-shadow: 0 0 0 3px rgba(106, 92, 255, 0.35), 0 0 24px rgba(106, 92, 255, 0.18);
         }
-        .generator textarea {
+        .generator input {
             flex: 1;
             min-height: 36px;
-            resize: none;
             padding: 0;
             border: none;
             background: transparent; /* 融入 gen-row 底色 */
             color: var(--text);
-            font-family: ui-monospace, "SF Mono", Menlo, monospace;
-            font-size: 13px;
+            /* 字体与 hero「向 TA 打个招呼」一致:系统无衬线,非等宽 */
+            font-family: var(--font);
+            font-size: 15px;
             line-height: 1.5;
             outline: none;
-            scrollbar-width: none;
             box-sizing: border-box;
         }
-        .generator textarea::-webkit-scrollbar { display: none; }
+        .generator input::placeholder { color: var(--text-3); }
         /* 极简确认按钮:透明无边框,与输入框同底色融合,仅图标 */
         .gen-btn {
             flex: none;
@@ -394,7 +393,7 @@
                     <!-- 生成器:粘贴链接 → 生成二维码 -->
                     <div class="generator" id="generator">
                         <div class="gen-row">
-                            <textarea id="gen-input" placeholder="粘贴邀请链接,生成二维码"></textarea>
+                            <input id="gen-input" type="text" placeholder="粘贴邀请链接,生成二维码" autocomplete="off" spellcheck="false">
                             <button class="gen-btn" id="gen-btn" aria-label="生成二维码">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                             </button>
