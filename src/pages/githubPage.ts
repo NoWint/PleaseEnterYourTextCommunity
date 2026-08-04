@@ -261,11 +261,9 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     if (prevFull && repos.some((r) => r.full_name === prevFull)) {
       repoSelect.value = prevFull;
     } else if (repo) {
-      // 选中仓库已被解除绑定 → 清空选中并收起抽屉
-      repo = null;
-      state.detailPanelOpen = false;
-      state.rightDrawerOpen = false;
-      saveState();
+      // 选中仓库已被解除绑定 → 完全镜像 applySelection(null) 的清理
+      // (复位 detailTab/关抽屉/刷新 openWebBtn/重渲染 rightDrawer,避免抽屉残留 + 死按钮)
+      applySelection(null);
     }
     await renderBoundList();
   }
