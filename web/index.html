@@ -301,20 +301,26 @@
             width: 100%;
             min-height: 88px;
             resize: vertical;
-            padding: 12px 14px;
-            border-radius: var(--radius-md);
-            background: var(--bg-1);
-            border: 1px solid var(--stroke);
+            /* 无边框融合:比背景稍亮的深灰黑,无实体边框(§12 材料克制) */
+            padding: 16px 20px;
+            border: none;
+            border-radius: 22px; /* 胶囊型大圆角 */
+            background: rgba(255, 255, 255, 0.06); /* 微亮深灰,与背景融合 */
             color: var(--text);
             font-family: ui-monospace, "SF Mono", Menlo, monospace;
             font-size: 13px;
-            line-height: 1.5;
+            line-height: 1.6;
             outline: none;
-            transition: border-color 150ms;
+            transition: box-shadow 200ms var(--ease-spring), background 200ms var(--ease-spring);
             scrollbar-width: none;
+            box-sizing: border-box;
         }
         .generator textarea::-webkit-scrollbar { display: none; }
-        .generator textarea:focus { border-color: var(--accent); }
+        /* focus:平滑过渡到轻盈紫色光晕(§1 即时反馈,§12 材料浮现) */
+        .generator textarea:focus {
+            background: rgba(255, 255, 255, 0.09);
+            box-shadow: 0 0 0 3px rgba(106, 92, 255, 0.35), 0 0 24px rgba(106, 92, 255, 0.18);
+        }
         .gen-btn {
             /* 左对齐(与左栏文本一致) */
             display: block;
