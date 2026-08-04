@@ -136,14 +136,15 @@ pub fn run() {
             let tool_registry = Arc::new(built);
             state.bot_tools = tool_registry.clone();
 
-            // 驱动注册:LLM + 规则(关键词/欢迎/兜底)+ 定时(cron)
+            // 驱动注册:规则 + LLM + 定时(cron)。顺序即优先级:
+            // RuleDriver 在前 → 规则命中即短路,LLM 驱动不再被调用(spec §2.1)。
             let mut registry = crate::drivers::DriverRegistry::new();
+            registry.register(Arc::new(crate::drivers::rule::RuleDriver::with_llm(
+                Arc::new(crate::llm::LlmClient::new()),
+            )));
             registry.register(Arc::new(crate::drivers::llm::LlmDriver::new(
                 crate::llm::LlmClient::new(),
                 tool_registry,
-            )));
-            registry.register(Arc::new(crate::drivers::rule::RuleDriver::with_llm(
-                Arc::new(crate::llm::LlmClient::new()),
             )));
             registry.register(Arc::new(crate::drivers::schedule::ScheduleDriver));
             // 挂载事件调度器(常驻后台)

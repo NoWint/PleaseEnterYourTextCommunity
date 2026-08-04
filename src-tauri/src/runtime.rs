@@ -15,7 +15,7 @@ use tokio::sync::{Mutex, Semaphore};
 use crate::activity::ActivityLog;
 use crate::db::Db;
 use crate::dto::{BotConfig, bot_activity_kind as act};
-use crate::drivers::{BotRuntime, DriverRegistry, IncomingMsg, driver_kind_label};
+use crate::drivers::{BotDriver, BotRuntime, DriverRegistry, IncomingMsg, driver_kind_label};
 
 /// 全局并发上限:跨所有 bot 的 LLM/驱动调用总数。
 /// 未抢到 permit 的进站事件直接丢弃(不排队,避免内存无界增长)。
@@ -289,24 +289,7 @@ async fn handle_bot_message(
         viewtype: m.get_viewtype(),
     };
 
-    let mut replies: Vec<String> = Vec::new();
-    for driver in registry.drivers() {
-        match driver.on_message(&runtime, &incoming).await {
-            Ok(rs) => replies.extend(rs),
-            Err(e) => {
-                activity
-                    .record(
-                        bot_id,
-                        act::LLM_ERROR,
-                        Some(chat_id.to_u32()),
-                        Some(msg_id.to_u32()),
-                        format!("驱动 {} 执行失败: {e}", driver_kind_label(driver.kind())),
-                        Some(serde_json::json!({ "error": e.to_string() }).to_string()),
-                    )
-                    .await;
-            }
-        }
-    }
+    let replies = dispatch_drivers(registry.drivers(), &runtime, &incoming).await;
 
     for reply in replies {
         let mut out = Message::new(Viewtype::Text);
@@ -329,6 +312,41 @@ async fn handle_bot_message(
             Err(e) => log::warn!("bot {bot_id}: send reply failed: {e}"),
         }
     }
+}
+
+/// 驱动调度:按注册顺序逐个调用 on_message,收集回复。
+/// 一旦某驱动返回非空回复即短路(规则命中 → 不进 LLM,spec §2.1 优先级语义);
+/// 驱动 Err 仅记 LLM_ERROR 活动,不短路、不中断后续调度。
+async fn dispatch_drivers(
+    drivers: &[Arc<dyn BotDriver>],
+    runtime: &BotRuntime<'_>,
+    incoming: &IncomingMsg<'_>,
+) -> Vec<String> {
+    let mut replies: Vec<String> = Vec::new();
+    for driver in drivers {
+        match driver.on_message(runtime, incoming).await {
+            Ok(rs) => {
+                replies.extend(rs);
+                if !replies.is_empty() {
+                    break;
+                }
+            }
+            Err(e) => {
+                runtime
+                    .activity
+                    .record(
+                        runtime.bot_id,
+                        act::LLM_ERROR,
+                        Some(incoming.chat_id.to_u32()),
+                        Some(incoming.msg_id.to_u32()),
+                        format!("驱动 {} 执行失败: {e}", driver_kind_label(driver.kind())),
+                        Some(serde_json::json!({ "error": e.to_string() }).to_string()),
+                    )
+                    .await;
+            }
+        }
+    }
+    replies
 }
 
 /// 定时 tick 循环:每 30s 对每个 running bot 逐个驱动调 on_tick,
@@ -524,7 +542,152 @@ impl RateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+    use async_trait::async_trait;
+    use deltachat::accounts::Accounts;
+    use deltachat::chat::ChatId;
+    use deltachat::message::{MsgId, Viewtype};
+
+    use crate::drivers::{BotDriver, DriverKind};
+    use crate::error::AppResult;
+
+    /// 测试用假驱动:reply 为 None 返回空(不命中),Some 返回单条回复;记录调用次数。
+    struct FakeDriver {
+        kind: DriverKind,
+        reply: Option<&'static str>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl BotDriver for FakeDriver {
+        fn kind(&self) -> DriverKind {
+            self.kind
+        }
+
+        async fn on_message(
+            &self,
+            _bot: &BotRuntime<'_>,
+            _msg: &IncomingMsg<'_>,
+        ) -> AppResult<Vec<String>> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(match self.reply {
+                Some(r) => vec![r.to_string()],
+                None => vec![],
+            })
+        }
+    }
+
+    /// 构造轻量测试环境(临时账号 Context + 内存库 + 空配置),返回各 owned 值。
+    async fn test_env(
+    ) -> (
+        tempfile::TempDir,
+        deltachat::context::Context,
+        Arc<Db>,
+        crate::activity::ActivityLog,
+        crate::dto::BotConfig,
+        std::path::PathBuf,
+        u32,
+    ) {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut accounts = Accounts::new(tmp.path().join("accounts"), true)
+            .await
+            .unwrap();
+        let account_id = accounts.add_account().await.unwrap();
+        let ctx = accounts.get_account(account_id).unwrap();
+        let db = Arc::new(
+            crate::db::Db::new(tmp.path().join("test.db"))
+                .await
+                .unwrap(),
+        );
+        db.migrate().await.unwrap();
+        let activity = crate::activity::ActivityLog::new(db.clone());
+        let config = crate::dto::BotConfig::default();
+        let data_dir = tmp.path().to_path_buf();
+        (tmp, ctx, db, activity, config, data_dir, account_id)
+    }
+
+    fn test_incoming<'a>(text: Option<&'a str>) -> IncomingMsg<'a> {
+        IncomingMsg {
+            chat_id: ChatId::new(42),
+            msg_id: MsgId::new(7),
+            from_addr: "dev@x.io",
+            text,
+            viewtype: Viewtype::Text,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dispatch_short_circuits_after_first_reply() {
+        let (_tmp, ctx, db, activity, config, data_dir, account_id) = test_env().await;
+        let runtime = BotRuntime {
+            bot_id: 1,
+            account_id,
+            dc: &ctx,
+            config: &config,
+            db: &db,
+            activity: &activity,
+            data_dir: &data_dir,
+        };
+        let incoming = test_incoming(Some("hello"));
+
+        let rule_calls = Arc::new(AtomicUsize::new(0));
+        let llm_calls = Arc::new(AtomicUsize::new(0));
+        let drivers: Vec<Arc<dyn BotDriver>> = vec![
+            Arc::new(FakeDriver {
+                kind: DriverKind::Rule,
+                reply: Some("rule reply"),
+                calls: rule_calls.clone(),
+            }),
+            Arc::new(FakeDriver {
+                kind: DriverKind::Llm,
+                reply: Some("llm reply"),
+                calls: llm_calls.clone(),
+            }),
+        ];
+
+        // 规则驱动返回非空 → 短路,后续 LLM 驱动不再被调用(无双回复)
+        let replies = dispatch_drivers(&drivers, &runtime, &incoming).await;
+        assert_eq!(replies, vec!["rule reply".to_string()]);
+        assert_eq!(rule_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(llm_calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dispatch_continues_after_empty_reply() {
+        let (_tmp, ctx, db, activity, config, data_dir, account_id) = test_env().await;
+        let runtime = BotRuntime {
+            bot_id: 1,
+            account_id,
+            dc: &ctx,
+            config: &config,
+            db: &db,
+            activity: &activity,
+            data_dir: &data_dir,
+        };
+        let incoming = test_incoming(Some("hello"));
+
+        let rule_calls = Arc::new(AtomicUsize::new(0));
+        let llm_calls = Arc::new(AtomicUsize::new(0));
+        let drivers: Vec<Arc<dyn BotDriver>> = vec![
+            Arc::new(FakeDriver {
+                kind: DriverKind::Rule,
+                reply: None,
+                calls: rule_calls.clone(),
+            }),
+            Arc::new(FakeDriver {
+                kind: DriverKind::Llm,
+                reply: Some("llm reply"),
+                calls: llm_calls.clone(),
+            }),
+        ];
+
+        // 规则未命中(空) → 继续调用 LLM 驱动
+        let replies = dispatch_drivers(&drivers, &runtime, &incoming).await;
+        assert_eq!(replies, vec!["llm reply".to_string()]);
+        assert_eq!(rule_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(llm_calls.load(Ordering::Relaxed), 1);
+    }
 
     #[test]
     fn test_is_bot_addr() {

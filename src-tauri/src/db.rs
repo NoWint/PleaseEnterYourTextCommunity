@@ -322,6 +322,26 @@ impl Db {
         .await?
     }
 
+    /// 按 id 查工作区(Bot /whoami 等场景展示工作区名用)。
+    pub async fn get_workspace(&self, id: i64) -> AppResult<Option<WorkspaceDto>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<WorkspaceDto>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare("SELECT id, name, master_chat_id, icon, created_at FROM workspaces WHERE id = ?1")?;
+            let mut rows = stmt.query_map(rusqlite::params![id], |r| {
+                Ok(WorkspaceDto {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    master_chat_id: r.get::<_, i64>(2)? as u32,
+                    icon: r.get(3)?,
+                    created_at: r.get(4)?,
+                })
+            })?;
+            Ok(rows.next().transpose()?)
+        })
+        .await?
+    }
+
     pub async fn list_roles(&self, workspace_id: i64) -> AppResult<Vec<RoleDto>> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || -> AppResult<Vec<RoleDto>> {

@@ -10,6 +10,7 @@ use regex::Regex;
 use super::{BotDriver, BotRuntime, DriverKind, IncomingMsg};
 use crate::dto::bot_activity_kind as act;
 use crate::dto::LlmConfig;
+use crate::dto::ProjectContext;
 use crate::dto::RuleConfig;
 use crate::error::AppResult;
 use crate::llm::{ChatMessage, LlmClient};
@@ -102,7 +103,27 @@ impl BotDriver for RuleDriver {
                     .ok()
                     .flatten()
                     .unwrap_or_default();
-                if let Some(reply) = handle_command(text, &bot_name, &bot_addr) {
+                if is_whoami(text) {
+                    let workspace_name = workspace_name_for(bot).await;
+                    let reply = whoami_reply(
+                        &bot_name,
+                        &bot_addr,
+                        bot.config.project_context.as_ref(),
+                        workspace_name.as_deref(),
+                    );
+                    bot.activity
+                        .record(
+                            bot.bot_id,
+                            act::RULE_REPLY,
+                            Some(msg.chat_id.to_u32()),
+                            Some(msg.msg_id.to_u32()),
+                            "指令: /whoami",
+                            None,
+                        )
+                        .await;
+                    return Ok(vec![reply]);
+                }
+                if let Some(reply) = handle_command(text) {
                     return Ok(vec![reply]);
                 }
             }
@@ -238,7 +259,8 @@ pub fn parse_summarize(text: &str) -> Option<usize> {
 }
 
 /// 彩蛋指令:命中返回回复文本,否则 None。未知指令返回 None(交由规则/兜底处理)。
-pub fn handle_command(text: &str, bot_name: &str, bot_addr: &str) -> Option<String> {
+/// 注:/whoami 需项目上下文(db 查询),在 on_message 中单独处理。
+pub fn handle_command(text: &str) -> Option<String> {
     let t = text.trim();
     if !t.starts_with('/') {
         return None;
@@ -270,8 +292,46 @@ pub fn handle_command(text: &str, bot_name: &str, bot_addr: &str) -> Option<Stri
             let idx = rand::thread_rng().gen_range(0..EIGHT_BALL_ANSWERS.len());
             Some(EIGHT_BALL_ANSWERS[idx].to_string())
         }
-        "/whoami" => Some(format!("我是 {bot_name}({bot_addr})")),
         "/help" => Some("可用指令: /roll /dice /coin /8ball /whoami /summarize".into()),
+        _ => None,
+    }
+}
+
+/// 判断文本是否为 /whoami 指令(与 handle_command 的命令令牌解析一致)。
+pub fn is_whoami(text: &str) -> bool {
+    let mut parts = text.trim().splitn(2, char::is_whitespace);
+    parts.next() == Some("/whoami")
+}
+
+/// /whoami 回复:身份 + 项目上下文(工作区名/ID + 项目描述)。
+/// workspace_name 为 None 时回退显示工作区 id;无项目上下文时仅返回身份。
+pub fn whoami_reply(
+    bot_name: &str,
+    bot_addr: &str,
+    pc: Option<&ProjectContext>,
+    workspace_name: Option<&str>,
+) -> String {
+    let mut out = format!("我是 {bot_name}({bot_addr})");
+    if let Some(pc) = pc {
+        if let Some(ws_id) = pc.workspace_id {
+            let label = workspace_name
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| ws_id.to_string());
+            out.push_str(&format!("\n所属工作区: {label}"));
+        }
+        if let Some(desc) = pc.description.as_deref().filter(|s| !s.trim().is_empty()) {
+            out.push_str(&format!("\n项目: {desc}"));
+        }
+    }
+    out
+}
+
+/// 解析 project_context 的 workspace_id 对应的工作区名(db 查询;查不到返回 None → 显示 id)。
+async fn workspace_name_for(bot: &BotRuntime<'_>) -> Option<String> {
+    let ws_id = bot.config.project_context.as_ref()?.workspace_id?;
+    match bot.db.get_workspace(ws_id).await {
+        Ok(Some(ws)) if !ws.name.trim().is_empty() => Some(ws.name),
         _ => None,
     }
 }
@@ -310,7 +370,7 @@ mod tests {
     #[test]
     fn roll_with_arg_in_range() {
         for _ in 0..50 {
-            let r = handle_command("/roll 10", "bot", "b@x.io").unwrap();
+            let r = handle_command("/roll 10").unwrap();
             assert!(r.starts_with("🎲 你掷出了 "), "unexpected: {r}");
             let n = r
                 .trim_start_matches("🎲 你掷出了 ")
@@ -327,7 +387,7 @@ mod tests {
     #[test]
     fn roll_default_is_100() {
         for _ in 0..50 {
-            let r = handle_command("/roll", "bot", "b@x.io").unwrap();
+            let r = handle_command("/roll").unwrap();
             let n = r
                 .trim_start_matches("🎲 你掷出了 ")
                 .split(' ')
@@ -343,7 +403,7 @@ mod tests {
     #[test]
     fn dice_in_range() {
         for _ in 0..50 {
-            let r = handle_command("/dice", "bot", "b@x.io").unwrap();
+            let r = handle_command("/dice").unwrap();
             let n = r.trim_start_matches("🎲 骰子: ").parse::<i64>().unwrap();
             assert!((1..=6).contains(&n), "dice out of range: {n}");
         }
@@ -353,7 +413,7 @@ mod tests {
     fn coin_is_head_or_tail() {
         let mut seen = std::collections::HashSet::new();
         for _ in 0..100 {
-            let r = handle_command("/coin", "bot", "b@x.io").unwrap();
+            let r = handle_command("/coin").unwrap();
             assert!(r == "🪙 正面" || r == "🪙 反面", "unexpected: {r}");
             seen.insert(r);
         }
@@ -363,21 +423,70 @@ mod tests {
     #[test]
     fn eight_ball_prefix() {
         for _ in 0..50 {
-            let r = handle_command("/8ball", "bot", "b@x.io").unwrap();
+            let r = handle_command("/8ball").unwrap();
             assert!(r.starts_with('🎱'), "unexpected: {r}");
         }
     }
 
     #[test]
-    fn whoami_contains_bot_name() {
-        let r = handle_command("/whoami", "小明", "ming@x.io").unwrap();
+    fn whoami_reply_contains_bot_identity() {
+        let r = whoami_reply("小明", "ming@x.io", None, None);
         assert!(r.contains("小明"));
         assert!(r.contains("ming@x.io"));
     }
 
     #[test]
+    fn whoami_reply_includes_workspace_and_description() {
+        let pc = ProjectContext {
+            workspace_id: Some(7),
+            chat_ids: vec![],
+            description: Some("PEYT 桌面端".into()),
+            repo_path: None,
+        };
+        let r = whoami_reply("Bot", "bot@x.io", Some(&pc), None);
+        assert!(r.starts_with("我是 Bot(bot@x.io)"), "got: {r}");
+        assert!(r.contains("所属工作区: 7"), "got: {r}");
+        assert!(r.contains("项目: PEYT 桌面端"), "got: {r}");
+    }
+
+    #[test]
+    fn whoami_reply_uses_workspace_name_when_available() {
+        let pc = ProjectContext {
+            workspace_id: Some(7),
+            chat_ids: vec![],
+            description: None,
+            repo_path: None,
+        };
+        let r = whoami_reply("Bot", "bot@x.io", Some(&pc), Some("PEYT Studio"));
+        assert!(r.contains("所属工作区: PEYT Studio"), "got: {r}");
+        assert!(!r.contains("所属工作区: 7"), "got: {r}");
+    }
+
+    #[test]
+    fn whoami_reply_omits_empty_project_context_parts() {
+        let pc = ProjectContext {
+            workspace_id: None,
+            chat_ids: vec![],
+            description: Some("   ".into()),
+            repo_path: None,
+        };
+        let r = whoami_reply("Bot", "bot@x.io", Some(&pc), None);
+        assert_eq!(r, "我是 Bot(bot@x.io)");
+    }
+
+    #[test]
+    fn is_whoami_matches_command_token() {
+        assert!(is_whoami("/whoami"));
+        assert!(is_whoami("/whoami  "));
+        assert!(is_whoami("/whoami extra"));
+        assert!(!is_whoami("/dice"));
+        assert!(!is_whoami("whoami"));
+        assert!(!is_whoami("/whoami-x"));
+    }
+
+    #[test]
     fn help_lists_commands() {
-        let r = handle_command("/help", "bot", "b@x.io").unwrap();
+        let r = handle_command("/help").unwrap();
         assert!(r.contains("/roll"));
         assert!(r.contains("/dice"));
         assert!(r.contains("/coin"));
@@ -388,9 +497,9 @@ mod tests {
 
     #[test]
     fn unknown_and_plain_text_are_none() {
-        assert!(handle_command("hello", "bot", "b@x.io").is_none());
-        assert!(handle_command("/unknown", "bot", "b@x.io").is_none());
-        assert!(handle_command("", "bot", "b@x.io").is_none());
+        assert!(handle_command("hello").is_none());
+        assert!(handle_command("/unknown").is_none());
+        assert!(handle_command("").is_none());
     }
 
     #[test]
@@ -598,5 +707,67 @@ mod tests {
         let driver = RuleDriver::new();
         let replies = driver.on_message(&runtime, &incoming).await.unwrap();
         assert_eq!(replies, vec!["LLM 未配置,无法总结".to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn whoami_command_appends_workspace_name_and_description_from_db() {
+        use deltachat::accounts::Accounts;
+        use deltachat::chat::ChatId;
+        use deltachat::message::{MsgId, Viewtype};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut accounts = Accounts::new(tmp.path().join("accounts"), true)
+            .await
+            .unwrap();
+        let account_id = accounts.add_account().await.unwrap();
+        let ctx = accounts.get_account(account_id).unwrap();
+
+        let db = Arc::new(
+            crate::db::Db::new(tmp.path().join("test.db"))
+                .await
+                .unwrap(),
+        );
+        db.migrate().await.unwrap();
+        let ws_id = db.insert_workspace("PEYT Studio", 99, None).await.unwrap();
+        let activity = crate::activity::ActivityLog::new(db.clone());
+        let mut config = crate::dto::BotConfig::default();
+        config.project_context = Some(crate::dto::ProjectContext {
+            workspace_id: Some(ws_id),
+            chat_ids: vec![],
+            description: Some("桌面端协作空间".into()),
+            repo_path: None,
+        });
+        let data_dir = tmp.path().to_path_buf();
+
+        let runtime = BotRuntime {
+            bot_id: 1,
+            account_id,
+            dc: &ctx,
+            config: &config,
+            db: &db,
+            activity: &activity,
+            data_dir: &data_dir,
+        };
+        let incoming = IncomingMsg {
+            chat_id: ChatId::new(42),
+            msg_id: MsgId::new(7),
+            from_addr: "dev@x.io",
+            text: Some("/whoami"),
+            viewtype: Viewtype::Text,
+        };
+
+        let driver = RuleDriver::new();
+        let replies = driver.on_message(&runtime, &incoming).await.unwrap();
+        assert_eq!(replies.len(), 1);
+        assert!(
+            replies[0].contains("所属工作区: PEYT Studio"),
+            "got: {}",
+            replies[0]
+        );
+        assert!(
+            replies[0].contains("项目: 桌面端协作空间"),
+            "got: {}",
+            replies[0]
+        );
     }
 }
