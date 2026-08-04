@@ -1316,24 +1316,32 @@ html.window-frame #titlebar-tools { height: 34px; }
 .ws-badge.zero { display: none; }
 
 /* search overlay */
-.search-overlay { align-items: flex-start; padding-top: 60px; }
+.search-overlay { align-items: flex-start; padding-top: 6px; background: rgba(0,0,0,0.35); z-index: 10001; }
+/* 搜索栏与结果连成一块:面板从搜索条位置开始,搜索字段在顶部,结果在下,整体是一个图形;
+   质感/形状对齐原搜索条:同款实底 --capsule、同宽 440px、同圆角 8px */
 .search-dialog {
-  background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(28px) saturate(170%); -webkit-backdrop-filter: blur(28px) saturate(170%);
-  border-radius: var(--radius-lg);
-  width: 480px;
+  background: var(--capsule);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  border-radius: var(--radius-sm);
+  width: 440px;
   max-height: 400px;
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
-.search-dialog input {
-  padding: var(--space-3) var(--space-4);
-  background: transparent;
-  border: none;
+.search-field {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+.search-field svg { flex: none; color: var(--text-mute); }
+.search-field input {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; outline: none;
   color: var(--text);
   font-size: var(--font-scale-body);
   font-family: var(--font);
-  outline: none;
 }
 .search-results { flex: 1; overflow-y: auto; }
 .sr-section { padding: var(--space-2) var(--space-4) var(--space-1); color: var(--text-weak); font-size: var(--font-scale-secondary); font-weight: 600; letter-spacing: 0.2px; }
