@@ -193,11 +193,11 @@
         .cta .cta-arrow { transition: transform 150ms var(--ease-spring); }
         .cta:hover .cta-arrow { transform: translateX(3px); }
 
-        /* ── 次级:下载按钮(与 CTA 一样大,保留原 ghost 色)── */
+        /* ── 次级:下载按钮(与 CTA 一样大,文字左、icon 右)── */
         .download {
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: space-between; /* 文字左、下载 icon 右,对齐 CTA */
             gap: 6px;
             width: 100%; /* 与 CTA 同宽 */
             padding: 20px 28px; /* 与 CTA 同 padding */
@@ -211,6 +211,7 @@
             transition: background 120ms, color 120ms, transform 120ms var(--ease-spring);
         }
         .download:hover { background: var(--glass); transform: translateY(-1px); }
+        .download .dl-icon { width: 30px; height: 30px; flex: none; }
 
         /* ── 二维码(受邀/生成器共用)────────── */
         .qr-body {
@@ -339,9 +340,10 @@
                         <span class="cta-text">打开 PEYT Chat</span>
                         <svg class="cta-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </a>
-                    <!-- 下载按钮:与 CTA 一样大,文案「还没有?点击下载」 -->
+                    <!-- 下载按钮:与 CTA 一样大,文字左、下载 icon 右 -->
                     <a class="download" id="download-link" href="https://github.com/NoWint/PleaseEnterYourTextCommunity/releases" target="_blank" rel="noopener">
-                        <span class="dl-text">还没有?点击下载</span>
+                        <span class="dl-text">还没有？点击下载</span>
+                        <svg class="dl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
                     </a>
                 </div>
             </div>
