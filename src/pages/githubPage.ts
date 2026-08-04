@@ -108,7 +108,6 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   root.appendChild(body);
 
   // ── 设置区:全局 token + 已绑定仓库管理 ──
-  const settingsCard = ui.card({ title: '设置' });
   const settingsBody = document.createElement('div');
   settingsBody.style.cssText = 'display:flex;flex-direction:column;gap:12px';
 
@@ -147,8 +146,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   repoListEl.style.cssText = 'display:flex;flex-direction:column;gap:6px';
   settingsBody.appendChild(repoListEl);
 
-  settingsCard.querySelector('.ui-card-body')!.appendChild(settingsBody);
-  body.appendChild(settingsCard);
+  body.appendChild(ui.card({ title: '设置', children: settingsBody }));
 
   // ── 仓库选择 + Tab ──
   const repoRow = document.createElement('div');
@@ -178,7 +176,6 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   body.appendChild(content);
 
   // ── 搜索区:仓库搜索 / 代码搜索 ──
-  const searchCard = ui.card({ title: '搜索' });
   const searchBody = document.createElement('div');
   searchBody.style.cssText = 'display:flex;flex-direction:column;gap:12px';
 
@@ -204,8 +201,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   codeResults.style.cssText = 'display:flex;flex-direction:column;gap:6px';
   searchBody.appendChild(codeResults);
 
-  searchCard.querySelector('.ui-card-body')!.appendChild(searchBody);
-  body.appendChild(searchCard);
+  body.appendChild(ui.card({ title: '搜索', children: searchBody }));
 
   // ── 加载设置 + 绑定仓库列表 ──
   async function loadSettings(): Promise<void> {
@@ -320,12 +316,16 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     let repos: GithubRepoDto[] = [];
     try {
       repos = await call<GithubRepoDto[]>('list_github_repos');
-    } catch { return; }
+    } catch (e) {
+      ui.toast(e instanceof Error ? e.message : String(e));
+      return;
+    }
     const cur = repos.find((r) => r.full_name === fullName) ?? null;
     if (fullName && !cur) {
       ui.toast(`仓库 ${fullName} 未绑定,请先在设置区添加`);
       return;
     }
+    repoSelect.value = fullName || '';
     await applyRepo(cur);
   }
   async function applyRepo(next: GithubRepoDto | null): Promise<void> {
