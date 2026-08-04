@@ -42,40 +42,54 @@ pub async fn spawn(
     let per_bot: Arc<Mutex<HashMap<u32, (u32, Arc<Semaphore>)>>> = Arc::new(Mutex::new(HashMap::new()));
     let rate: Arc<RateLimiter> = Arc::new(RateLimiter::new());
 
-    while let Some(event) = emitter.recv().await {
-        let EventType::IncomingMsg { chat_id, msg_id } = event.typ else {
-            continue;
-        };
-        let account_id = event.id;
-        let is_bot = {
-            bot_ids.lock().await.contains(&account_id)
-        };
-        if !is_bot {
-            continue;
-        }
-
-        let accounts = accounts.clone();
-        let db = db.clone();
-        let bot_ids = bot_ids.clone();
-        let activity = activity.clone();
-        let registry = registry.clone();
-        let data_dir = data_dir.clone();
-        let global = global.clone();
-        let per_bot = per_bot.clone();
-        let rate = rate.clone();
-        tokio::spawn(async move {
-            // 未抢到全局 permit 的事件直接丢弃(不排队,避免任务无界堆积)
-            let Ok(_permit) = global.try_acquire() else {
-                log::debug!("bot {account_id}: global 并发超限,丢弃事件");
-                return;
+    // 事件循环:接收所有账号 IncomingMsg,命中 bot_ids 后快速 spawn 处理任务
+    let event_loop = async {
+        while let Some(event) = emitter.recv().await {
+            let EventType::IncomingMsg { chat_id, msg_id } = event.typ else {
+                continue;
             };
-            handle_bot_message(
-                &accounts, &db, &bot_ids, &activity, &registry, &per_bot, &rate,
-                &data_dir, account_id, chat_id, msg_id,
-            )
-            .await;
-        });
-    }
+            let account_id = event.id;
+            let is_bot = {
+                bot_ids.lock().await.contains(&account_id)
+            };
+            if !is_bot {
+                continue;
+            }
+
+            let accounts = accounts.clone();
+            let db = db.clone();
+            let bot_ids = bot_ids.clone();
+            let activity = activity.clone();
+            let registry = registry.clone();
+            let data_dir = data_dir.clone();
+            let global = global.clone();
+            let per_bot = per_bot.clone();
+            let rate = rate.clone();
+            tokio::spawn(async move {
+                // 未抢到全局 permit 的事件直接丢弃(不排队,避免任务无界堆积)
+                let Ok(_permit) = global.try_acquire() else {
+                    log::debug!("bot {account_id}: global 并发超限,丢弃事件");
+                    return;
+                };
+                handle_bot_message(
+                    &accounts, &db, &bot_ids, &activity, &registry, &per_bot, &rate,
+                    &data_dir, account_id, chat_id, msg_id,
+                )
+                .await;
+            });
+        }
+    };
+
+    // 定时 tick:每 30s 调度一次各驱动 on_tick,与消息循环并行
+    let tick = tick_loop(
+        accounts.clone(),
+        db.clone(),
+        activity.clone(),
+        registry.clone(),
+        data_dir.clone(),
+    );
+
+    tokio::join!(event_loop, tick);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -293,6 +307,86 @@ async fn handle_bot_message(
                     .await;
             }
             Err(e) => log::warn!("bot {bot_id}: send reply failed: {e}"),
+        }
+    }
+}
+
+/// 定时 tick 循环:每 30s 对每个 running bot 逐个驱动调 on_tick,
+/// 收集 ScheduledSend → 用 bot ctx chat::send_msg 发送 → 记录 SCHEDULE_SENT 活动。
+async fn tick_loop(
+    accounts: Arc<Mutex<Accounts>>,
+    db: Arc<Db>,
+    activity: ActivityLog,
+    registry: DriverRegistry,
+    data_dir: PathBuf,
+) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let rows = match db.list_all_bots().await {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("tick: list bots failed: {e}");
+                continue;
+            }
+        };
+        for row in rows {
+            if row.status != "running" {
+                continue;
+            }
+            let config_json = match db.get_bot_config_by_id(row.id).await {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("tick: config failed: {e}");
+                    continue;
+                }
+            };
+            let Some(config) = BotConfig::parse(config_json.as_deref()) else {
+                continue;
+            };
+            let ctx = { accounts.lock().await.get_account(row.bot_account_id) };
+            let Some(ctx) = ctx else {
+                continue;
+            };
+            let runtime = BotRuntime {
+                bot_id: row.id,
+                account_id: row.bot_account_id,
+                dc: &ctx,
+                config: &config,
+                db: &db,
+                activity: &activity,
+                data_dir: &data_dir,
+            };
+            for driver in registry.drivers() {
+                let sends = match driver.on_tick(&runtime).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!(
+                            "tick: driver {} failed: {e}",
+                            driver_kind_label(driver.kind())
+                        );
+                        continue;
+                    }
+                };
+                for s in sends {
+                    let mut out = Message::new(Viewtype::Text);
+                    out.set_text(s.text.clone());
+                    match chat::send_msg(&ctx, ChatId::new(s.chat_id), &mut out).await {
+                        Ok(_) => {
+                            activity
+                                .record(
+                                    row.id,
+                                    act::SCHEDULE_SENT,
+                                    Some(s.chat_id),
+                                    None,
+                                    format!("定时消息 → {}", truncate(&s.text, 40)),
+                                    None,
+                                )
+                                .await;
+                        }
+                        Err(e) => log::warn!("tick: send failed: {e}"),
+                    }
+                }
+            }
         }
     }
 }
