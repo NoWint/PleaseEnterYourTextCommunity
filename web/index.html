@@ -127,6 +127,7 @@
             font-weight: 700;
             letter-spacing: -0.022em;
             line-height: 1.18;
+            white-space: nowrap; /* 强制单行,避免 51px 字号下文字被挤成两行 */
         }
         .hello b {
             background: linear-gradient(120deg, var(--accent-2), #c9a2ff);
@@ -298,7 +299,8 @@
         /* ── 响应式 ─────────────────────────────── */
         @media (max-width: 480px) {
             .page { padding: 44px 20px 32px; }
-            .hello { font-size: 39px; }
+            /* 窄屏降字号,保证 hello 单行不溢出 */
+            .hello { font-size: 30px; }
             .card { padding: 22px 18px; }
         }
 
