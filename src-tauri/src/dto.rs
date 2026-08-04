@@ -478,9 +478,28 @@ pub struct ProjectContext {
     pub chat_ids: Vec<u32>,
     #[serde(default)]
     pub description: Option<String>,
-    /// 预留:Git 仓库路径(D1 GitHub 集成用)
+    /// GitHub 仓库标识 "owner/repo"(D1 GitHub 集成用)
     #[serde(default)]
     pub repo_path: Option<String>,
+    /// 每 Bot 的 GitHub token(优先,回退全局 settings token)
+    #[serde(default)]
+    pub github_token: Option<String>,
+}
+
+/// GitHub 全局设置(单行表 id=1)。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct GithubSettingsDto {
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+/// GitHub 绑定仓库 DTO。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GithubRepoDto {
+    pub id: i64,
+    pub owner: String,
+    pub repo: String,
+    pub full_name: String,
 }
 
 /// Bot 完整配置(存于 bots.config_json)。
@@ -748,7 +767,8 @@ mod tests {
             workspace_id: Some(7),
             chat_ids: vec![1, 42, 99],
             description: Some("PEYT Chat 桌面端".into()),
-            repo_path: Some("/Users/alice/peytchat".into()),
+            repo_path: Some("owner/repo".into()),
+            github_token: Some("ghp_test_token".into()),
         };
         let json = serde_json::to_string(&pc).unwrap();
         let back: ProjectContext = serde_json::from_str(&json).unwrap();
@@ -756,20 +776,50 @@ mod tests {
         assert_eq!(back.workspace_id, Some(7));
         assert_eq!(back.chat_ids, vec![1, 42, 99]);
         assert_eq!(back.description.as_deref(), Some("PEYT Chat 桌面端"));
-        assert_eq!(back.repo_path.as_deref(), Some("/Users/alice/peytchat"));
+        assert_eq!(back.repo_path.as_deref(), Some("owner/repo"));
+        assert_eq!(back.github_token.as_deref(), Some("ghp_test_token"));
     }
 
     #[test]
     fn test_project_context_missing_fields_default() {
-        // 缺失字段走默认:workspace_id/repo_path None,chat_ids 空
+        // 缺失字段走默认:workspace_id/repo_path/github_token None,chat_ids 空
         let back: ProjectContext = serde_json::from_str(r#"{"description":"仅描述"}"#).unwrap();
         assert_eq!(back.workspace_id, None);
         assert!(back.chat_ids.is_empty());
         assert_eq!(back.description.as_deref(), Some("仅描述"));
         assert_eq!(back.repo_path, None);
+        assert_eq!(back.github_token, None);
         // 完全空 JSON → Default
         let empty: ProjectContext = serde_json::from_str("{}").unwrap();
         assert_eq!(empty, ProjectContext::default());
+    }
+
+    #[test]
+    fn test_github_settings_dto_round_trip() {
+        let dto = GithubSettingsDto {
+            token: Some("ghp_secret".into()),
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        let back: GithubSettingsDto = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, dto);
+        assert_eq!(back.token.as_deref(), Some("ghp_secret"));
+        // 缺失 token → None
+        let none: GithubSettingsDto = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(none, GithubSettingsDto::default());
+    }
+
+    #[test]
+    fn test_github_repo_dto_round_trip() {
+        let dto = GithubRepoDto {
+            id: 3,
+            owner: "owner".into(),
+            repo: "repo".into(),
+            full_name: "owner/repo".into(),
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        let back: GithubRepoDto = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, dto);
+        assert_eq!(back.full_name, "owner/repo");
     }
 
     #[test]
@@ -785,6 +835,7 @@ mod tests {
                 chat_ids: vec![3, 5],
                 description: Some("测试项目".into()),
                 repo_path: None,
+                github_token: None,
             }),
         };
         let json = serde_json::to_string(&cfg).unwrap();

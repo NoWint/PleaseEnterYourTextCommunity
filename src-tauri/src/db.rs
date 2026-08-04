@@ -6,7 +6,7 @@ use rusqlite::params;
 use rusqlite::OptionalExtension;
 use tokio::sync::Mutex;
 
-use crate::dto::{ActivityDto, BotStatsDto, ChannelDto, InboxEventDto, PinDto, RoleDto, WorkspaceDto};
+use crate::dto::{ActivityDto, BotStatsDto, ChannelDto, GithubSettingsDto, InboxEventDto, PinDto, RoleDto, WorkspaceDto};
 use crate::error::{AppError, AppResult};
 
 // bots 表行结构，供 Bot 服务模块使用
@@ -52,6 +52,14 @@ pub struct PluginToolRow {
     pub description: String,
     pub parameters: String,
     pub created_at: i64,
+}
+
+/// github_repos 表行结构。
+pub struct GithubRepoRow {
+    pub id: i64,
+    pub owner: String,
+    pub repo: String,
+    pub full_name: String,
 }
 
 pub struct Db {
@@ -203,6 +211,18 @@ impl Db {
                     description TEXT NOT NULL,
                     parameters TEXT NOT NULL,
                     created_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS github_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    token TEXT,
+                    updated_at INTEGER
+                );
+                CREATE TABLE IF NOT EXISTS github_repos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner TEXT NOT NULL,
+                    repo TEXT NOT NULL,
+                    full_name TEXT NOT NULL UNIQUE,
+                    added_at INTEGER NOT NULL
                 );",
             )?;
             Ok(())
@@ -1431,6 +1451,111 @@ impl Db {
         })
         .await?
     }
+
+    // ── GitHub 集成 ────────────────────────────────────────────────────
+
+    /// 读取全局 GitHub 设置;无行返回默认(空 token)。
+    pub async fn get_github_settings(&self) -> AppResult<GithubSettingsDto> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<GithubSettingsDto> {
+            let c = conn.blocking_lock();
+            let token = c
+                .query_row(
+                    "SELECT token FROM github_settings WHERE id = 1",
+                    [],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .optional()?
+                .flatten();
+            Ok(GithubSettingsDto { token })
+        })
+        .await?
+    }
+
+    /// 写入全局 GitHub token(UPSERT id=1);None 置 NULL 并刷新 updated_at。
+    pub async fn set_github_token(&self, token: Option<&str>) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let token = token.map(str::to_string);
+        let updated_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO github_settings (id, token, updated_at) VALUES (1, ?1, ?2)
+                 ON CONFLICT(id) DO UPDATE SET token = excluded.token, updated_at = excluded.updated_at",
+                params![token, updated_at],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 列出已绑定仓库(按添加顺序)。
+    pub async fn list_github_repos(&self) -> AppResult<Vec<GithubRepoRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<GithubRepoRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, owner, repo, full_name FROM github_repos ORDER BY id",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(GithubRepoRow {
+                    id: r.get(0)?,
+                    owner: r.get(1)?,
+                    repo: r.get(2)?,
+                    full_name: r.get(3)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    /// 绑定仓库;full_name = "{owner}/{repo}",owner/repo 重复时唯一约束冲突返回 Db 错误。
+    pub async fn add_github_repo(&self, owner: &str, repo: &str) -> AppResult<i64> {
+        let conn = self.conn.clone();
+        let owner = owner.to_string();
+        let repo = repo.to_string();
+        let full_name = format!("{owner}/{repo}");
+        let added_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<i64> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO github_repos (owner, repo, full_name, added_at) VALUES (?1, ?2, ?3, ?4)",
+                params![owner, repo, full_name, added_at],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await?
+    }
+
+    /// 解除绑定仓库。
+    pub async fn remove_github_repo(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM github_repos WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 仓库是否已绑定(write 工具限绑定仓库用)。
+    pub async fn is_repo_bound(&self, owner: &str, repo: &str) -> AppResult<bool> {
+        let conn = self.conn.clone();
+        let full_name = format!("{owner}/{repo}");
+        tokio::task::spawn_blocking(move || -> AppResult<bool> {
+            let c = conn.blocking_lock();
+            let count: i64 = c.query_row(
+                "SELECT COUNT(*) FROM github_repos WHERE full_name = ?1",
+                params![full_name],
+                |r| r.get(0),
+            )?;
+            Ok(count > 0)
+        })
+        .await?
+    }
 }
 
 #[cfg(test)]
@@ -1846,5 +1971,97 @@ mod tests {
         db.delete_plugin_tool("webhook").await.unwrap();
         db.delete_plugin_tool("calc").await.unwrap();
         assert!(db.list_plugin_tools().await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_settings_upsert_and_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        // 无行 → 默认
+        let s = db.get_github_settings().await.unwrap();
+        assert_eq!(s, GithubSettingsDto::default());
+
+        // 写入 token
+        db.set_github_token(Some("ghp_test_123")).await.unwrap();
+        let s = db.get_github_settings().await.unwrap();
+        assert_eq!(s.token.as_deref(), Some("ghp_test_123"));
+
+        // UPSERT 覆盖
+        db.set_github_token(Some("ghp_test_456")).await.unwrap();
+        let s = db.get_github_settings().await.unwrap();
+        assert_eq!(s.token.as_deref(), Some("ghp_test_456"));
+
+        // None 清除 → NULL
+        db.set_github_token(None).await.unwrap();
+        let s = db.get_github_settings().await.unwrap();
+        assert_eq!(s.token, None);
+
+        // 单行约束:仍只有一行
+        let conn = db.conn.lock().await;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM github_settings", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_repos_crud_and_unique() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        // 初始为空
+        assert!(db.list_github_repos().await.unwrap().is_empty());
+        assert!(!db.is_repo_bound("owner", "repo").await.unwrap());
+
+        // 添加
+        let id1 = db.add_github_repo("owner", "repo").await.unwrap();
+        let id2 = db.add_github_repo("alice", "peytchat").await.unwrap();
+        assert!(id1 > 0 && id2 > 0 && id1 != id2);
+
+        let list = db.list_github_repos().await.unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].full_name, "owner/repo");
+        assert_eq!(list[1].full_name, "alice/peytchat");
+
+        // is_repo_bound 按 owner/repo 匹配 full_name
+        assert!(db.is_repo_bound("owner", "repo").await.unwrap());
+        assert!(db.is_repo_bound("alice", "peytchat").await.unwrap());
+        assert!(!db.is_repo_bound("owner", "other").await.unwrap());
+        assert!(!db.is_repo_bound("other", "repo").await.unwrap());
+
+        // 唯一约束:重复 owner/repo 冲突 → Db 错误
+        let dup = db.add_github_repo("owner", "repo").await;
+        assert!(dup.is_err(), "重复绑定应返回 Db 错误");
+        assert_eq!(db.list_github_repos().await.unwrap().len(), 2);
+
+        // remove
+        db.remove_github_repo(id1).await.unwrap();
+        let list = db.list_github_repos().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id2);
+        assert!(!db.is_repo_bound("owner", "repo").await.unwrap());
+
+        // 移除后可以重新绑定
+        db.add_github_repo("owner", "repo").await.unwrap();
+        assert!(db.is_repo_bound("owner", "repo").await.unwrap());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_tables_created_in_migrate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        let conn = db.conn.lock().await;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('github_settings','github_repos')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
     }
 }

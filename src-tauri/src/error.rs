@@ -19,6 +19,14 @@ pub enum AppError {
     Plugin(String),
     #[error("HTTP {0}: {1}")]
     Http(u16, String),
+    #[error("GitHub 限速:{0}")]
+    GitHubRateLimit(String), // 429/403
+    #[error("GitHub 认证失败:{0}")]
+    GitHubAuth(String), // 401
+    #[error("GitHub 服务器错误:{0}")]
+    GitHubServer(String), // 5xx
+    #[error("GitHub 未找到:{0}")]
+    GitHubNotFound(String), // 404
 }
 
 impl From<anyhow::Error> for AppError {
@@ -57,5 +65,19 @@ mod tests {
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains("\"kind\":\"Http\""));
         assert!(json.contains("boom"));
+    }
+
+    #[test]
+    fn test_github_error_variants_serialize() {
+        let cases = [
+            (AppError::GitHubRateLimit("rate limit".into()), "GitHubRateLimit"),
+            (AppError::GitHubAuth("bad token".into()), "GitHubAuth"),
+            (AppError::GitHubServer("500".into()), "GitHubServer"),
+            (AppError::GitHubNotFound("missing".into()), "GitHubNotFound"),
+        ];
+        for (e, kind) in cases {
+            let json = serde_json::to_string(&e).unwrap();
+            assert!(json.contains(&format!("\"kind\":\"{}\"", kind)), "{json}");
+        }
     }
 }
