@@ -18,6 +18,8 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub bots: BotService,
     pub plugins: PluginManager,
+    /// 工具注册表(内置 + 插件),命令/驱动共享;内部 RwLock 支持热加载
+    pub bot_tools: Arc<crate::tools::ToolRegistry>,
     /// 应用数据目录(Tauri app_data_dir),供导出路径/备份默认目录
     pub data_dir: PathBuf,
 }
@@ -38,12 +40,15 @@ impl AppState {
         let accounts = Arc::new(Mutex::new(accounts));
         let db = Arc::new(db);
         let bots = BotService::new(accounts.clone(), db.clone());
+        let bot_tools =
+            Arc::new(crate::tools::ToolRegistry::new(Arc::new(crate::tools::ToolBridge::new())));
         Ok(Self {
             accounts,
             current_id: StdMutex::new(current_id),
             db,
             bots,
             plugins: PluginManager::new(app_data_dir.clone()),
+            bot_tools,
             data_dir: app_data_dir,
         })
     }

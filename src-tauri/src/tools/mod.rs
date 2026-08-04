@@ -7,6 +7,7 @@ pub mod plugin;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use async_trait::async_trait;
 use deltachat::chat::ChatId;
@@ -41,7 +42,7 @@ pub struct ToolContext<'a> {
 
 pub struct ToolRegistry {
     tools: Vec<Arc<dyn Tool>>,
-    plugins: Vec<Arc<dyn Tool>>,
+    plugins: RwLock<Vec<Arc<dyn Tool>>>,
     pub bridge: Arc<ToolBridge>,
 }
 
@@ -49,7 +50,7 @@ impl ToolRegistry {
     pub fn new(bridge: Arc<ToolBridge>) -> Self {
         Self {
             tools: Vec::new(),
-            plugins: Vec::new(),
+            plugins: RwLock::new(Vec::new()),
             bridge,
         }
     }
@@ -58,9 +59,9 @@ impl ToolRegistry {
         self.tools.push(t);
     }
 
-    /// 用 db 中的插件工具全量替换当前插件工具集合。
-    pub fn reload_plugin_tools(&mut self, rows: &[PluginToolRow]) {
-        self.plugins = rows
+    /// 用 db 中的插件工具全量替换当前插件工具集合(可热加载,内部加锁)。
+    pub fn reload_plugin_tools(&self, rows: &[PluginToolRow]) {
+        *self.plugins.write().unwrap() = rows
             .iter()
             .map(|r| {
                 std::sync::Arc::new(crate::tools::plugin::PluginTool::from_row(
@@ -72,18 +73,20 @@ impl ToolRegistry {
     }
 
     pub fn names(&self) -> Vec<&str> {
+        let plugins = self.plugins.read().unwrap();
         self.tools
             .iter()
             .map(|t| t.name())
-            .chain(self.plugins.iter().map(|t| t.name()))
+            .chain(plugins.iter().map(|t| t.name()))
             .collect()
     }
 
     /// enabled = None → 仅 is_safe() 的默认工具集;Some(names) → 恰好这些出现在注册表中的工具
     pub fn defs_for(&self, enabled: Option<&[String]>) -> Vec<serde_json::Value> {
+        let plugins = self.plugins.read().unwrap();
         self.tools
             .iter()
-            .chain(self.plugins.iter())
+            .chain(plugins.iter())
             .filter(|t| match enabled {
                 None => t.is_safe(),
                 Some(names) => names.iter().any(|n| n == t.name()),
@@ -104,10 +107,11 @@ impl ToolRegistry {
         arguments: &str,
         ctx: &ToolContext<'_>,
     ) -> AppResult<String> {
+        let plugins = self.plugins.read().unwrap();
         let tool = self
             .tools
             .iter()
-            .chain(self.plugins.iter())
+            .chain(plugins.iter())
             .find(|t| t.name() == name)
             .ok_or_else(|| AppError::Core(format!("未知工具: {name}")))?;
         let args: serde_json::Value = serde_json::from_str(arguments)
@@ -116,10 +120,24 @@ impl ToolRegistry {
     }
 
     pub fn has(&self, name: &str) -> bool {
+        let plugins = self.plugins.read().unwrap();
         self.tools
             .iter()
-            .chain(self.plugins.iter())
+            .chain(plugins.iter())
             .any(|t| t.name() == name)
+    }
+
+    /// (name, description, is_safe) 元数据(内置 + 插件)。
+    pub fn list_meta(&self) -> Vec<(String, String, bool)> {
+        let mut out = Vec::new();
+        for t in &self.tools {
+            out.push((t.name().to_string(), t.description().to_string(), t.is_safe()));
+        }
+        let plugins = self.plugins.read().unwrap();
+        for t in plugins.iter() {
+            out.push((t.name().to_string(), t.description().to_string(), t.is_safe()));
+        }
+        out
     }
 }
 
@@ -290,7 +308,7 @@ mod tests {
                 captured.lock().unwrap().push(v);
             }
         }));
-        let mut reg = ToolRegistry::new(bridge.clone());
+        let reg = ToolRegistry::new(bridge.clone());
 
         let row = PluginToolRow {
             name: "pt".to_string(),

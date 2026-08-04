@@ -110,22 +110,39 @@ pub fn run() {
                 })
             };
             use std::sync::Arc;
-            // 工具桥:emit 到前端 bot-tool-request(B5 前端监听;现仅记日志)
-            let bridge = Arc::new(crate::tools::bridge::ToolBridge::new().with_emitter(|v| {
-                log::debug!("[tools] tool request: {v}");
+            // 工具桥:插件工具请求经 app.emit 推前端(B5 前端监听)
+            let handle = app.handle().clone();
+            let bridge = Arc::new(crate::tools::ToolBridge::new().with_emitter(move |v| {
+                use tauri::Emitter;
+                let _ = handle.emit("bot-tool-request", &v);
             }));
-            let mut tool_registry = crate::tools::ToolRegistry::new(bridge);
-            tool_registry.register(Arc::new(crate::tools::builtins::GetTimeTool));
-            tool_registry.register(Arc::new(crate::tools::builtins::CalculateTool));
-            tool_registry.register(Arc::new(crate::tools::builtins::ConvertUnitsTool));
-            let tool_registry = Arc::new(tool_registry);
+            let mut built = crate::tools::ToolRegistry::new(bridge);
+            built.register(Arc::new(crate::tools::builtins::GetTimeTool));
+            built.register(Arc::new(crate::tools::builtins::CalculateTool));
+            built.register(Arc::new(crate::tools::builtins::ConvertUnitsTool));
+            built.register(Arc::new(crate::tools::net::GetWeatherTool::new()));
+            built.register(Arc::new(crate::tools::net::FetchUrlTool::new()));
+            built.register(Arc::new(crate::tools::net::WebSearchTool::new()));
+            built.register(Arc::new(crate::tools::file::ReadFileTool));
+            built.register(Arc::new(crate::tools::file::WriteFileTool));
+            built.register(Arc::new(crate::tools::file::ListFilesTool));
+            built.register(Arc::new(crate::tools::app::SearchHistoryTool));
+            built.register(Arc::new(crate::tools::app::CreateCardTool));
+            built.register(Arc::new(crate::tools::app::SetReminderTool));
+            // 从 db 加载插件工具
+            let rows = state.db.list_plugin_tools().await?;
+            built.reload_plugin_tools(&rows);
+            let tool_registry = Arc::new(built);
+            state.bot_tools = tool_registry.clone();
 
-            // 驱动注册:B1 只有 LLM 驱动(后续 B3 加规则/定时)
+            // 驱动注册:LLM + 规则(关键词/欢迎/兜底)+ 定时(cron)
             let mut registry = crate::drivers::DriverRegistry::new();
             registry.register(Arc::new(crate::drivers::llm::LlmDriver::new(
                 crate::llm::LlmClient::new(),
-                tool_registry.clone(),
+                tool_registry,
             )));
+            registry.register(Arc::new(crate::drivers::rule::RuleDriver::new()));
+            registry.register(Arc::new(crate::drivers::schedule::ScheduleDriver));
             // 挂载事件调度器(常驻后台)
             tauri::async_runtime::spawn(crate::runtime::spawn(
                 state.accounts.clone(),
@@ -272,6 +289,13 @@ pub fn run() {
             commands::list_accounts,
             commands::switch_account,
             commands::add_bot_to_chat,
+            commands::bot_list_schedules,
+            commands::bot_add_schedule,
+            commands::bot_delete_schedule,
+            commands::register_bot_tool,
+            commands::unregister_bot_tool,
+            commands::list_bot_tools,
+            commands::bot_tool_result,
             // 原生系统通知(user-notify)
             notifications::show_notification,
             notifications::get_notification_permission,
