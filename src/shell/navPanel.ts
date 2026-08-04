@@ -41,7 +41,8 @@ export function clearSpaceTypeCache(): void {
 }
 
 // 这些页面主区已承载全部内容,中间栏 (nav-panel) 纯占位 → 隐藏,让主区占满。
-const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'bots', 'github']);
+// github 除外:Task A 改为 VSCode 式三栏,侧边栏显示仓库树(renderGithubNav)。
+const HIDDEN_NAV_PAGES: ReadonlySet<Page> = new Set(['inbox', 'bots']);
 
 export async function renderNavPanel(): Promise<void> {
   const panel = document.getElementById('channel-tree');
@@ -76,7 +77,7 @@ export async function renderNavPanel(): Promise<void> {
         break;
       }
       case 'github': {
-        // 中间栏已隐藏,GitHub 完全主区化 (renderGithubMain)
+        // VSCode 式侧边栏:仓库树 + 设置 + 搜索入口 (renderGithubMain 渲染主编辑区)
         const { renderGithubNav } = await import('../pages/githubPage.js');
         await renderGithubNav(panel);
         break;
