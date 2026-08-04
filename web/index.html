@@ -431,9 +431,6 @@
             if (searchParams.get("g") || searchParams.get("b")) {
                 hintEl.textContent = '点开加入群聊,或扫码在另一台设备打开';
             }
-            // 生成 QR 后隐藏问候语,位置让给二维码
-            var greeting = document.querySelector('.greeting');
-            if (greeting) greeting.style.display = 'none';
             // 二维码
             qrEl.innerHTML = '';
             var cv = document.createElement('canvas');
@@ -443,6 +440,11 @@
 
         var token = window.location.hash.substr(1);
         if (token) {
+            // 有 token(受邀方):默认显示二维码(对齐无 token 的"二维码在上"),
+            // 隐藏生成器(受邀方不需要粘贴生成)
+            genEl.style.display = 'none';
+            qrBody.style.display = '';
+            qrBody.classList.add('open');
             renderInvite(token);
         } else {
             // 无 token:隐藏 CTA/下载/标题/切换/右栏二维码,只留左栏生成器
@@ -467,7 +469,9 @@
             else v = v.replace(/openpgp4fpr:/i, '');
             if (v.indexOf('#') === -1) v = v.replace(/%23/, '#');
             if (!v) { genBtn.disabled = true; return; }
-            // 生成器路径下右栏 qr-body 被隐藏,这里恢复显示,二维码才能看到
+            // 生成器路径:生成后隐藏问候语(位置让给二维码),恢复右栏二维码
+            var greeting = document.querySelector('.greeting');
+            if (greeting) greeting.style.display = 'none';
             qrBody.style.display = '';
             qrBody.classList.add('open');
             renderInvite(v);
