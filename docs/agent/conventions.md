@@ -147,6 +147,7 @@ styles.css ~3757 行。**很多选择器定义了两次：前面的旧规则是�
 | `2026-08-03-bot-management-ui-design.md` | Bot 系统 C：管理 UI（botsPage） |
 | `2026-08-03-bot-chat-ux-design.md` | Bot 系统 D：bot 聊天 UX（bot 会话命令） |
 | `2026-08-04-pure-json-envelope-design.md` | 纯 JSON 信封协议 v2（摒弃所有前缀协议，全量信封化） |
+| `2026-08-05-word-frequency-bubble-design.md` | 会话主题词频气泡（词云 + 词频统计弹窗） |
 
 ## 9. 常见任务指南
 
