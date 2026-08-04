@@ -22,6 +22,15 @@ function normalizeUrl(url: string): string {
   return url;
 }
 
+/**
+ * 生成二维码前归一化:core check_qr 只认 https://i.delta.chat/# 或 OPENPGP4FPR:,
+ * 不认 peyt.yzjtiantian.cn 域名。展示/复制用品牌链接,但**二维码内容**必须编码
+ * core 可解析的形式,否则扫码端识别失败。
+ */
+export function normalizeUrlForQr(url: string): string {
+  return normalizeUrl(url);
+}
+
 /** 深链处理主函数。 */
 export async function routeDeepLink(rawUrl: string): Promise<void> {
   const url = rawUrl.trim();

@@ -5,6 +5,7 @@ import { ui, colorHex } from '../ui.js';
 import { iconSvg } from '../icon.js';
 import { escapeHtml, escapeAttr } from '../escape.js';
 import { openMemberPicker, type MemberPick } from './memberPicker.js';
+import { normalizeUrlForQr } from '../../utils/deepLink.js';
 import type { ChatInfoDto, MemberDto } from '../../types.js';
 // @ts-expect-error qrcode 无类型声明
 import QRCode from 'qrcode';
@@ -278,7 +279,8 @@ async function openGroupQr(chatId: number, name: string): Promise<void> {
   }
   let dataUrl = '';
   try {
-    dataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 220 });
+    // 二维码内容归一化为 core 可解析形式(i.delta.chat);展示文本仍为品牌 peyt 域名
+    dataUrl = await QRCode.toDataURL(normalizeUrlForQr(qr), { margin: 1, width: 220 });
   } catch {
     ui.toast('二维码生成失败');
     return;

@@ -6,6 +6,7 @@ import { renderAvatarHtml } from '../components/avatar.js';
 import { getCurrentTheme, applyTheme, BUILTIN_THEMES, getCurrentFontScale, applyFontScale, FONT_SCALES, type FontScale, type BuiltinTheme } from '../theme.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
+import { normalizeUrlForQr } from '../utils/deepLink.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
 // qrcode 包无自带类型声明,也无 @types/qrcode,用 @ts-expect-error 跳过类型检查
 // @ts-expect-error
@@ -142,7 +143,9 @@ async function showMyQr(): Promise<void> {
     return;
   }
   try {
-    const dataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 220 });
+    // 二维码内容归一化为 core 可解析形式(i.delta.chat);展示文本仍为品牌 peyt 域名
+    const qrCore = normalizeUrlForQr(qr);
+    const dataUrl = await QRCode.toDataURL(qrCore, { margin: 1, width: 220 });
     const body = `
       <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
         <img src="${dataUrl}" alt="我的二维码" style="width:220px;height:220px;border-radius:8px;background:#fff;padding:8px;box-sizing:border-box" />
