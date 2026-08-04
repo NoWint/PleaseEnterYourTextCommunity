@@ -12,6 +12,7 @@ use crate::dto::BotConfig;
 use crate::error::AppResult;
 
 pub mod llm;
+pub mod rule;
 pub mod schedule;
 
 /// 驱动类型标识。
