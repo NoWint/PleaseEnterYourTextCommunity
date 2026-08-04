@@ -397,6 +397,15 @@ pub struct RuleConfig {
     pub fallback: Option<String>,
 }
 
+/// 工具元信息(内置 + 插件),供前端工具列表展示。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BotToolDto {
+    pub name: String,
+    pub description: String,
+    /// 是否默认安全(安全工具无需显式启用即可被 bot 使用)
+    pub safe: bool,
+}
+
 /// 定时驱动:一条定时任务。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleDto {

@@ -13,10 +13,11 @@ use deltachat::securejoin;
 use tauri::State;
 
 use crate::dto::{
-    ActivityDto, AdvancedLogin, BotDto, CardDto, ChannelDto, ChatDto, ChatInfoDto, ContactDto,
-    ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PeytStudioDto, PinDto, ProfileDto,
-    RawMsgDto, ReactionDto, RoleDto, SearchResultDto, WorkspaceDto,
+    ActivityDto, AdvancedLogin, BotDto, BotToolDto, CardDto, ChannelDto, ChatDto, ChatInfoDto,
+    ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PeytStudioDto, PinDto,
+    ProfileDto, RawMsgDto, ReactionDto, RoleDto, ScheduleDto, SearchResultDto, WorkspaceDto,
 };
+use crate::drivers::schedule::next_cron;
 use crate::error::{AppError, AppResult};
 use crate::plugins::{PluginStatus, RegistryPlugin};
 use crate::state::AppState;
@@ -3327,6 +3328,129 @@ pub async fn bot_mark_chat_seen(
 ) -> AppResult<()> {
     let ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
     mark_chat_seen_impl(&ctx, chat_id).await
+}
+
+/// 列出某个 bot 的定时任务。
+#[tauri::command]
+pub async fn bot_list_schedules(
+    state: State<'_, AppState>,
+    bot_id: i64,
+) -> AppResult<Vec<ScheduleDto>> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await?; // owner 校验
+    let rows = state.db.list_bot_schedules(bot_id).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ScheduleDto {
+            id: r.id,
+            bot_id: r.bot_id,
+            chat_id: r.chat_id,
+            minute: r.minute,
+            hour: r.hour,
+            day_of_week: r.day_of_week,
+            message: r.message,
+            enabled: r.enabled,
+            next_run_at: r.next_run_at,
+        })
+        .collect())
+}
+
+/// 添加定时任务。
+#[tauri::command]
+pub async fn bot_add_schedule(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    chat_id: u32,
+    minute: i32,
+    hour: i32,
+    day_of_week: i32,
+    message: String,
+) -> AppResult<ScheduleDto> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await?;
+    let now = chrono::Utc::now().timestamp();
+    let next = next_cron(now, minute, hour, day_of_week).unwrap_or(now);
+    let id = state
+        .db
+        .insert_bot_schedule(bot_id, chat_id, minute, hour, day_of_week, &message, next)
+        .await?;
+    Ok(ScheduleDto {
+        id,
+        bot_id,
+        chat_id,
+        minute,
+        hour,
+        day_of_week,
+        message,
+        enabled: true,
+        next_run_at: next,
+    })
+}
+
+/// 删除定时任务。
+#[tauri::command]
+pub async fn bot_delete_schedule(state: State<'_, AppState>, schedule_id: i64) -> AppResult<()> {
+    let owner_id = current_owner_id(&state)?;
+    let row = state
+        .db
+        .get_bot_schedule(schedule_id)
+        .await?
+        .ok_or_else(|| AppError::Core("schedule not found".into()))?;
+    state.bots.get_config(owner_id, row.bot_id).await?;
+    state.db.delete_bot_schedule(schedule_id).await
+}
+
+/// 注册一个插件工具(定义入库 + 热加载)。
+#[tauri::command]
+pub async fn register_bot_tool(
+    state: State<'_, AppState>,
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+) -> AppResult<()> {
+    let params = serde_json::to_string(&parameters)
+        .map_err(|e| AppError::Core(format!("parameters serialize: {e}")))?;
+    state
+        .db
+        .upsert_plugin_tool(&name, &description, &params, chrono::Utc::now().timestamp())
+        .await?;
+    let rows = state.db.list_plugin_tools().await?;
+    state.bot_tools.reload_plugin_tools(&rows);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn unregister_bot_tool(state: State<'_, AppState>, name: String) -> AppResult<()> {
+    state.db.delete_plugin_tool(&name).await?;
+    let rows = state.db.list_plugin_tools().await?;
+    state.bot_tools.reload_plugin_tools(&rows);
+    Ok(())
+}
+
+/// 列出全部可用工具(内置 + 插件)。
+#[tauri::command]
+pub async fn list_bot_tools(state: State<'_, AppState>) -> AppResult<Vec<BotToolDto>> {
+    Ok(state
+        .bot_tools
+        .list_meta()
+        .into_iter()
+        .map(|(name, description, safe)| BotToolDto {
+            name,
+            description,
+            safe,
+        })
+        .collect())
+}
+
+/// 前端插件执行完工具后回调结果。
+#[tauri::command]
+pub async fn bot_tool_result(
+    state: State<'_, AppState>,
+    id: String,
+    result: String,
+) -> AppResult<()> {
+    state.bot_tools.bridge.resolve(&id, result);
+    Ok(())
 }
 
 /// 测试 LLM 配置：用固定示例消息调用一次，返回回复文本（用于配置对话框的「测试连接」）。
