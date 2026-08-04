@@ -1,6 +1,6 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
-import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache, type GroupRole } from './message.js';
+import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache, setReadCounts, type GroupRole } from './message.js';
 import { renderComposer } from './composer.js';
 import { renderRightDrawer } from '../shell/rightDrawer.js';
 import { saveState } from '../persist.js';
@@ -259,7 +259,8 @@ export async function appendNewMessages(chatId: number): Promise<void> {
       seen.add(m.msg_id);
       return true;
     });
-    // 全量渲染(复用已有节点,只新建新消息),浏览器原生滚动
+    // 先补齐已读计数,再全量渲染(复用已有节点,只新建新消息),浏览器原生滚动
+    await loadReadCounts(newMsgs);
     await renderAllMessages(box);
     if (wasAtBottom) {
       box.scrollTop = box.scrollHeight;
@@ -295,10 +296,27 @@ async function refreshMessages(chatId: number): Promise<void> {
     box.appendChild(ui.empty('这个频道还没有消息,发第一条吧'));
     return;
   }
+  // 已读计数必须在渲染前填充:气泡渲染「N 人已读」时依赖 readCountMap,
+  // 渲染后再拉会导致首屏计数恒为 0。
+  await loadReadCounts(msgs);
   // Delta 式全量渲染:所有消息都是真实 DOM 节点,浏览器原生管理滚动
   // (scrollHeight = 真实高度,scrollTop 天然稳定,零手动补偿)。
   await renderAllMessages(box);
   box.scrollTop = box.scrollHeight;
+}
+
+// 已读系统:批量拉取发出的消息的已读人数,填充 readCountMap(气泡渲染「N 人已读」)。
+// 只对真实 id(非 tmp_ 乐观消息)的发出消息查询;失败静默(下次刷新会补)。
+async function loadReadCounts(msgs: MsgDto[]): Promise<void> {
+  const ids: number[] = [];
+  for (const m of msgs) {
+    if (m.is_out) ids.push(m.msg_id);
+  }
+  if (ids.length === 0) return;
+  try {
+    const counts = await call<number[]>('get_msg_read_counts', { msgIds: ids });
+    setReadCounts(ids, counts);
+  } catch { /* 失败静默,下次渲染自动补齐 */ }
 }
 
 async function loadEarlier(chatId: number): Promise<void> {
@@ -334,6 +352,7 @@ async function loadEarlier(chatId: number): Promise<void> {
   state.noMoreMsgs = older.length < 50;
   // Delta 式全量渲染:prepend 更早消息后整体重渲染,保持用户视口不变。
   // box.innerHTML='' 会清掉 scrollTop,渲染后补偿 scrollHeight 增量(顶部插入的高度)。
+  await loadReadCounts(older);
   await renderAllMessages(box);
   const heightDelta = box.scrollHeight - prevHeight;
   box.scrollTop = prevTop + heightDelta;

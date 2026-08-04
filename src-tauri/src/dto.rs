@@ -48,6 +48,17 @@ pub struct MemberDto {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ReadReceiptDto {
+    pub contact_id: u32,
+    pub name: String,
+    pub addr: String,
+    pub avatar: Option<String>,
+    pub color: Option<u32>,
+    /// 读取时间(unix 秒)
+    pub ts: i64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ChatInfoDto {
     pub chat_id: u32,
     pub name: String,

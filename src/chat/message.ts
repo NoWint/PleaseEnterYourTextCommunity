@@ -37,7 +37,6 @@ hljs.registerLanguage('json', json);
 // but are present at runtime via `as unknown as MsgDto` cast in composer.ts.
 // Note: pinned 状态改由模块级 pinnedMsgIds 集合管理 (见下方),不再挂在 RenderableMsg 上。
 interface RenderableMsg extends MsgDto {
-  is_out?: boolean;
   _state?: string;
   file_bytes?: number | null;
 }
@@ -86,18 +85,30 @@ export function clearPinnedCache(): void {
   pinnedMsgIds.clear();
 }
 
-// Task 8: message send state icon (仿 WhatsApp 单勾/双勾/时钟)。
-// 返回图标 SVG;shell.ts updateMsgState 用 innerHTML 更新。
-export function stateLabel(s: MsgState): string {
-  const ico = (name: 'check' | 'check-check' | 'clock' | 'alert-circle') =>
-    iconSvg(name, { width: 14, height: 14, strokeWidth: 2 });
+// 已读计数缓存:msgId → 已读人数。
+// 打开会话时 chatView 批量拉取填充;shell 收到 MsgReadCountChanged 时单条更新。
+const readCountMap = new Map<number, number>();
+export function setReadCounts(ids: number[], counts: number[]): void {
+  for (let i = 0; i < ids.length; i++) readCountMap.set(ids[i], counts[i] ?? 0);
+}
+export function setReadCount(msgId: number, count: number): void {
+  readCountMap.set(msgId, count);
+}
+export function getReadCount(msgId: number): number {
+  return readCountMap.get(msgId) ?? 0;
+}
+
+// 已读系统本土化:消息状态用文字而非 check/双勾图标。
+// 单聊:发送中/已送达/已读/失败;群聊:已读态显示「N 人已读」(isGroup)。
+// shell.ts updateMsgState 与 message.ts renderMessage 共用。
+export function stateLabel(s: MsgState, isGroup?: boolean, readCount?: number): string {
   switch (s) {
-    case 'pending': return ico('clock');
-    case 'delivered': return ico('check');
-    case 'read': return ico('check-check');
-    case 'failed': return ico('alert-circle');
-    // 乐观消息(发送中)没有 state 字段,fallback 到 pending(时钟)
-    default: return ico('clock');
+    case 'pending': return '发送中';
+    case 'delivered': return '已送达';
+    case 'read': return isGroup ? `${readCount ?? 0} 人已读` : '已读';
+    case 'failed': return '失败';
+    // 乐观消息(发送中)没有 state 字段,fallback 到发送中
+    default: return '发送中';
   }
 }
 
@@ -243,9 +254,15 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
     ...reactionQuick.map((e) => `<span class="msg-reaction-pick" data-emoji="${e}" title="${e}">${e}</span>`),
     `<span class="msg-reaction-more" id="more-${msg.msg_id}" title="更多表情">${iconSvg('smile-plus', { width: 18, height: 18, strokeWidth: 1.8 })}</span>`,
   ].join('');
-  // Task 8: outgoing messages show send state; failed messages show resend button.
+  // 已读系统本土化:发出的消息显示文字状态(发送中/已送达/已读/N 人已读/失败)。
+  // 群聊已读态 → 可点击(弹已读 popup);单聊已读 → 也可点击(看对方读取时间)。
+  const st = msg.state || 'pending';
+  const isRead = st === 'read';
+  const readCount = getReadCount(msg.msg_id as number);
+  const stateLabelText = stateLabel(st, state.currentChatIsGroup, readCount);
+  const stateClickable = isRead ? ' data-read-popup="1"' : '';
   const stateHtml = isOut
-    ? `<span class="msg-state state-${msg.state || 'pending'}" data-msg-state="${msg.msg_id}">${stateLabel(msg.state)}</span>`
+    ? `<span class="msg-state state-${st}" data-msg-state="${msg.msg_id}"${stateClickable}>${stateLabelText}</span>`
     : '';
   const resendBtn = isOut && msg.state === 'failed'
     ? `<span class="msg-resend" data-msg-id="${msg.msg_id}">重发</span>`
@@ -412,6 +429,18 @@ export function renderReactionCapsule(r: Reaction, msgId: number): string {
   return `<span class="msg-reaction" data-msg="${msgId}" data-emoji="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji.trim())}${count}</span>`;
 }
 export function bindMessageActions(container: HTMLElement): void {
+  // 已读弹层:群聊点「N 人已读」→ 名单;单聊点「已读」→ 对方读取时间。
+  container.querySelectorAll<HTMLElement>('.msg-state[data-read-popup]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const msgId = Number(el.dataset.msgState);
+      void import('../components/readReceiptsPopup.js').then((m) => {
+        if (state.currentChatIsGroup) m.openReadReceiptsPopup(msgId, el);
+        else m.showReadTimePopup(msgId, el);
+      });
+    });
+  });
+
   // Reaction toggle (click existing reaction capsule)
   container.querySelectorAll<HTMLElement>('.msg-reaction').forEach((el) => {
     el.addEventListener('click', async () => {

@@ -7,7 +7,7 @@ import { renderRightDrawer } from './rightDrawer.js';
 import { bindColumnResizers } from './columnResizer.js';
 import { loadState, saveState } from '../persist.js';
 import { showToast } from '../toast.js';
-import { stateLabel, updateReactionsCache, renderReactionCapsule } from '../chat/message.js';
+import { stateLabel, getReadCount, setReadCount, updateReactionsCache, renderReactionCapsule } from '../chat/message.js';
 import { appendNewMessages } from '../chat/chatView.js';
 import type { MsgState, MsgDto } from '../types.js';
 
@@ -122,6 +122,17 @@ export async function renderShell(): Promise<void> {
     setTimeout(() => void refreshMsgReactions(e.msg_id as number), 200);
   });
   onEvent('MsgRead', (e) => updateMsgState(e.msg_id as number, 'read'));
+  // 已读系统:群里有人读了我的消息 → 重拉该消息已读人数,刷新「N 人已读」文字。
+  onEvent('MsgReadCountChanged', (e) => {
+    const msgId = e.msg_id as number;
+    if (!msgId) return;
+    void (async () => {
+      try {
+        const [count] = await call<number[]>('get_msg_read_counts', { msgIds: [msgId] });
+        updateReadCount(msgId, count ?? 0);
+      } catch { /* 失败静默,下次刷新补齐 */ }
+    })();
+  });
   onEvent('MsgsNoticed', () => {
     // 未读分隔线清除,UI 自然刷新
   });
@@ -425,10 +436,25 @@ function updateMsgState(msgId: number, newState: MsgState): void {
     const el = document.querySelector(`[data-msg="${msgId}"]`);
     if (el) {
       const stateEl = el.querySelector('.msg-state');
-      if (stateEl) stateEl.innerHTML = stateLabel(newState);
+      if (stateEl) {
+        stateEl.innerHTML = stateLabel(newState, state.currentChatIsGroup, getReadCount(msgId));
+        // 进入已读态后,群聊/单聊的已读文字都可点击看名单
+        stateEl.toggleAttribute('data-read-popup', newState === 'read');
+      }
       el.classList.remove('state-pending', 'state-delivered', 'state-failed', 'state-read');
       el.classList.add('state-' + newState);
     }
+  }
+}
+
+// 已读人数变化时更新:写 countMap + 刷气泡文字。
+function updateReadCount(msgId: number, count: number): void {
+  setReadCount(msgId, count);
+  const msg = state.messages.find((m) => m.msg_id === msgId);
+  if (msg && msg.state === 'read') {
+    const el = document.querySelector(`[data-msg="${msgId}"]`);
+    const stateEl = el?.querySelector('.msg-state');
+    if (stateEl) stateEl.innerHTML = stateLabel('read', state.currentChatIsGroup, count);
   }
 }
 
