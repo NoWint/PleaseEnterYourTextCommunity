@@ -1,4 +1,5 @@
 import { call, transformBlobURL } from '../api.js';
+import { resolveMessageText } from '../utils/envelope.js';
 import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { ui } from '../components/ui.js';
@@ -112,6 +113,27 @@ export function stateLabel(s: MsgState, isGroup?: boolean, readCount?: number): 
   }
 }
 
+// 会话列表预览文本: 先解析 JSON 信封(取 payload.text), 再按「自己发出的消息」加已读前缀。
+//   单聊:  已读 · 你好         群聊:  3 人已读 · 你好
+//   自己发但未读/失败: 发送中 · … / 已送达 · … / 失败 · …
+//   系统信息行: 无前缀(本来就该居中, 预览只显示文本)
+export function chatPreviewText(c: {
+  last_msg: string | null;
+  is_group: boolean;
+  last_msg_is_out: boolean;
+  last_msg_state: string;
+  last_msg_read_count: number;
+  last_msg_is_info: boolean;
+}): string {
+  const text = c.last_msg ? resolveMessageText(c.last_msg) : '';
+  if (!text) return '';
+  if (c.last_msg_is_out && !c.last_msg_is_info) {
+    const s = stateLabel(c.last_msg_state as MsgState, c.is_group, c.last_msg_read_count);
+    return `${s} · ${text}`;
+  }
+  return text;
+}
+
 function formatBytes(bytes: number | null | undefined): string {
   if (!bytes) return '';
   if (bytes < 1024) return bytes + ' B';
@@ -164,10 +186,16 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   const quoteBlock = msg.quote_text
     ? `<div class="msg-quote">
         <span class="msg-quote-name">${escapeHtml(msg.quote_from || '')}</span>
-        <span class="msg-quote-text">${escapeHtml(msg.quote_text.slice(0, 80))}</span>
+        <span class="msg-quote-text">${escapeHtml(resolveMessageText(msg.quote_text).slice(0, 80))}</span>
       </div>`
     : '';
-  const textHtml = renderText(msg.text);
+  // 正文: 信封消息取 payload.text(约定所有 type 都有 text 字段), 否则显示原文。
+  const textHtml = renderText(resolveMessageText(msg.text));
+  // 链接卡片: 正文里所有网页 URL → 消息体下方各渲染一张链接卡片(标题/描述/favicon)。
+  // 先渲染壳(host + url), 预览由 hydrateLinkCard 异步水合, 避免阻塞渲染。
+  const linkCardHtml = extractWebUrls(resolveMessageText(msg.text))
+    .map((u) => renderLinkCard(u))
+    .join('');
   // 发送者头像:优先用消息自带的 from_avatar/from_color(后端已解析,对齐 Delta
   // authorProfileImage)—— 不再依赖 state.currentMembers 反查,根治「显示用户名却无头像」
   // (成员列表缺失/不匹配时头像静默回退成首字母)。
@@ -292,6 +320,7 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
       </div>
       ${quoteBlock}
       <div class="msg-text">${textHtml}</div>
+      ${linkCardHtml}
       ${attachmentHtml}
       ${reactionsHtml}
       ${footerHtml}
@@ -364,7 +393,7 @@ function renderText(text: string): string {
   const regex = /```(\w*)\n([\s\S]*?)```/g;
   let last = 0;
   let match: RegExpExecArray | null;
-  const inline = (s: string) => highlightMentions(escapeHtml(s)).replace(/\r?\n/g, '<br>');
+  const inline = (s: string) => highlightMentions(autolink(s)).replace(/\r?\n/g, '<br>');
   while ((match = regex.exec(text)) !== null) {
     if (match.index > last) parts.push(inline(text.slice(last, match.index)));
     const lang = match[1];
@@ -380,6 +409,127 @@ function renderText(text: string): string {
   }
   if (last < text.length) parts.push(inline(text.slice(last)));
   return parts.join('');
+}
+
+// 链接识别: http(s) | www.域名 | 邮箱 | 裸域名。在 escapeHtml 之前匹配,
+// 再对 url/href 分别转义; 末尾剥离成对/中文标点(,。;;), 避免句号被吞进链接。
+// 顺序: http(s) 优先(整条含 www/@), 邮箱次之(避免裸域名分支切到 bar.com), 裸域名最后。
+const LINK_RE =
+  /(https?:\/\/[^\s<"']+)|(www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:\/[^\s<"']*)?)|([\w.+-]+@[\w-]+(?:\.[\w-]+)+)|((?:^|(?<=[\s(]))[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?(?:\/[^\s<"']*)?)/gi;
+
+// 自动识别文本中的链接并转成可点击 <a>。裸/www 域名补 http://, 邮箱转 mailto:。
+// 早退只对「无 http/@/www/点」的纯文本生效; 含点即跑正则(裸域名需要点)。
+function autolink(text: string): string {
+  if (!text.includes('http') && !text.includes('@') && !text.includes('www') && !text.includes('.')) return escapeHtml(text);
+  LINK_RE.lastIndex = 0;
+  let last = 0;
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = LINK_RE.exec(text)) !== null) {
+    if (m.index > last) out.push(escapeHtml(text.slice(last, m.index)));
+    const raw = m[0].replace(/[.,;:!?，。；、!?]+$/, '');
+    const [http, www, mail, bare] = [m[1], m[2], m[3], m[4]];
+    let href: string;
+    if (http) href = raw;
+    else if (mail) href = 'mailto:' + raw;
+    else href = 'http://' + raw; // www 或裸域名
+    out.push(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="msg-link">${escapeHtml(raw)}</a>`);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(escapeHtml(text.slice(last)));
+  return out.join('');
+}
+
+// 取正文里所有网页 URL(跳过邮箱), 用于链接卡片。裸/www 补 http://; 去重保序。
+function extractWebUrls(text: string): string[] {
+  if (!text || (!text.includes('http') && !text.includes('www') && !text.includes('.'))) return [];
+  LINK_RE.lastIndex = 0;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = LINK_RE.exec(text)) !== null) {
+    const raw = m[0].replace(/[.,;:!?，。；、!?]+$/, '');
+    let url: string | null = null;
+    if (m[1]) url = raw; // http(s)
+    else if (m[2]) url = 'http://' + raw; // www
+    else if (m[4]) url = 'http://' + raw; // 裸域名
+    // m[3] 邮箱 → 跳过, 卡片只给网页
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      out.push(url);
+    }
+  }
+  return out;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+// ── 链接卡片 ──────────────────────────────────────────
+const GLOBE_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+
+interface LinkPreview {
+  url: string;
+  title: string;
+  description: string | null;
+  favicon: string | null;
+}
+const linkPreviewCache = new Map<string, LinkPreview>();
+
+function renderLinkCard(url: string): string {
+  const host = hostOf(url);
+  return `<div class="msg-link-card" data-url="${escapeAttr(url)}">
+    <div class="msg-lc-icon">${GLOBE_SVG}</div>
+    <div class="msg-lc-body">
+      <div class="msg-lc-title">${escapeHtml(host)}</div>
+      <div class="msg-lc-desc">${escapeHtml(url)}</div>
+    </div>
+  </div>`;
+}
+
+// 渲染后异步水合: 抓预览(有缓存跳过), 填标题/描述/favicon。失败保持壳。
+async function hydrateLinkCard(url: string, card: HTMLElement): Promise<void> {
+  const cached = linkPreviewCache.get(url);
+  if (cached) {
+    applyLinkPreview(card, cached);
+    return;
+  }
+  try {
+    const p = await call<LinkPreview>('fetch_link_preview', { url });
+    linkPreviewCache.set(url, p);
+    applyLinkPreview(card, p);
+  } catch {
+    /* 保持壳: host + url */
+  }
+}
+
+function applyLinkPreview(card: HTMLElement, p: LinkPreview): void {
+  const title = card.querySelector<HTMLElement>('.msg-lc-title');
+  if (title && p.title) title.textContent = p.title;
+  const desc = card.querySelector<HTMLElement>('.msg-lc-desc');
+  if (desc && p.description) desc.textContent = p.description;
+  const icon = card.querySelector<HTMLElement>('.msg-lc-icon');
+  if (icon && p.favicon) icon.innerHTML = `<img src="${escapeAttr(p.favicon)}" alt="" onerror="this.style.display='none'" />`;
+}
+
+// 打开外部链接: 网页直接跳系统浏览器; 邮箱走 mailto(二次提示)。
+async function openExternal(url: string): Promise<void> {
+  if (url.startsWith('mailto:')) {
+    const addr = url.slice('mailto:'.length);
+    ui.confirm({
+      title: '发送邮件',
+      message: `写信给 ${addr}?`,
+      confirmLabel: '打开邮件客户端',
+      onConfirm: () => call('open_external', { url }),
+    });
+  } else {
+    await call('open_external', { url });
+  }
 }
 
 // Highlight @mentions of self name or role names with active background.
@@ -443,6 +593,26 @@ export function bindMessageActions(container: HTMLElement): void {
         else m.showReadTimePopup(msgId, el);
       });
     });
+  });
+
+  // 消息内链接: 点击 → 系统浏览器/邮件客户端(外部打开, 不离开应用)
+  container.querySelectorAll<HTMLAnchorElement>('.msg-link').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = a.getAttribute('href') || '';
+      if (url) void openExternal(url);
+    });
+  });
+
+  // 链接卡片: 点击 → 外部打开; 渲染后异步水合预览
+  container.querySelectorAll<HTMLElement>('.msg-link-card').forEach((card) => {
+    card.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const url = card.dataset.url || '';
+      if (url) void openExternal(url);
+    });
+    void hydrateLinkCard(card.dataset.url || '', card);
   });
 
   // Reaction toggle (click existing reaction capsule)

@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+/// 链接预览(fetch_link_preview 返回): 消息里的 URL 渲染成链接卡片用。
+#[derive(Debug, Serialize)]
+pub struct LinkPreviewDto {
+    pub url: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub favicon: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AdvancedLogin {
     pub imap_host: Option<String>,
@@ -35,6 +44,11 @@ pub struct ChatDto {
     pub unread: u32,
     pub avatar: Option<String>, // blobdir 绝对路径(单聊=对方头像,群聊=群头像)
     pub color: Option<u32>,
+    // 最后一条消息元信息: 前端会话预览据此显示已读状态(单聊「已读 · …」/ 群聊「N 人已读 · …」)
+    pub last_msg_is_out: bool,
+    pub last_msg_state: String, // "pending" | "delivered" | "failed" | "read"
+    pub last_msg_read_count: u32, // 群聊已读数; 非群聊/未发出为 0
+    pub last_msg_is_info: bool,   // 最后一条是系统信息行(不显示已读前缀)
 }
 
 #[derive(Debug, Serialize)]

@@ -6,6 +6,7 @@ import { ui, colorHex } from '../components/ui.js';
 import { escapeHtml, escapeAttr } from '../components/escape.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
 import { renderMemberDetail } from '../components/memberDetail.js';
+import { chatPreviewText } from '../chat/message.js';
 import type { ChatListItem, MemberDto } from '../types.js';
 
 let panel: HTMLElement | null = null;
@@ -197,7 +198,7 @@ async function renderMessageList(): Promise<void> {
       const titleEl = existing.querySelector('.ui-list-title');
       const subEl = existing.querySelector('.ui-list-sub');
       if (titleEl) titleEl.textContent = c.name;
-      if (subEl) subEl.textContent = c.last_msg?.slice(0, 40) || '';
+      if (subEl) subEl.textContent = chatPreviewText(c).slice(0, 40);
       // 重建 trailing(未读数/时间) —— 尾部内容小,重建成本低
       let trailing = existing.querySelector('.nav-item-trailing');
       if (trailing) trailing.remove();
@@ -210,7 +211,7 @@ async function renderMessageList(): Promise<void> {
     const trailing = buildTrailing(c) ?? undefined;
     const item = ui.listItem({
       title: c.name,
-      subtitle: c.last_msg?.slice(0, 40) || '',
+      subtitle: chatPreviewText(c).slice(0, 40),
       trailing,
       onClick: async () => {
         state.currentChatId = c.chat_id;

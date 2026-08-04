@@ -254,6 +254,8 @@ export interface DialogOpts {
   size?: 'sm' | 'md' | 'lg';
   /** 是否显示右上角 ✕ (默认 true) */
   closeable?: boolean;
+  /** actions 为空时是否自动补一个「关闭」按钮 (默认 true)。confirm 等自带操作按钮的弹窗传 false 避免「关闭」「取消」并存 */
+  autoCloseButton?: boolean;
 }
 export function dialog(opts: DialogOpts): { overlay: HTMLDivElement; close: () => void } {
   const ov = overlay();
@@ -278,8 +280,11 @@ export function dialog(opts: DialogOpts): { overlay: HTMLDivElement; close: () =
     setTimeout(() => { ov.remove(); opts.onClose?.(); }, 120);
   };
   // 无操作按钮 → 自动补「关闭」,保证弹窗始终有明确退出途径 (Apple §16 Wayfinding)
+  // confirm 等自带操作按钮的弹窗传 autoCloseButton:false, 避免「关闭」与「取消」并存
   if (!opts.actions || opts.actions.length === 0) {
-    actions.appendChild(ui.button({ label: '关闭', variant: 'ghost', onClick: close }));
+    if (opts.autoCloseButton !== false) {
+      actions.appendChild(ui.button({ label: '关闭', variant: 'ghost', onClick: close }));
+    }
   } else {
     for (const a of opts.actions) actions.appendChild(a);
   }
@@ -330,6 +335,7 @@ export function confirm(opts: { title?: string; message: string; confirmLabel?: 
     title: opts.title || '确认',
     body: `<div class="ui-confirm-msg">${escapeHtml(opts.message)}</div>`,
     actions: [],
+    autoCloseButton: false,
   });
   const cancel = button({ label: '取消', variant: 'ghost', onClick: () => dlg.close() });
   const ok = button({

@@ -244,6 +244,9 @@ pub fn run() {
             // 深链:前端冷启动补收 PENDING
             deeplink::take_pending_deeplink,
             commands::parse_dclogin,
+            // 外链与链接预览(链接卡片)
+            commands::open_external,
+            commands::fetch_link_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

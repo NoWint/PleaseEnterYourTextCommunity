@@ -173,6 +173,11 @@ export interface ChatListItem {
   chat_type: string;
   avatar: string | null;
   color: number | null;
+  // 最后一条消息元信息: 会话预览据此显示已读状态
+  last_msg_is_out: boolean;
+  last_msg_state: string; // "pending" | "delivered" | "failed" | "read"
+  last_msg_read_count: number;
+  last_msg_is_info: boolean;
 }
 
 export interface ContactDto {

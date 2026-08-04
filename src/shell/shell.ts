@@ -1,4 +1,5 @@
 import { call, onEvent } from '../api.js';
+import { resolveMessageText } from '../utils/envelope.js';
 import { state } from '../state.js';
 import { loadPlugins } from '../plugins/manager.js';
 import { renderRail, refreshWorkspaces } from './rail.js';
@@ -369,7 +370,7 @@ async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
     try {
       const info = await call<ChatInfo>('get_chat_info', { chatId });
       const name = info.name || '新消息';
-      const preview = (text || '').slice(0, 50);
+      const preview = resolveMessageText(text || '').slice(0, 50);
       // 通知头像:单聊取对方头像;群聊用会话头像。get_chat_info 的成员(含 avatar)。
       const other = (info.members || []).find((m) => !m.is_self);
       const icon = other?.avatar || null;

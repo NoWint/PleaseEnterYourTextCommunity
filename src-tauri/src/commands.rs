@@ -298,12 +298,29 @@ async fn build_chatlist(ctx: &Context, archived_only: Option<bool>) -> AppResult
         let is_contact_request = chat.is_contact_request();
         let is_self_talk = chat.is_self_talk();
         let is_archived = chat.get_visibility() == ChatVisibility::Archived;
-        let (last_msg, last_ts) = if let Some(msg_id) = list.get_msg_id(i)? {
-            let m = message::Message::load_from_db(ctx, msg_id).await?;
-            (Some(m.get_text()), Some(m.get_timestamp()))
-        } else {
-            (None, None)
-        };
+        let (last_msg, last_ts, last_msg_is_out, last_msg_state, last_msg_read_count, last_msg_is_info) =
+            if let Some(msg_id) = list.get_msg_id(i)? {
+                let m = message::Message::load_from_db(ctx, msg_id).await?;
+                let st = m.get_state();
+                let is_out = st.is_outgoing();
+                let is_info = m.is_info();
+                // 群已读数只在「自己发出的非系统消息」时查询, 省一次 DB 命中
+                let read_count = if is_out && is_group && !is_info {
+                    message::get_msg_read_receipt_count(ctx, msg_id).await? as u32
+                } else {
+                    0
+                };
+                (
+                    Some(m.get_text()),
+                    Some(m.get_timestamp()),
+                    is_out,
+                    state_str(st).to_string(),
+                    read_count,
+                    is_info,
+                )
+            } else {
+                (None, None, false, "other".to_string(), 0, false)
+            };
         let unread = chat_id.get_fresh_msg_cnt(ctx).await? as u32;
         // 单聊用联系人最新显示名/头像/颜色(比 chat.name 缓存更可靠,对齐 core
         // get_display_name:本地名→authname→邮箱);其他会话用 chat 自身头像/颜色。
@@ -342,6 +359,10 @@ async fn build_chatlist(ctx: &Context, archived_only: Option<bool>) -> AppResult
             unread,
             avatar,
             color,
+            last_msg_is_out,
+            last_msg_state,
+            last_msg_read_count,
+            last_msg_is_info,
         });
     }
     Ok(out)
@@ -588,9 +609,12 @@ pub async fn get_chat_msgs(
 }
 
 /// 发送文本消息，返回新消息 id（供 send_text 与 bot_send_text 复用）。
+/// 普通文本统一组装成 `{"type":"text",...,"payload":{"text":...}}` 信封发出。
 async fn send_text_impl(ctx: &Context, chat_id: u32, text: String) -> AppResult<MsgId> {
     let chat_id = deltachat::chat::ChatId::new(chat_id);
-    Ok(chat::send_text_msg(ctx, chat_id, text).await?)
+    let payload = serde_json::json!({ "text": text });
+    let envelope = crate::envelope::build_envelope("text", payload)?;
+    Ok(chat::send_text_msg(ctx, chat_id, envelope).await?)
 }
 
 #[tauri::command]
@@ -3421,4 +3445,240 @@ pub async fn switch_account(state: State<'_, AppState>, id: u32) -> AppResult<cr
         return Ok(crate::dto::AccountInfoDto { id, name, addr, is_current: true });
     }
     Err(AppError::Core("账号不可用".into()))
+}
+
+// ── 外链与链接预览(链接卡片)──────────────────────────────────────────────
+
+/// 用系统默认浏览器/邮件客户端打开外部链接(http(s) 或 mailto:)。
+/// 前端拦截消息内链接点击后调用,避免 webview 内部导航离开应用。
+#[tauri::command]
+pub fn open_external(url: String) -> AppResult<()> {
+    use std::process::Command;
+    let args: Vec<&str> = match std::env::consts::OS {
+        "windows" => vec!["/c", "start", "", url.as_str()],
+        "macos" => vec![url.as_str()],
+        "linux" => vec![url.as_str()],
+        _ => return Err(AppError::Core("unsupported platform".into())),
+    };
+    let prog = match std::env::consts::OS {
+        "windows" => "cmd",
+        "macos" => "open",
+        "linux" => "xdg-open",
+        _ => return Err(AppError::Core("unsupported platform".into())),
+    };
+    Command::new(prog)
+        .args(&args)
+        .spawn()
+        .map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(())
+}
+
+/// 抓取网页元数据生成链接预览(标题/描述/favicon)。
+/// 只接受 http(s);限时 8s、限重定向 5 跳、正文最多读 150KB,防挂起/超大页。
+#[tauri::command]
+pub async fn fetch_link_preview(url: String) -> AppResult<crate::dto::LinkPreviewDto> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err(AppError::Core("仅支持 http/https 链接预览".into()));
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| AppError::Network(e.to_string()))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Network(e.to_string()))?;
+    let final_url = resp.url().clone().to_string();
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Network(e.to_string()))?;
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(150_000)]).into_owned();
+
+    let title = extract_meta(&head, "og:title")
+        .or_else(|| extract_tag(&head, "title"))
+        .unwrap_or_else(|| host_of(&final_url));
+    let description = extract_meta(&head, "og:description")
+        .or_else(|| extract_meta(&head, "description"));
+    let favicon = extract_favicon(&head, &final_url);
+
+    Ok(crate::dto::LinkPreviewDto {
+        url: final_url,
+        title,
+        description,
+        favicon: Some(favicon),
+    })
+}
+
+// ── HTML 元数据提取(纯字符串解析,不引 regex)───────────────────────────────
+
+/// 提取 <meta property/name="key" content="...">, 大小写不敏感。无 → None。
+fn extract_meta(head: &str, key: &str) -> Option<String> {
+    let lhead = head.to_ascii_lowercase();
+    let lkey = key.to_ascii_lowercase();
+    let mut pos = 0;
+    while let Some(rel) = lhead[pos..].find("<meta") {
+        let i = pos + rel;
+        let rest = &lhead[i..];
+        let end = rest.find('>')?;
+        let tag = &rest[..end];
+        // property 或 name 命中 key
+        let hit = ["property", "name"].iter().any(|attr| {
+            attr_ci(tag, attr)
+                .map(|v| v.to_ascii_lowercase() == lkey)
+                .unwrap_or(false)
+        });
+        if hit {
+            if let Some(v) = attr_ci(tag, "content") {
+                if !v.trim().is_empty() {
+                    return Some(clean_html(v));
+                }
+            }
+        }
+        pos = i + end;
+    }
+    None
+}
+
+/// 提取 <tag>...</tag> 文本(如 title), 大小写不敏感。无 → None。
+fn extract_tag(head: &str, tag: &str) -> Option<String> {
+    let lhead = head.to_ascii_lowercase();
+    let open = format!("<{tag}");
+    let close = format!("</{tag}");
+    let oi = lhead.find(&open)?;
+    let after_open = lhead[oi..].find('>')? + oi + 1;
+    let ci = lhead[after_open..].find(&close)? + after_open;
+    let raw = head[after_open..ci].trim();
+    if raw.is_empty() {
+        None
+    } else {
+        Some(clean_html(raw.to_string()))
+    }
+}
+
+/// 提取 <link rel="icon" href="...">; 无 → 站点根 /favicon.ico。
+fn extract_favicon(head: &str, final_url: &str) -> String {
+    let lhead = head.to_ascii_lowercase();
+    let mut pos = 0;
+    while let Some(rel) = lhead[pos..].find("<link") {
+        let i = pos + rel;
+        let rest = &lhead[i..];
+        let end = match rest.find('>') {
+            Some(e) => e,
+            None => break,
+        };
+        let tag = &rest[..end];
+        let rel_val = attr_ci(tag, "rel").unwrap_or_default().to_ascii_lowercase();
+        if rel_val.split_whitespace().any(|r| r == "icon" || r == "shortcut") {
+            if let Some(href) = attr_ci(tag, "href") {
+                return resolve_url(final_url, &href);
+            }
+        }
+        pos = i + end;
+    }
+    origin_of(final_url) + "/favicon.ico"
+}
+
+/// 在(已小写的)HTML 标签串里取属性值, 支持引号/无引号。无 → None。
+fn attr_ci(ltag: &str, key: &str) -> Option<String> {
+    let mut pos = 0;
+    loop {
+        let rel = ltag[pos..].find(key)?;
+        let i = pos + rel;
+        let after = &ltag[i + key.len()..];
+        let after = after.trim_start();
+        if let Some(eq_rest) = after.strip_prefix('=') {
+            let v = eq_rest.trim_start();
+            if let Some(q) = v.chars().next() {
+                if q == '"' || q == '\'' {
+                    let inner = &v[1..];
+                    if let Some(ci) = inner.find(q) {
+                        let val = &inner[..ci];
+                        if !val.is_empty() {
+                            return Some(val.to_string());
+                        }
+                    }
+                } else {
+                    let end = v
+                        .find(|c: char| c.is_whitespace() || c == '>')
+                        .unwrap_or(v.len());
+                    let val = &v[..end];
+                    if !val.is_empty() {
+                        return Some(val.to_string());
+                    }
+                }
+            }
+        }
+        pos = i + key.len();
+    }
+}
+
+/// 相对/协议相对 favicon href 解析成绝对 URL。
+fn resolve_url(base: &str, href: &str) -> String {
+    if href.starts_with("http://") || href.starts_with("https://") {
+        return href.to_string();
+    }
+    let origin = origin_of(base);
+    if href.starts_with("//") {
+        return format!("https:{href}");
+    }
+    if href.starts_with('/') {
+        return format!("{origin}{href}");
+    }
+    // 相对路径: 取 base 的目录(去 query/fragment, 去 host, 去最后一段文件名)再拼 href
+    let rest = base
+        .strip_prefix("https://")
+        .or_else(|| base.strip_prefix("http://"))
+        .unwrap_or("");
+    let path = rest.split(['?', '#']).next().unwrap_or("");
+    let after_host = match path.find('/') {
+        Some(i) => &path[i..],
+        None => "",
+    };
+    let dir = after_host.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let prefix = if dir.is_empty() {
+        origin
+    } else {
+        format!("{origin}{dir}")
+    };
+    format!("{prefix}/{href}")
+}
+
+/// 取 scheme://host(去掉路径)。
+fn origin_of(url: &str) -> String {
+    if let Some(rest) = url.strip_prefix("https://") {
+        let host = rest.split('/').next().unwrap_or("");
+        return format!("https://{host}");
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        let host = rest.split('/').next().unwrap_or("");
+        return format!("http://{host}");
+    }
+    url.to_string()
+}
+
+/// 取主机名(去 scheme)。
+fn host_of(url: &str) -> String {
+    let origin = origin_of(url);
+    origin
+        .strip_prefix("https://")
+        .or_else(|| origin.strip_prefix("http://"))
+        .unwrap_or(url)
+        .to_string()
+}
+
+/// 压缩空白 + 转义实体。
+fn clean_html(s: String) -> String {
+    s.replace(['\n', '\r', '\t'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ")
 }
