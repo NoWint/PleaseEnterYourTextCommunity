@@ -1435,11 +1435,10 @@ html.window-frame #titlebar-tools { height: 34px; }
 .msg-footer { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: var(--font-scale-micro); color: var(--text-weak); }
 .msg-state svg { display: block; }
 .msg-state.state-delivered { color: var(--text-weak); }
-.msg-state.state-read { color: var(--success); }
+.msg-state.state-read { color: var(--text-mute); }
 .msg-state.state-failed { color: var(--danger); }
-/* 自己的气泡内状态图标:read 用强调色(绿),failed 红,优先级高于气泡文字色 */
+/* 自己的气泡内状态图标:read 用正常文字色,failed 红,优先级高于气泡文字色 */
 .msg[data-is-out="1"] .msg-bubble .msg-state { color: color-mix(in srgb, var(--bubble-self-text) 70%, transparent); }
-.msg[data-is-out="1"] .msg-bubble .msg-state.state-read { color: var(--success); }
 .msg[data-is-out="1"] .msg-bubble .msg-state.state-failed { color: var(--danger); }
 /* 已读态可点击:弹出已读名单 popup */
 .msg-state[data-read-popup] { cursor: pointer; border-bottom: 1px dashed currentColor; padding-bottom: 1px; }
