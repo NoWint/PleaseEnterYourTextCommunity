@@ -414,10 +414,22 @@ html.window-frame #titlebar-tools { height: 34px; }
    阴影 + 内描边区分层次;文字用 --text 保持对比度。 */
 .chat-header {
   flex-shrink: 0;
-  padding: 10px 16px;
-  display: flex; justify-content: center; align-items: center;
+  padding: 8px 16px 12px;
+  display: flex; justify-content: center; align-items: flex-start;
+  /* 名称框:直角方形,从顶部垂下(无横线) */
+}
+/* 名称框入场动画:打开聊天时柔和地淡入下滑(切换会话会重放) */
+@keyframes ch-tag-drop {
+  0%   { transform: translateY(-6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.chat-header > div {
+  display: flex; align-items: center;
   background: var(--panel);
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 18px;
+  animation: ch-tag-drop 0.4s var(--ease-out) both;
 }
 .chat-header .ch-title { font-size: var(--font-scale-page); font-weight: 600; letter-spacing: -0.3px; line-height: 1.3; }
 .chat-header .ch-members { font-size: var(--font-scale-secondary); color: var(--text-mute); font-weight: 500; margin-left: 8px; }
