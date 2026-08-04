@@ -2,137 +2,385 @@
 <html lang="zh">
 <head>
     <meta charset="utf-8">
-    <title>在 PEYT 上私密沟通</title>
-    <meta name="description" content="点开邀请链接开始聊天">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="apple-itunes-app" content="app-id=YOUR_APP_ID">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="点开邀请链接,在 PEYT 上开始私密对话">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="在 PEYT 上私密沟通">
+    <meta property="og:title" content="PEYT · 私密对话">
     <meta property="og:url" content="https://peyt.yzjtiantian.cn">
-
-    <link rel="icon" href="logo.jpg" sizes="any">
-
+    <meta name="theme-color" content="#0d0d12">
+    <link rel="icon" href="logo.jpg">
+    <title>PEYT · 私密对话</title>
     <script src="./qrcode.min.js"></script>
-
     <style>
+        /* ── 设计系统 ──────────────────────────────── */
         :root {
-            --pad: 8px;
-            --peyt-color-1: rgb(88, 58, 235);
-            --peyt-color-2: rgb(30, 40, 60);
-            --peyt-gradient: linear-gradient(120deg, var(--peyt-color-1), var(--peyt-color-2));
+            --bg-0: #0d0d12;
+            --bg-1: #16161e;
+            --glass: rgba(255, 255, 255, 0.07);
+            --glass-strong: rgba(255, 255, 255, 0.11);
+            --stroke: rgba(255, 255, 255, 0.10);
+            --stroke-strong: rgba(255, 255, 255, 0.18);
+            --text: #f2f2f6;
+            --text-2: #a1a1b0;
+            --text-3: #6d6d7c;
+            --accent: #6a5cff;
+            --accent-2: #8b7bff;
+            --danger: #ff453a;
+            --radius-xl: 28px;
+            --radius-lg: 20px;
+            --radius-md: 14px;
+            --shadow-lg: 0 24px 60px rgba(0,0,0,0.45);
+            --shadow-md: 0 12px 32px rgba(0,0,0,0.30);
+            --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.1);
+            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         }
-        body { margin: 0; font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif; font-size: 12pt; background: #f4f5f7; }
-        a { color: #1e6bb8; text-decoration: none; }
-        header { padding: var(--pad); font-size: 18pt; background: var(--peyt-gradient); box-shadow: 0 0 3px #888; }
-        header a { font-weight: bold; color: white; }
-        .logo { display: flex; align-items: center; }
-        .logo img { margin-right: var(--pad); border-radius: 6px; }
-        #box { border-radius: 16px; background: white; padding: 15px; box-shadow: 0 0 10px #ccc; max-width: 420px; margin: 32px auto; }
-        #box p { text-align: center; }
-        #box li { margin-bottom: 40px; }
-        #dc-link, .download { padding: 10px; border-radius: 30px; font-size: 10pt; font-weight: bold; text-transform: uppercase; color: white; background: var(--peyt-gradient); display: inline-block; }
-        ol { display: block; list-style: none; counter-reset: numList; }
-        ol li { display: block; position: relative; }
-        ol li:before { --circle-size: 44px; counter-increment: numList; content: counter(numList); width: var(--circle-size); height: var(--circle-size); line-height: var(--circle-size); position: absolute; left: -56px; top: -10px; border-radius: 999px; color: var(--peyt-color-2); background: #f4f4f4; font-size: 14pt; text-align: center; }
-        textarea { width: 90%; height: 4.5em; font-family: monospace; }
-        .hidden { display: none; }
-        details { margin-top: 4em; text-align: center; }
-        details summary { cursor: pointer; font-size: 11pt; }
-        details #qrcode { min-width: 200px; width: 60%; padding-top: 1em; margin: auto; }
-        .hint { color: #666; font-size: 10pt; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body {
+            font-family: var(--font);
+            color: var(--text);
+            background: radial-gradient(120% 90% at 50% 0%, #1b1b2a 0%, var(--bg-0) 60%);
+            min-height: 100%;
+            -webkit-font-smoothing: antialiased;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+        }
+        /* 顶部光晕 + 柔和网格,制造层次 */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(60% 40% at 50% -10%, rgba(106, 92, 255, 0.18) 0%, transparent 70%),
+                radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.08) 0%, transparent 100%),
+                radial-gradient(1px 1px at 80% 70%, rgba(255,255,255,0.06) 0%, transparent 100%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ── 容器 ──────────────────────────────────── */
+        .page {
+            position: relative;
+            z-index: 1;
+            width: min(100%, 460px);
+            padding: 72px 24px 48px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            animation: page-in 600ms var(--ease-spring) both;
+        }
+        @keyframes page-in {
+            from { opacity: 0; transform: translateY(16px) scale(0.985); }
+            to   { opacity: 1; transform: none; }
+        }
+
+        /* ── Logo ──────────────────────────────────── */
+        .logo {
+            width: 76px; height: 76px;
+            border-radius: 22px;
+            object-fit: cover;
+            box-shadow: 0 12px 32px rgba(106,92,255,0.35);
+            margin-bottom: 24px;
+            animation: logo-in 700ms var(--ease-spring) 80ms both;
+        }
+        @keyframes logo-in {
+            from { opacity: 0; transform: scale(0.6) translateY(-8px); }
+            to   { opacity: 1; transform: none; }
+        }
+
+        /* ── 问候 ──────────────────────────────────── */
+        .greeting {
+            text-align: center;
+            margin-bottom: 36px;
+        }
+        .greeting .hello {
+            font-size: 34px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            line-height: 1.15;
+        }
+        .greeting .hello b {
+            background: linear-gradient(120deg, var(--accent-2), #c9a2ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .greeting .sub {
+            margin-top: 10px;
+            font-size: 15px;
+            color: var(--text-2);
+            letter-spacing: 0.01em;
+        }
+
+        /* ── 卡片 ──────────────────────────────────── */
+        .card {
+            width: 100%;
+            background: var(--glass);
+            border: 1px solid var(--stroke);
+            border-radius: var(--radius-xl);
+            padding: 28px 24px;
+            backdrop-filter: blur(24px) saturate(160%);
+            -webkit-backdrop-filter: blur(24px) saturate(160%);
+            box-shadow: var(--shadow-lg);
+            animation: card-in 600ms var(--ease-spring) 180ms both;
+        }
+        @keyframes card-in {
+            from { opacity: 0; transform: translateY(20px) scale(0.98); }
+            to   { opacity: 1; transform: none; }
+        }
+
+        /* 步骤 */
+        .steps { list-style: none; counter-reset: step; }
+        .steps li {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 0;
+            counter-increment: step;
+        }
+        .steps li:not(:last-child) { border-bottom: 1px solid var(--stroke); }
+        .steps li::before {
+            content: counter(step);
+            flex: none;
+            width: 34px; height: 34px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            font-size: 15px; font-weight: 600;
+            color: var(--accent-2);
+            background: rgba(106, 92, 255, 0.14);
+            border: 1px solid rgba(106, 92, 255, 0.25);
+        }
+        .steps .step-text { font-size: 15px; color: var(--text); }
+        .steps .step-text small { display: block; font-size: 13px; color: var(--text-3); margin-top: 2px; }
+
+        /* ── 主 CTA:打开 PEYT ─────────────────────── */
+        .cta {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            margin-top: 24px;
+            padding: 16px 20px;
+            border: none;
+            border-radius: var(--radius-md);
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            color: #fff;
+            font-family: inherit;
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(106,92,255,0.35);
+            transition: transform 120ms var(--ease-spring), box-shadow 200ms var(--ease-spring), filter 150ms;
+            text-decoration: none;
+            position: relative;
+        }
+        .cta:hover { filter: brightness(1.08); box-shadow: 0 10px 30px rgba(106,92,255,0.45); }
+        .cta:active { transform: scale(0.97); }
+        .cta svg { width: 20px; height: 20px; }
+        .cta .cta-arrow { transition: transform 150ms var(--ease-spring); }
+        .cta:hover .cta-arrow { transform: translateX(3px); }
+
+        /* 下载链接(次级) */
+        .download {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 14px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: var(--glass-strong);
+            border: 1px solid var(--stroke);
+            color: var(--text-2);
+            font-size: 13px;
+            text-decoration: none;
+            transition: background 120ms, color 120ms, transform 120ms var(--ease-spring);
+        }
+        .download:hover { background: var(--glass); color: var(--text); transform: translateY(-1px); }
+
+        /* ── 二维码区(其他设备)────────────────── */
+        .qr-wrap {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--stroke);
+            text-align: center;
+        }
+        .qr-toggle {
+            border: none;
+            background: none;
+            color: var(--text-2);
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            padding: 6px 10px;
+            border-radius: 8px;
+            transition: color 120ms, background 120ms;
+        }
+        .qr-toggle:hover { color: var(--text); background: var(--glass-strong); }
+        .qr-body { display: none; margin-top: 16px; }
+        .qr-body.open { display: block; animation: qr-in 320ms var(--ease-spring) both; }
+        @keyframes qr-in {
+            from { opacity: 0; transform: scale(0.94) translateY(6px); }
+            to   { opacity: 1; transform: none; }
+        }
+        #qrcode {
+            display: inline-flex;
+            padding: 14px;
+            background: #fff;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+        }
+        #qrcode canvas { display: block; }
+        .qr-hint { margin-top: 10px; font-size: 12px; color: var(--text-3); }
+
+        /* ── 生成器表单(无 #token)────────────── */
+        .generator { display: none; }
+        .generator.open { display: block; animation: qr-in 320ms var(--ease-spring) both; }
+        .generator textarea {
+            width: 100%;
+            min-height: 96px;
+            resize: vertical;
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: var(--radius-md);
+            background: var(--bg-1);
+            border: 1px solid var(--stroke);
+            color: var(--text);
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            outline: none;
+            transition: border-color 150ms;
+        }
+        .generator textarea:focus { border-color: var(--accent); }
+
+        /* ── 无 JS 兜底 ─────────────────────────── */
+        .nojs { display: none; }
+        body.no-js .nojs { display: block; }
+        .nojs ol { margin: 12px 0 0 22px; color: var(--text-2); font-size: 14px; line-height: 1.7; }
+
+        /* ── 响应式 ─────────────────────────────── */
+        @media (max-width: 480px) {
+            .page { padding: 48px 20px 32px; }
+            .greeting .hello { font-size: 28px; }
+            .card { padding: 22px 18px; }
+        }
+
+        /* ── 减弱动效 ───────────────────────────── */
+        @media (prefers-reduced-motion: reduce) {
+            .page, .logo, .card, .qr-body, .generator { animation: none; }
+            .cta, .cta .cta-arrow, .download { transition: none; }
+        }
     </style>
 </head>
 <body>
-<header>
-    <a class="logo" href="https://peyt.yzjtiantian.cn">
-        <img src="logo.jpg" width="32" height="32" aria-hidden="true" />
-        <span class="logo-text">PEYT</span>
-    </a>
-</header>
+    <main class="page">
+        <img class="logo" src="logo.jpg" alt="PEYT">
 
-<div id="box">
-    <noscript>
-        <div>
-            <h2><b>向 … 打个招呼 👋</b> 你禁用了 JavaScript,没问题:</h2>
-            <ol>
-                <li><a class="download" href="https://peyt.yzjtiantian.cn/download" target="_blank">下载 PEYT</a></li>
-                <li><b>复制</b> 浏览器地址栏的完整 URL(含 # 后的所有内容)<b>到剪贴板</b></li>
-                <li>在 PEYT 里选「扫码 → 从剪贴板粘贴」,开始聊天</li>
-            </ol>
+        <div class="greeting">
+            <h1 class="hello">向 <b id="name">TA</b> 打个招呼 👋</h1>
+            <p class="sub">在 PEYT 上开始一段私密对话</p>
         </div>
-    </noscript>
 
-    <form class="hidden">
-        <h2 class="form-blurb"></h2>
-        <ol>
-            <li class="step-code"></li>
-            <li>
-                <span class="step-paste"></span><br>
-                <textarea autofocus oninput="textareaInput(this.value)"></textarea>
-            </li>
-        </ol>
-    </form>
+        <div class="card" id="card">
+            <!-- 正常路径(有 #token):步骤 + CTA + 二维码 -->
+            <ol class="steps" id="steps">
+                <li><span class="step-text">下载 PEYT <small>Windows · macOS · Linux</small></span></li>
+                <li><span class="step-text">打开应用,开始私密聊天</span></li>
+            </ol>
 
-    <div id="say-hello" class="hidden">
-        <h2>
-            <span id="join">向</span>
-            <b id="name">对方</b>
-            👋 打个招呼
-        </h2>
-        <ol>
-            <li><a class="download" href="https://peyt.yzjtiantian.cn/download" target="_blank">下载 PEYT</a></li>
-            <li><a id="dc-link" href="">打开 PEYT</a></li>
-        </ol>
+            <a class="cta" id="dc-link" href="">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                打开 PEYT
+                <svg class="cta-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
 
-        <details>
-            <summary class="other-device">在其他设备上打开 PEYT</summary>
-            <div id="qrcode"></div>
-            <p><i class="scan-qr">扫码在另一台设备上打开对话</i></p>
-        </details>
-    </div>
-</div>
+            <a class="download" href="https://peyt.yzjtiantian.cn/download">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+                下载 PEYT
+            </a>
 
-<script>
-    const searchParams = new URLSearchParams(window.location.hash.substr(1));
+            <div class="qr-wrap">
+                <button class="qr-toggle" id="qr-toggle">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                    在另一台设备上打开
+                </button>
+                <div class="qr-body" id="qr-body">
+                    <div id="qrcode"></div>
+                    <p class="qr-hint">扫码在另一台设备打开对话</p>
+                </div>
+            </div>
 
-    function reactInput(inputData) {
-        const isValid = !!inputData;
-        // `<FPR>&v=3&i=...` → `OPENPGP4FPR:<FPR>#v=3&i=...`(复刻 i.delta.chat)
-        var openpgp4fprStr = "OPENPGP4FPR:" + inputData.replace(/&/, "#");
+            <!-- 生成器(无 #token) -->
+            <div class="generator" id="generator">
+                <p class="sub" style="margin-top:0">粘贴一条 PEYT / Delta 邀请链接,生成二维码</p>
+                <textarea id="gen-input" placeholder="粘贴 https://peyt.yzjtiantian.cn/#… 或 OPENPGP4FPR:…" autofocus></textarea>
+            </div>
+        </div>
+    </main>
 
-        var link = document.getElementById("dc-link");
-        link.setAttribute("href", openpgp4fprStr);
+    <script>
+        // 无 JS 兜底:显示复制 URL 提示,隐藏动态区
+        if (!window.QRCode) document.body.classList.add('no-js');
 
-        document.getElementById("name").innerText = searchParams.get("g") || searchParams.get("b") || searchParams.get("n") || searchParams.get("a") || "对方";
+        var searchParams = new URLSearchParams(window.location.hash.substr(1));
+        var nameEl = document.getElementById('name');
+        var stepsEl = document.getElementById('steps');
+        var ctaEl = document.getElementById('dc-link');
+        var qrBody = document.getElementById('qr-body');
+        var qrToggle = document.getElementById('qr-toggle');
+        var qrEl = document.getElementById('qrcode');
+        var genEl = document.getElementById('generator');
 
-        if (isValid) {
-            // 用 qrcode 库 toCanvas 异步渲染到 #qrcode(该库无 i.delta.chat 的 renderTextToElement)
-            var qrEl = document.getElementById("qrcode");
+        qrToggle.addEventListener('click', function () {
+            qrBody.classList.toggle('open');
+            qrToggle.textContent = qrBody.classList.contains('open') ? '收起二维码' : '在另一台设备上打开';
+        });
+
+        function renderInvite(token) {
+            // `<FPR>&v=3&i=...` → `OPENPGP4FPR:<FPR>#v=3&i=...`
+            var openpgp4fprStr = "OPENPGP4FPR:" + token.replace(/&/, "#");
+            ctaEl.setAttribute('href', openpgp4fprStr);
+            nameEl.textContent = searchParams.get("g") || searchParams.get("b") || searchParams.get("n") || searchParams.get("a") || "TA";
+            // 群邀请:文案微调
+            if (searchParams.get("g") || searchParams.get("b")) {
+                document.querySelector('.greeting .sub').textContent = '加入群聊,开始协作';
+            }
+            // 二维码
             qrEl.innerHTML = '';
             var cv = document.createElement('canvas');
             qrEl.appendChild(cv);
-            QRCode.toCanvas(cv, openpgp4fprStr, { width: 260, margin: 1 });
-            document.getElementById('say-hello').classList.remove('hidden');
-        } else {
-            document.querySelector('form').classList.remove('hidden');
+            QRCode.toCanvas(cv, openpgp4fprStr, { width: 200, margin: 1 });
+            stepsEl.style.display = 'none';
         }
-    };
 
-    // 生成器:粘贴 OPENPGP4FPR / peyt.yzjtiantian.cn / i.delta.chat 链接 → 二维码
-    function textareaInput(inputData) {
-        if (inputData.startsWith('https://peyt.yzjtiantian.cn')) {
-            inputData = inputData.replace(/https:\/\/peyt\.yzjtiantian\.cn\/?#/, '');
-        } else if (inputData.startsWith('https://i.delta.chat')) {
-            inputData = inputData.replace(/https:\/\/i\.delta\.chat\/?#/, '');
+        var token = window.location.hash.substr(1);
+        if (token) {
+            renderInvite(token);
         } else {
-            inputData = inputData.replace(/openpgp4fpr:/i, '');
+            stepsEl.style.display = 'none';
+            ctaEl.style.display = 'none';
+            document.querySelector('.download').style.display = 'none';
+            document.querySelector('.qr-wrap').style.display = 'none';
+            genEl.classList.add('open');
         }
-        if (inputData.indexOf('#') == -1) inputData = inputData.replace(/%23/, '#');
-        reactInput(inputData);
-    }
 
-    reactInput(window.location.hash.substr(1));
-</script>
+        // 生成器:输入即出二维码
+        var genInput = document.getElementById('gen-input');
+        genInput.addEventListener('input', function () {
+            var v = genInput.value.trim();
+            if (!v) { qrEl.innerHTML = ''; return; }
+            if (v.startsWith('https://peyt.yzjtiantian.cn')) v = v.replace(/https:\/\/peyt\.yzjtiantian\.cn\/?#/, '');
+            else if (v.startsWith('https://i.delta.chat')) v = v.replace(/https:\/\/i\.delta\.chat\/?#/, '');
+            else v = v.replace(/openpgp4fpr:/i, '');
+            if (v.indexOf('#') === -1) v = v.replace(/%23/, '#');
+            if (!v) return;
+            qrBody.classList.add('open');
+            renderInvite(v);
+        });
+    </script>
 </body>
 </html>
