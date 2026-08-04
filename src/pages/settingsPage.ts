@@ -6,6 +6,7 @@ import { renderAvatarHtml } from '../components/avatar.js';
 import { getCurrentTheme, applyTheme, BUILTIN_THEMES, getCurrentFontScale, applyFontScale, FONT_SCALES, type FontScale, type BuiltinTheme } from '../theme.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
+import { sendInviteLink } from '../components/shareLink.js';
 import { normalizeUrlForQr } from '../utils/deepLink.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
 // qrcode 包无自带类型声明,也无 @types/qrcode,用 @ts-expect-error 跳过类型检查
@@ -153,6 +154,7 @@ async function showMyQr(): Promise<void> {
         <div style="width:100%;display:flex;gap:8px;align-items:center">
           <input class="ui-input" type="text" value="${escapeHtml(qr)}" readonly style="flex:1" />
           <button class="ui-button ui-button-primary ui-button-sm" id="qr-copy-btn">复制链接</button>
+          <button class="ui-button ui-button-ghost ui-button-sm" id="qr-share-btn">分享</button>
         </div>
       </div>`;
     const dlg = ui.dialog({ title: '我的二维码', body, size: 'sm' });
@@ -161,6 +163,9 @@ async function showMyQr(): Promise<void> {
         await navigator.clipboard.writeText(qr);
         ui.toast('已复制');
       } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+    });
+    dlg.overlay.querySelector<HTMLButtonElement>('#qr-share-btn')?.addEventListener('click', () => {
+      void sendInviteLink(qr);
     });
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e));

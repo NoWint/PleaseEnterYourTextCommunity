@@ -2,8 +2,9 @@ import { call } from '../api.js';
 import { state } from '../state.js';
 import { ui } from './ui.js';
 import { escapeHtml } from './escape.js';
+import { sendInviteLink } from './shareLink.js';
 
-// 分享我的邀请:显示 PEYT 邀请链接(https://peyt.yzjtiantian.cn/#<token>)+ 复制按钮。
+// 分享我的邀请:显示 PEYT 邀请链接(https://peyt.yzjtiantian.cn/#<token>)+ 复制/分享按钮。
 // 链接由后端 get_securejoin_qr 生成并替换成 peyt 品牌域名;对方粘贴/点开唤起即处理。
 
 export async function openInviteDialog(): Promise<void> {
@@ -36,6 +37,11 @@ export async function openInviteDialog(): Promise<void> {
       }
     },
   });
+  const shareBtn = ui.button({
+    label: '分享',
+    icon: 'forward',
+    onClick: () => void sendInviteLink(link),
+  });
   const dlg = ui.dialog({
     title: '分享我的邀请',
     body: `
@@ -46,6 +52,6 @@ export async function openInviteDialog(): Promise<void> {
         <div style="color:var(--text);word-break:break-all;font-family:var(--font-mono);font-size:var(--font-scale-body);line-height:1.6;user-select:all">${escapeHtml(link)}</div>
       </div>
     `,
-    actions: [copyBtn],
+    actions: [copyBtn, shareBtn],
   });
 }
