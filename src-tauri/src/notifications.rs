@@ -33,11 +33,17 @@ pub struct Notifications {
 }
 
 impl Notifications {
-    /// `app_id` = Windows AUMID(打包后由安装器注册;未打包时 CreateToastNotifierWithId
-    /// 失败,user-notify 自动回退 mock manager,不报错)。
+    /// `app_id` = Windows AUMID(bundle identifier)。
+    /// Windows 未打包(dev)时 AUMID 未注册 → CreateToastNotifierWithId 失败 → user-notify
+    /// 回退 mock manager(通知静默丢弃)。修复:启动时先 SetCurrentProcessExplicitAppUserModelID
+    /// 设置进程级 AUMID,让 CreateToastNotifierWithId 成功,dev 也能弹原生 toast。
     /// `notification_protocol` 传 None:Windows 点击唤起走 toast.Activated(app 运行时),
     /// 不注册自定义 URI scheme(需要处理 deeplink 启动,超出当前范围)。
     pub fn new(app_id: String) -> Self {
+        #[cfg(target_os = "windows")]
+        {
+            set_process_app_user_model_id(&app_id);
+        }
         Self {
             manager: get_notification_manager(app_id, None),
         }
@@ -118,6 +124,22 @@ pub async fn show_notification(
     Ok(())
 }
 
+/// Windows: 设置当前进程的显式 AppUserModelID。未打包(dev)时 AUMID 未注册,
+/// 不设这个 toast 通知会失败(user-notify 回退 mock)。设置后 CreateToastNotifierWithId 可用。
+/// 失败只记日志不阻塞启动(打包后 AUMID 由安装器注册,无需此步)。
+#[cfg(target_os = "windows")]
+fn set_process_app_user_model_id(app_id: &str) {
+    use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+    let id = windows::core::HSTRING::from(app_id);
+    unsafe {
+        if let Err(e) = SetCurrentProcessExplicitAppUserModelID(&id) {
+            log::warn!("set AUMID {app_id} failed: {e}");
+        } else {
+            log::info!("set AUMID {app_id} OK");
+        }
+    }
+}
+
 /// 系统通知权限状态(设置页显示;Windows/Linux 恒 true,macOS 区分授权/拒绝)。
 #[tauri::command]
 pub async fn get_notification_permission(
@@ -140,4 +162,16 @@ pub async fn request_notification_permission(
         .first_time_ask_for_notification_permission()
         .await
         .map_err(|e| e.to_string())
+}
+
+/// 请求用户注意(任务栏/Dock 图标高亮)。未读新消息到达且 app 在后台时调用,
+/// 不强制聚焦窗口,点击窗口即恢复。Windows = 任务栏图标高亮(dev 下 toast 不可用时的替代),
+/// macOS = Dock 弹跳, Linux = 任务栏闪烁。
+#[tauri::command]
+pub fn request_attention(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.request_user_attention(Some(tauri::UserAttentionType::Informational))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

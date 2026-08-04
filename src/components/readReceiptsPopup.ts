@@ -1,4 +1,4 @@
-import { call } from '../api.js';
+import { call, transformBlobURL } from '../api.js';
 import { state } from '../state.js';
 import { ui } from './ui.js';
 import { escapeHtml } from './escape.js';
@@ -30,8 +30,18 @@ async function loadReceipts(msgId: number): Promise<ReadReceiptDto[] | null> {
   }
 }
 
-// 构建 + 锚定 + 关闭绑定(两种弹层共用)。
-function mountPopup(contentHtml: string, anchor: HTMLElement, className = 'rr-popup'): void {
+// 头像路径(blobdir 绝对路径) → 可加载 URL(asset 协议)。失败返回 null(回退首字母占位)。
+async function resolveAvatar(path: string | null): Promise<string | null> {
+  if (!path) return null;
+  try {
+    return await transformBlobURL(path);
+  } catch {
+    return null;
+  }
+}
+
+// 构建 + 锚定 + 关闭绑定(已读弹层 / 词频弹层共用)。
+export function mountPopup(contentHtml: string, anchor: HTMLElement, className = 'rr-popup'): void {
   closePopup();
   const popup = document.createElement('div');
   popup.className = className;
@@ -78,10 +88,14 @@ export async function openReadReceiptsPopup(msgId: number, anchor: HTMLElement):
   const unread = members.filter((m) => !m.is_self && !readIds.has(m.contact_id));
 
   const readRows = receipts.length
-    ? receipts.map((r) => memberRow(r.name, r.addr, r.avatar, r.color, fmtTs(r.ts))).join('')
+    ? (await Promise.all(
+        receipts.map(async (r) => memberRow(r.name, r.addr, await resolveAvatar(r.avatar), r.color, fmtTs(r.ts))),
+      )).join('')
     : '<div class="rr-empty">暂无已读</div>';
   const unreadRows = unread.length
-    ? unread.map((m) => memberRow(m.name, m.addr, m.avatar ?? null, m.color ?? null, '')).join('')
+    ? (await Promise.all(
+        unread.map(async (m) => memberRow(m.name, m.addr, await resolveAvatar(m.avatar ?? null), m.color ?? null, '')),
+      )).join('')
     : '<div class="rr-empty">全部已读</div>';
   mountPopup(`
     <div class="rr-head">已读 (${receipts.length})</div>
@@ -109,7 +123,7 @@ export async function showReadTimePopup(msgId: number, anchor: HTMLElement): Pro
   }
   mountPopup(`
     <div class="rr-head">已读时间</div>
-    <div class="rr-single">${memberRow(r.name, r.addr, r.avatar, r.color, fmtTs(r.ts))}</div>
+    <div class="rr-single">${memberRow(r.name, r.addr, await resolveAvatar(r.avatar), r.color, fmtTs(r.ts))}</div>
   `, anchor);
 }
 

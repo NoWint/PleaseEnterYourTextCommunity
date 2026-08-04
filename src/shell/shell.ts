@@ -381,12 +381,16 @@ async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
   void updateBadge();
 }
 
+// 记录上次未读总数, 递增时触发任务栏高亮(避免每次刷新都闪)。
+let lastUnreadTotal = 0;
+
 async function updateBadge(): Promise<void> {
   try {
     const tauri = window as unknown as TauriWindow;
     // 角标开关关闭时直接清零(设置页切换后立即可见)
     if (localStorage.getItem('peyt.badgeEnabled') === 'false') {
       if (tauri.__TAURI__?.app?.setBadgeCount) await tauri.__TAURI__.app.setBadgeCount(0);
+      lastUnreadTotal = 0;
       return;
     }
     // 同时拉常规 + 归档会话的未读:归档会话新消息也应计入总角标(Delta 语义:归档不打扰但有未读提示)
@@ -398,6 +402,12 @@ async function updateBadge(): Promise<void> {
     if (tauri.__TAURI__?.app?.setBadgeCount) {
       await tauri.__TAURI__.app.setBadgeCount(total);
     }
+    // 未读增加 → 任务栏/Dock 高亮(dev 下 toast 不可用时仍能提醒)。窗口聚焦后由
+    // 下一次 refreshSidebar 清零触发 updateBadge(total=0) 自然停止。
+    if (total > lastUnreadTotal) {
+      void call('request_attention');
+    }
+    lastUnreadTotal = total;
   } catch {}
 }
 

@@ -1,14 +1,21 @@
-import { call } from '../api.js';
+import { call, transformBlobURL } from '../api.js';
 import { state } from '../state.js';
 import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache, setReadCounts, type GroupRole } from './message.js';
+import { resolveMessageText } from '../utils/envelope.js';
 import { renderComposer } from './composer.js';
 import { saveState } from '../persist.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
+import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
+import { initSegmenter, computeTopWords, type WordFreq } from '../utils/wordAnalysis.js';
 import type { MsgDto, RoleDto, MemberDto, ChannelDto, ChatListItem, AppState } from '../types.js';
 
 interface ChatInfo {
+  name: string;
+  is_group: boolean;
   members: MemberDto[];
+  avatar: string | null;
+  color: number | null;
 }
 
 interface ChannelPin {
@@ -98,28 +105,47 @@ export async function renderChatView(chatId: number): Promise<void> {
     } catch {}
     // Task 13: 拉取 chat_info 并把 members 存入 state.currentMembers,
     // 供 message.js 查找发送者的 avatar/color。失败时清空,避免显示上一个频道的成员。
+    // 单聊/群聊标记立即更新——channelName 渲染标题依赖它,稍后第 134 行的
+    // chatlist 也会写,但标题在更早就渲染,若滞后会显示上一个频道的名称/或 #XX。
+    // headerName/headerIsGroup 用本次 info 的值,避免时序错位显示上一个频道的名称。
+    let chatInfo: ChatInfo | null = null;
+    let headerName = '';
+    let headerIsGroup = false;
     try {
       const info = await call<ChatInfo>('get_chat_info', { chatId });
       state.currentMembers = info.members || [];
+      chatInfo = info;
+      headerIsGroup = info.is_group;
+      headerName = headerNameOf(info, chatId);
+      // 立即写全局,供 message.ts 渲染气泡/role tag 用
+      state.currentChatIsGroup = info.is_group;
     } catch {
       state.currentMembers = [];
+      state.currentChatIsGroup = false;
     }
     // 渲染骨架(含 Task 13 头部按钮:members / pin,触发 detail panel)
     // 成员数标签:state.currentMembers 来自上面 get_chat_info,失败为空则隐藏
     const memberCount = state.currentMembers?.length || 0;
     // 单聊不显示 "N 成员"(对应用户名已在标题,气泡内也无 name/role tag)
-    const membersTag = memberCount > 0 && state.currentChatIsGroup
+    const membersTag = memberCount > 0 && headerIsGroup
       ? `<span class="ch-members">${memberCount} 成员</span>`
       : '';
+    // 头部头像:单聊 = 对方成员头像;群聊 = 会话头像(chatInfo.avatar)。无则省略。
+    const headerAvatarHtml = await buildHeaderAvatarHtml(chatInfo);
     main.innerHTML = `
-      <div class="chat-header">
-        <div>
-          <span class="ch-title">${escapeHtml(channelName(chatId))}</span>
-          ${membersTag}
-          <span class="ch-topic">${escapeHtml(topic)}</span>
+      <div class="messages" id="messages">
+        <div class="chat-header" data-header="1">
+          <div class="ch-head">
+            <div class="ch-head-row">
+              ${headerAvatarHtml}
+              <span class="ch-title">${escapeHtml(headerName || channelName(chatId))}</span>
+              ${membersTag}
+              <span class="ch-topic">${escapeHtml(topic)}</span>
+            </div>
+            <div class="ch-topic-bar" data-topic-bar="1"></div>
+          </div>
         </div>
       </div>
-      <div class="messages" id="messages"></div>
       <div id="composer-area"></div>
     `;
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
@@ -253,6 +279,8 @@ async function refreshMessages(chatId: number): Promise<void> {
   // (scrollHeight = 真实高度,scrollTop 天然稳定,零手动补偿)。
   await renderAllMessages(box);
   box.scrollTop = box.scrollHeight;
+  // 消息更新(切会话/新消息/发送后)→ 防抖重算主题词频气泡
+  scheduleTopicRefresh();
 }
 
 // 已读系统:批量拉取发出的消息的已读人数,填充 readCountMap(气泡渲染「N 人已读」)。
@@ -331,6 +359,8 @@ async function renderAllMessages(box: HTMLElement): Promise<void> {
   // 现有节点索引:key = m:msg_id / d:日期 / u:未读位置
   const existing = new Map<string, HTMLElement>();
   for (const el of Array.from(box.children)) {
+    // 聊天头(嵌入消息流,sticky 固定顶部)不属于对账序列,跳过
+    if ((el as HTMLElement).dataset.header === '1') continue;
     const h = el as HTMLElement;
     const key = h.dataset.msg
       ? `m:${h.dataset.msg}`
@@ -406,6 +436,8 @@ async function renderAllMessages(box: HTMLElement): Promise<void> {
   // 不会与消息并存,因此非目标节点一律移除。
   const desired = new Set(items.map((it) => it.key));
   for (const el of Array.from(box.children)) {
+    // 聊天头不属于对账序列,保留(sticky 固定顶部)
+    if ((el as HTMLElement).dataset.header === '1') continue;
     const h = el as HTMLElement;
     const key = h.dataset.msg
       ? `m:${h.dataset.msg}`
@@ -555,6 +587,34 @@ function bindScrollListener(chatId: number): void {
   });
 }
 
+// 从本次 chat_info 取头部标题: 单聊用对方 username, 群聊用 info 名(chat_info.name)。
+// 不走 state.currentMembers/currentChatIsGroup —— 那些是全局缓存, 切换时可能滞后。
+function headerNameOf(info: ChatInfo, chatId: number): string {
+  if (!info.is_group) {
+    const other = info.members?.find((mm) => !mm.is_self);
+    if (other?.name) return other.name;
+  }
+  if (info.name) return info.name;
+  return '';
+}
+
+// 头部头像 HTML: 单聊 = 对方成员头像; 群聊 = 会话头像(chatInfo.avatar)。
+// 头像路径是 blobdir 绝对路径, 经 transformBlobURL 转可加载 URL。无头像 → 空串。
+async function buildHeaderAvatarHtml(info: ChatInfo | null): Promise<string> {
+  if (!info) return '';
+  const avatarPath = info.is_group
+    ? info.avatar
+    : info.members?.find((mm) => !mm.is_self)?.avatar || null;
+  if (!avatarPath) return '';
+  try {
+    const url = await transformBlobURL(avatarPath);
+    if (!url) return '';
+    return `<img class="ch-avatar" src="${escapeHtml(url)}" alt="" />`;
+  } catch {
+    return '';
+  }
+}
+
 function channelName(chatId: number): string {
   // self-talk(保存的消息/设备聊天)不在 workspace channels 里,单独给友好名称
   if (currentChatIsSelfTalk) return '保存的消息';
@@ -563,7 +623,39 @@ function channelName(chatId: number): string {
     const other = state.currentMembers?.find((mm) => !mm.is_self);
     if (other?.name) return other.name;
   }
+  // 频道(channels)里的名称(群聊频道)
   const ch = state.channels.find((c: ChannelDto) => c.chat_id === chatId);
-  return ch ? ch.name : `#${chatId}`;
+  if (ch?.name) return ch.name;
+  return `#${chatId}`;
+}
+
+// ── 会话主题词频气泡 ──────────────────────────────────────
+let topicTimer: ReturnType<typeof setTimeout> | null = null;
+let topicWords: WordFreq[] = [];
+
+// 防抖 300ms: 切换会话/新消息触发, 避免频繁重算。懒加载分词, 失败静默。
+function scheduleTopicRefresh(): void {
+  if (topicTimer) clearTimeout(topicTimer);
+  topicTimer = setTimeout(async () => {
+    topicTimer = null;
+    try {
+      await initSegmenter();
+    } catch (err) {
+      // 分词初始化失败 → 隐藏气泡, 不阻断聊天(先打日志便于排查)
+      console.warn('[word-freq] jieba init failed:', err);
+      document.querySelector('[data-topic-bar="1"]')?.remove();
+      return;
+    }
+    const words = computeTopWords(state.messages, resolveMessageText, 5);
+    console.log('[word-freq] top words:', words.map((w) => `${w.word}:${w.count}`).join(', '));
+    topicWords = words;
+    const bar = document.querySelector<HTMLElement>('[data-topic-bar="1"]');
+    if (!bar) return;
+    bar.innerHTML = renderTopicBubbleHtml(words);
+    bar.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openWordAnalysisPopup(e.currentTarget as HTMLElement, topicWords);
+    });
+  }, 300);
 }
 

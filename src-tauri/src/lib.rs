@@ -76,8 +76,8 @@ pub fn run() {
                 }
             }
             // 原生系统通知:注册点击回调(点击 → 聚焦窗口 + 事件给前端)。
-            // app_id 用 bundle identifier (Windows AUMID)。
-            let notif = notifications::Notifications::new("com.peytchat.app".into());
+            // app_id 用 bundle identifier (Windows AUMID),对齐 Delta 桌面端。
+            let notif = notifications::Notifications::new(app.config().identifier.clone());
             notif.initialize(app.handle().clone());
             app.manage(notif);
             // Windows 无边框窗口:子类化窗口过程,让最大化/还原按钮区域返回 HTMAXBUTTON,
@@ -376,6 +376,7 @@ pub fn run() {
             notifications::show_notification,
             notifications::get_notification_permission,
             notifications::request_notification_permission,
+            notifications::request_attention,
             // 深链:前端冷启动补收 PENDING
             deeplink::take_pending_deeplink,
             commands::parse_dclogin,
