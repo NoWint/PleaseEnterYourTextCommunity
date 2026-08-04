@@ -130,16 +130,16 @@ html { background: var(--bg); }
    高度取 Windows 原生标题栏 ~34px:比旧 40px 更窄,仍是舒适点击区(≥32px)。 */
 #window-drag-region {
   position: fixed; top: 0; left: 0;
-  width: 100%; height: 28px;
+  width: 100%; height: 40px;
   z-index: 9999;
   display: none;
   align-items: center;
 }
 html.window-overlay #window-drag-region,
 html.window-frame #window-drag-region { display: flex; }
-/* macOS 顶栏 = 原生标题栏高 28px(不硬编码红绿灯位置,系统默认即居中);
-   Windows/Linux 自绘标题栏保持 34px(Windows 原生标题栏高)。 */
-html.window-overlay #app { padding-top: 28px; }
+/* macOS 顶栏 40px(舒适高度),红绿灯经 trafficLightPosition y18(比几何居中偏下,配合顶栏整体观感);
+   Windows/Linux 自绘标题栏 34px(Windows 原生标题栏高)。 */
+html.window-overlay #app { padding-top: 40px; }
 html.window-frame #window-drag-region { height: 34px; }
 html.window-frame #app { padding-top: 34px; }
 
@@ -196,9 +196,11 @@ html.window-overlay .wb-title,
 html.window-overlay .wb-controls { display: none; }
 
 /* 顶栏工具栏:VSCode 式居中搜索条。容器不拦截拖拽(pointer-events:none),仅搜索按钮可点。
-   占满宽度、justify-content:center 保证严格居中;显示与否由 titlebar.ts 控制(有 shell 才显示)。 */
+   占满宽度、justify-content:center 保证水平居中;高度与对应平台的顶栏一致
+   (macOS overlay 40px / Windows frame 34px),align-items:center 使搜索条垂直居中。
+   显示与否由 titlebar.ts 控制(有 shell 才显示)。 */
 #titlebar-tools {
-  position: fixed; top: 0; left: 0; right: 0; height: 28px;
+  position: fixed; top: 0; left: 0; right: 0; height: 40px;
   display: none; align-items: center; justify-content: center;
   z-index: 10000;
   pointer-events: none;
