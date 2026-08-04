@@ -80,6 +80,8 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   let activeTab: GithubTab = 'issues';
   let filesPath = ''; // 文件 tab 的当前目录
   let hasToken = false;
+  let boundRepos: GithubRepoDto[] = []; // 已绑定仓库缓存(reloadRepos 填充)
+  let renderSeq = 0; // 单调递增渲染世代号,丢弃过期 tab 渲染结果
 
   const root = document.createElement('div');
   root.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden';
@@ -260,6 +262,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
       repoListEl.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       return;
     }
+    boundRepos = repos;
     // 刷新下拉,保持当前选中
     const prevFull = repo?.full_name ?? '';
     repoSelect.innerHTML = '';
@@ -313,14 +316,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     return row;
   }
   async function selectRepo(fullName: string): Promise<void> {
-    let repos: GithubRepoDto[] = [];
-    try {
-      repos = await call<GithubRepoDto[]>('list_github_repos');
-    } catch (e) {
-      ui.toast(e instanceof Error ? e.message : String(e));
-      return;
-    }
-    const cur = repos.find((r) => r.full_name === fullName) ?? null;
+    const cur = boundRepos.find((r) => r.full_name === fullName) ?? null;
     if (fullName && !cur) {
       ui.toast(`仓库 ${fullName} 未绑定,请先在设置区添加`);
       return;
@@ -341,6 +337,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
 
   // ── Tab 渲染 ──
   function renderTab(): void {
+    const seq = ++renderSeq;
     content.innerHTML = '';
     if (!repo) {
       content.appendChild(ui.empty('选择或添加一个仓库后查看数据'));
@@ -349,6 +346,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     content.appendChild(ui.spinner());
     void (async () => {
       try {
+        if (seq !== renderSeq) return;
         content.innerHTML = '';
         if (activeTab === 'issues') await renderIssues();
         else if (activeTab === 'pulls') await renderPulls();
@@ -357,6 +355,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
         else if (activeTab === 'events') await renderEvents();
         else if (activeTab === 'details') await renderDetails();
       } catch (e) {
+        if (seq !== renderSeq) return;
         content.innerHTML = '';
         content.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       }

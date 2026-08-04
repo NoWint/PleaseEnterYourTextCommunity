@@ -239,7 +239,7 @@ GitHub 访问层:`src-tauri/src/github/`(`client.rs` 共享 HTTP 客户端 + `ap
 | `add_github_repo` | `owner: string`<br>`repo: string` | `GithubRepoDto` | 绑定仓库(校验:非空、不含 `/`、仅 `[A-Za-z0-9._-]`) |
 | `remove_github_repo` | `id: i64` | `()` | 解除绑定 |
 | `github_repo` | `owner: string`<br>`repo: string` | `RepoDto` | 仓库详情 |
-| `github_list_issues` | `owner: string`<br>`repo: string`<br>`state?: string` | `IssueDto[]` | Issue 列表(`state`: `open` / `closed` / `all`,默认全部;已过滤混入的 PR) |
+| `github_list_issues` | `owner: string`<br>`repo: string`<br>`state?: string` | `IssueDto[]` | Issue 列表(`state`: `open` / `closed` / `all`,默认 open;已过滤混入的 PR) |
 | `github_get_issue` | `owner: string`<br>`repo: string`<br>`number: i64` | `IssueDto` | Issue 详情 |
 | `github_list_pulls` | `owner: string`<br>`repo: string`<br>`state?: string` | `PullDto[]` | PR 列表 |
 | `github_list_commits` | `owner: string`<br>`repo: string`<br>`path?: string` | `CommitDto[]` | Commit 列表(可限定路径) |

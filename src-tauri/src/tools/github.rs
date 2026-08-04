@@ -925,6 +925,11 @@ async fn handle_create_pr_review_comment(
     let commit_id = opt_str(&args, "commitId");
     let path = opt_str(&args, "path");
     let line = args.get("line").and_then(|v| v.as_i64());
+    if line.is_some() && path.is_none() {
+        return Err(AppError::Core(
+            "参数 path 缺失:指定 line 评论到具体文件行时须同时提供 path".to_string(),
+        ));
+    }
     require_repo_bound(ctx, &owner, &repo).await?;
     let auth = GithubAuth {
         token: resolve_token(ctx).await?,
