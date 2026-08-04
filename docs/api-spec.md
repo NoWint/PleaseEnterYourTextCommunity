@@ -225,6 +225,8 @@ Bot 是应用级后台服务(以独立 deltachat 账号运行),所有 bot 命令
 
 > `parameters` 为描述工具入参结构的 JSON Schema 对象(展示用);真正执行由前端插件 handler 完成:后端触发时推送 `bot-tool-request` 事件(§4.4),插件执行后调 `bot_tool_result(id, result)` 回填,超时 10s 后端报错。
 
+> **`get_bot_config` / `update_bot_config`**:除 `llm` 外还涵盖 `limits` / `tools` / `rule` / `persona` / `project_context`(前端 LLM Tab「项目上下文」区配置 `project_context`,LLM 驱动会把 `description` 与关联频道 `chat_ids` 的最近消息注入为 system 消息)。
+
 ---
 
 ## 3. 错误模型
@@ -420,6 +422,16 @@ unsub(); // 退订
 | `tools` | `string[] \| null` | 显式启用的工具名集合;`null` = 使用默认安全工具集 |
 | `rule` | `RuleConfig \| null` | 规则驱动配置 |
 | `persona` | `string \| null` | 人设 id |
+| `projectContext` | `ProjectContext \| null` | 项目上下文(预留,D1-D3 地基) |
+
+### ProjectContext(项目上下文预留)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `workspaceId` | `number \| null` | 关联工作区 id(预留) |
+| `chatIds` | `number[]` | 关联频道;LLM 驱动回复时会注入这些频道最近消息作为对话背景 |
+| `description` | `string?` | 项目一句话描述;有值注入为 system 消息「项目背景:…」 |
+| `repoPath` | `string?` | 预留:Git 仓库路径(D1 GitHub 集成用) |
 
 ### BotLimits
 

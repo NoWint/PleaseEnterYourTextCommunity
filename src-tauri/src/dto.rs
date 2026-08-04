@@ -468,6 +468,21 @@ impl Default for BotLimits {
     }
 }
 
+/// 项目上下文预留(D1 GitHub 集成 / D2 代码分析 / D3 知识沉淀的配置地基)。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ProjectContext {
+    #[serde(default)]
+    pub workspace_id: Option<i64>,
+    /// 关联频道(Bot 注入这些频道最近消息作为对话背景)
+    #[serde(default)]
+    pub chat_ids: Vec<u32>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// 预留:Git 仓库路径(D1 GitHub 集成用)
+    #[serde(default)]
+    pub repo_path: Option<String>,
+}
+
 /// Bot 完整配置(存于 bots.config_json)。
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct BotConfig {
@@ -482,6 +497,8 @@ pub struct BotConfig {
     pub rule: Option<RuleConfig>,
     #[serde(default)]
     pub persona: Option<String>,
+    #[serde(default)]
+    pub project_context: Option<ProjectContext>,
 }
 
 impl BotConfig {
@@ -530,6 +547,7 @@ impl BotConfig {
             tools: None,
             rule: None,
             persona: None,
+            project_context: None,
         })
     }
 }
@@ -722,6 +740,57 @@ mod tests {
         assert_eq!(back.kind, "reply_sent");
         assert_eq!(back.bot_id, 9);
         assert_eq!(back.chat_id, Some(3));
+    }
+
+    #[test]
+    fn test_project_context_round_trip() {
+        let pc = ProjectContext {
+            workspace_id: Some(7),
+            chat_ids: vec![1, 42, 99],
+            description: Some("PEYT Chat 桌面端".into()),
+            repo_path: Some("/Users/alice/peytchat".into()),
+        };
+        let json = serde_json::to_string(&pc).unwrap();
+        let back: ProjectContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, pc);
+        assert_eq!(back.workspace_id, Some(7));
+        assert_eq!(back.chat_ids, vec![1, 42, 99]);
+        assert_eq!(back.description.as_deref(), Some("PEYT Chat 桌面端"));
+        assert_eq!(back.repo_path.as_deref(), Some("/Users/alice/peytchat"));
+    }
+
+    #[test]
+    fn test_project_context_missing_fields_default() {
+        // 缺失字段走默认:workspace_id/repo_path None,chat_ids 空
+        let back: ProjectContext = serde_json::from_str(r#"{"description":"仅描述"}"#).unwrap();
+        assert_eq!(back.workspace_id, None);
+        assert!(back.chat_ids.is_empty());
+        assert_eq!(back.description.as_deref(), Some("仅描述"));
+        assert_eq!(back.repo_path, None);
+        // 完全空 JSON → Default
+        let empty: ProjectContext = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty, ProjectContext::default());
+    }
+
+    #[test]
+    fn test_bot_config_project_context_round_trip() {
+        let cfg = BotConfig {
+            llm: None,
+            limits: BotLimits::default(),
+            tools: None,
+            rule: None,
+            persona: None,
+            project_context: Some(ProjectContext {
+                workspace_id: None,
+                chat_ids: vec![3, 5],
+                description: Some("测试项目".into()),
+                repo_path: None,
+            }),
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: BotConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, cfg);
+        assert_eq!(back.project_context.as_ref().unwrap().chat_ids, vec![3, 5]);
     }
 }
 

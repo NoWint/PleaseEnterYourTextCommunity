@@ -75,6 +75,8 @@ impl BotDriver for LlmDriver {
                 ..Default::default()
             });
         }
+        // 项目上下文注入:system prompt 之后、history 之前
+        append_project_context(&mut messages, bot).await;
         messages.extend(history);
 
         let enabled = bot.config.tools.as_deref();
@@ -132,6 +134,67 @@ impl BotDriver for LlmDriver {
         };
         Ok(split_reply(&final_text))
     }
+}
+
+// ── 项目上下文注入 ──────────────────────────────────────────────────
+
+/// 项目上下文注入:Bot 配置了 project_context 时,把项目描述与关联频道最近消息
+/// 拼成 system 消息,插在 system prompt 之后、对话 history 之前。
+/// 单频道失败跳过,不影响其他频道注入。
+async fn append_project_context(messages: &mut Vec<ChatMessage>, bot: &BotRuntime<'_>) {
+    let Some(pc) = bot.config.project_context.as_ref() else {
+        return;
+    };
+    if let Some(desc) = pc
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        messages.push(ChatMessage {
+            role: "system".into(),
+            content: format!("项目背景:{desc}"),
+            ..Default::default()
+        });
+    }
+    if pc.chat_ids.is_empty() {
+        return;
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for &cid in &pc.chat_ids {
+        let chat_id = ChatId::new(cid);
+        let chat_name = match chat::Chat::load_from_db(bot.dc, chat_id).await {
+            Ok(c) => c.get_name().to_string(),
+            Err(_) => continue,
+        };
+        let history = match build_history(bot.dc, chat_id).await {
+            Ok(h) if !h.is_empty() => h,
+            _ => continue,
+        };
+        let text = history
+            .into_iter()
+            .map(|m| m.content)
+            .collect::<Vec<_>>()
+            .join("\n");
+        lines.push(format_chat_context_line(&chat_name, &text));
+    }
+    if !lines.is_empty() {
+        messages.push(ChatMessage {
+            role: "system".into(),
+            content: build_chat_context_block(lines),
+            ..Default::default()
+        });
+    }
+}
+
+/// 单条关联频道上下文行:「{chat_name}: {text}」。
+fn format_chat_context_line(chat_name: &str, text: &str) -> String {
+    format!("{chat_name}: {text}")
+}
+
+/// 拼装「其他频道上下文」system 消息内容。
+fn build_chat_context_block(lines: Vec<String>) -> String {
+    format!("其他频道上下文:\n{}", lines.join("\n"))
 }
 
 // ── 历史构建(自 bot_llm.rs 移植) ────────────────────────────────────────
@@ -345,5 +408,19 @@ mod tests {
     fn test_split_reply_empty() {
         assert_eq!(split_reply(""), Vec::<String>::new());
         assert_eq!(split_reply("   "), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_format_chat_context_line() {
+        assert_eq!(format_chat_context_line("群A", "「小明: 你好」"), "群A: 「小明: 你好」");
+    }
+
+    #[test]
+    fn test_build_chat_context_block() {
+        let block = build_chat_context_block(vec!["群A: hi".into(), "群B: yo".into()]);
+        assert!(block.starts_with("其他频道上下文:"));
+        assert!(block.contains("群A: hi"));
+        assert!(block.contains("群B: yo"));
+        assert!(block.contains('\n'));
     }
 }

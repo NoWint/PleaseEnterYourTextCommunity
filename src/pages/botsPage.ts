@@ -69,12 +69,20 @@ interface RuleConfig {
   fallback?: string | null;
 }
 
+interface ProjectContext {
+  workspace_id?: number | null;
+  chat_ids: number[];
+  description?: string | null;
+  repo_path?: string | null;
+}
+
 interface BotConfig {
   llm?: LlmConfig | null;
   limits?: BotLimits;
   tools?: string[] | null;
   rule?: RuleConfig | null;
   persona?: string | null;
+  project_context?: ProjectContext | null;
 }
 
 interface ScheduleDto {
@@ -837,6 +845,38 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
   const topPInput = ui.input({ placeholder: '例如 0.9' });
   const promptArea = ui.textarea({ placeholder: '你是一个乐于助人的助手…', rows: 4 });
 
+  // ── 项目上下文区 ──
+  const pcDescArea = ui.textarea({ placeholder: '项目一句话描述(如:PEYT Chat 桌面端,基于 Tauri 2 + deltachat)', rows: 2 });
+  const repoPathInput = ui.input({ placeholder: 'Git 仓库路径(预留:D1 GitHub 集成用)', value: getCfg()?.project_context?.repo_path || '' });
+  let pcChats: ChatDto[] = [];
+  try {
+    pcChats = await call<ChatDto[]>('bot_get_chatlist', { botId: bot.id });
+  } catch { /* 忽略 */ }
+  const selectedChatIds = new Set<number>(getCfg()?.project_context?.chat_ids ?? []);
+  const chatListEl = document.createElement('div');
+  chatListEl.style.cssText = 'display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto';
+  const renderChatChecks = (): void => {
+    chatListEl.innerHTML = '';
+    if (pcChats.length === 0) {
+      chatListEl.appendChild(ui.empty('暂无会话'));
+      return;
+    }
+    for (const c of pcChats) {
+      chatListEl.appendChild(ui.checkbox({
+        label: c.name,
+        checked: selectedChatIds.has(c.chat_id),
+        onChange: (v) => {
+          if (v) selectedChatIds.add(c.chat_id);
+          else selectedChatIds.delete(c.chat_id);
+        },
+      }));
+    }
+  };
+  renderChatChecks();
+  const pcSectionTitle = document.createElement('div');
+  pcSectionTitle.style.cssText = 'font-size:13px;font-weight:600';
+  pcSectionTitle.textContent = '项目上下文';
+
   const testBtn = ui.button({ label: '测试连接', variant: 'ghost', onClick: () => void doTest() });
   const saveBtn = ui.button({ label: '保存', variant: 'primary', onClick: () => void doSave() });
   const testLabel = document.createElement('div');
@@ -852,6 +892,10 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
     ui.field({ label: 'Max Tokens', children: maxTokensInput }),
     ui.field({ label: 'Top P', children: topPInput }),
     ui.field({ label: '系统提示词', children: promptArea }),
+    pcSectionTitle,
+    ui.field({ label: '项目描述', children: pcDescArea, help: '有值时会注入一条 system 消息「项目背景:…」' }),
+    ui.field({ label: '关联频道', children: chatListEl, help: '勾选后 Bot 回复会参考这些频道的最近消息' }),
+    ui.field({ label: 'Repo 路径', children: repoPathInput, help: '预留:Git 仓库路径(D1 GitHub 集成用)' }),
     testLabel,
     (() => { const a = document.createElement('div'); a.style.cssText = 'display:flex;gap:8px'; a.appendChild(testBtn); a.appendChild(saveBtn); return a; })(),
   ]);
@@ -880,6 +924,11 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
     if (llm.max_tokens != null) maxTokensInput.value = String(llm.max_tokens);
     if (llm.top_p != null) topPInput.value = String(llm.top_p);
     promptArea.value = llm.system_prompt || '';
+  }
+  const pc = getCfg()?.project_context ?? null;
+  if (pc) {
+    if (pc.description) pcDescArea.value = pc.description;
+    if (pc.repo_path) repoPathInput.value = pc.repo_path;
   }
 
   function collectConfig(): LlmConfig {
@@ -921,7 +970,16 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
   async function doSave(): Promise<void> {
     try {
       const current = getCfg() ?? {};
-      const merged: BotConfig = { ...current, llm: { ...(current.llm ?? {}), ...collectConfig() } };
+      const merged: BotConfig = {
+        ...current,
+        llm: { ...(current.llm ?? {}), ...collectConfig() },
+        project_context: {
+          workspace_id: current.project_context?.workspace_id ?? null,
+          chat_ids: [...selectedChatIds],
+          description: pcDescArea.value.trim() || null,
+          repo_path: repoPathInput.value.trim() || null,
+        },
+      };
       await call('update_bot_config', { botId: bot.id, config: merged });
       setCfg(merged);
       ui.toast('配置已保存');
