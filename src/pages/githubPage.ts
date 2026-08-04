@@ -1,6 +1,7 @@
 import { call } from '../api.js';
 import { ui } from '../components/ui.js';
 import { iconSvg, type IconName } from '../components/icon.js';
+import { escapeHtml } from '../components/escape.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
 import type { GithubRepoRef, GithubTab } from '../types.js';
@@ -12,8 +13,9 @@ import type { GithubRepoRef, GithubTab } from '../types.js';
 //       github_search_repo/github_search_code/github_list_events/github_get_content
 //
 // D1 Task A:VSCode/IDE 式三栏。renderGithubNav 渲染侧边栏(仓库树 + 设置 + 搜索入口),
-// renderGithubMain 渲染主编辑区(玻璃工具条 + Tab 条 + 内容区占位)。
-// 数据 Tab(Issues/Pulls/…)渲染由 Task B 从 rightDrawer 迁回主区,本任务仅搭布局壳 + 路由。
+// renderGithubMain 渲染主编辑区(玻璃工具条 + Tab 条 + 内容区)。
+// 数据 Tab(Issues/Pulls/Commits/Files/Events/Details)由 Task B 从 rightDrawer 迁入主区
+// (renderGh* + openGh* + DTO),renderEditorContent 按 state.githubTab 分发。
 
 // ── 后端 DTO(与 src-tauri/src/github/types.rs + dto.rs 对应,snake_case 响应)────
 // DTO 全量保留:仓库数据 Tab(Issues/Pulls/…)渲染由 Task B 复用。
@@ -78,6 +80,10 @@ const ghRepoMeta = new Map<string, RepoDto | null>(); // full_name → 元数据
 let editorRenderer: ((repo: GithubRepoRef | null) => void) | null = null;
 let mainRepoSync: (() => void) | null = null;
 let sidebarRefresher: (() => void) | null = null;
+
+// 文件 tab 的当前目录路径 + 所属仓库 key(切换仓库时重置)
+let ghFilesPath = '';
+let ghFilesRepoKey = '';
 
 // ── 共享数据操作(纯逻辑,不持有 DOM;视图刷新交给回调) ─────────────────────────
 async function ghLoadSettings(): Promise<void> {
@@ -514,7 +520,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
       state.githubTab = t.id;
       saveState();
       syncTabActive();
-      renderEditorContent();
+      void renderEditorContent();
     });
     return b;
   });
@@ -539,24 +545,33 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     s.textContent = fullName ? '仓库数据 · 点击标签页查看' : '仓库浏览 · 代码搜索 · 绑定管理';
     titleBox.append(t, s);
   }
-  const tabLabel = (): string => GH_TABS.find((t) => t.id === state.githubTab)?.label ?? '';
-  function renderEditorContent(): void {
+  // 编辑区内容渲染分发:按 state.githubTab 调对应数据渲染函数填充内容区。
+  // 每次渲染独立 wrap 容器:旧异步结果写旧 DOM(已卸载),避免跨 tab 竞态覆盖新内容。
+  let contentRenderToken = 0;
+  async function renderEditorContent(): Promise<void> {
+    const token = ++contentRenderToken;
+    const repo = ghSelected;
     content.innerHTML = '';
-    if (!ghSelected) {
+    if (!repo) {
       content.appendChild(ui.empty('从左侧选择仓库'));
       return;
     }
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'flex:1;min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:48px 24px;color:var(--text-faint)';
-    wrap.appendChild(ui.spinner());
-    const name = document.createElement('div');
-    name.style.cssText = 'font-size:var(--font-scale-body);color:var(--text-mute);font-weight:500';
-    name.textContent = ghSelected.full_name;
-    const sub = document.createElement('div');
-    sub.style.cssText = 'font-size:var(--font-scale-micro);color:var(--text-faint)';
-    sub.textContent = `${tabLabel()} · 数据渲染由后续任务接入`;
-    wrap.append(name, sub);
+    wrap.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
     content.appendChild(wrap);
+    wrap.appendChild(ui.spinner());
+    try {
+      if (state.githubTab === 'issues') await renderGhIssues(wrap, repo);
+      else if (state.githubTab === 'pulls') await renderGhPulls(wrap, repo);
+      else if (state.githubTab === 'commits') await renderGhCommits(wrap, repo);
+      else if (state.githubTab === 'files') await renderGhFiles(wrap, repo);
+      else if (state.githubTab === 'events') await renderGhEvents(wrap, repo);
+      else await renderGhDetails(wrap, repo);
+    } catch (e) {
+      if (token !== contentRenderToken) return;
+      wrap.innerHTML = '';
+      wrap.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    }
   }
 
   // 主区回调注册:仓库/设置变化同步 + 侧边栏选中仓库联动
@@ -566,13 +581,13 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     openWebBtn.style.display = ghSelected ? '' : 'none';
     setRepoTitle(ghSelected?.full_name ?? null);
     syncTabActive();
-    renderEditorContent();
+    void renderEditorContent();
   };
   editorRenderer = (repo: GithubRepoRef | null): void => {
     setRepoTitle(ghSelected?.full_name ?? (repo ? `${repo.owner}/${repo.repo}` : null));
     openWebBtn.style.display = ghSelected ? '' : 'none';
     syncTabActive();
-    renderEditorContent();
+    void renderEditorContent();
   };
 
   // 初始化:加载设置 + 仓库(侧边栏可能已加载,复用);同步主区显示
@@ -589,5 +604,378 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   if (hadDrawer) {
     saveState();
     void import('../shell/rightDrawer.js').then(({ renderRightDrawer }) => renderRightDrawer());
+  }
+}
+
+// ── 编辑区数据渲染(选中仓库 → 主区数据 tab;Task B 自 rightDrawer 迁入)──────────
+// 富行样式复用 .rd-gh-*(styles.css),目标容器为编辑区内容区。每次 tab/仓库切换都会
+// 重新分发渲染,旧异步结果写旧容器无副作用。
+// 富行:状态 badge + 标签 chip + 作者/时间。点击 → Issue 详情弹窗
+async function renderGhIssues(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
+  let issues: IssueDto[];
+  try {
+    issues = await call<IssueDto[]>('github_list_issues', { owner: repo.owner, repo: repo.repo, state: 'open' });
+  } catch (e) {
+    body.innerHTML = '';
+    body.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  body.innerHTML = '';
+  if (issues.length === 0) {
+    body.appendChild(ui.empty('暂无 Issue'));
+    return;
+  }
+  issues.forEach((it, i) => {
+    if (i > 0) body.appendChild(document.createElement('div')).className = 'rd-gh-sep';
+    const row = document.createElement('div');
+    row.className = 'rd-gh-row';
+    const labels = it.labels.length
+      ? `<span class="ui-badge">${escapeHtml(it.labels.slice(0, 3).join(', '))}</span>` : '';
+    row.innerHTML = `
+      <div class="rd-gh-title">
+        <span class="rd-gh-title-text">#${it.number} ${escapeHtml(it.title)}</span>
+        ${stateBadge(it.state)}${labels}
+      </div>
+      <div class="rd-gh-sub">${escapeHtml(it.user)} · 更新于 ${fmtDate(it.updated_at)}</div>
+    `;
+    row.addEventListener('click', () => void openGhIssue(it, repo));
+    body.appendChild(row);
+  });
+}
+async function openGhIssue(it: IssueDto, repo: GithubRepoRef): Promise<void> {
+  let detail = it;
+  try {
+    detail = await call<IssueDto>('github_get_issue', { owner: repo.owner, repo: repo.repo, number: it.number });
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e));
+  }
+  const bodyEl = document.createElement('div');
+  bodyEl.style.cssText = 'display:flex;flex-direction:column;gap:10px';
+  const head = document.createElement('div');
+  head.style.cssText = 'font-size:var(--font-scale-title);font-weight:600';
+  head.textContent = `#${detail.number} ${detail.title}`;
+  bodyEl.appendChild(head);
+  const meta = document.createElement('div');
+  meta.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:var(--font-scale-secondary);color:var(--text-mute)';
+  meta.appendChild(ui.badge({ text: detail.state, variant: detail.state === 'open' ? 'success' : 'muted' }));
+  if (detail.labels.length) meta.appendChild(ui.badge({ text: detail.labels.slice(0, 5).join(', '), variant: 'default' }));
+  bodyEl.appendChild(meta);
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:var(--font-scale-body);line-height:1.6;margin:0;max-height:320px;overflow-y:auto;font-family:var(--font-mono)';
+  pre.textContent = detail.body || '(无正文)';
+  bodyEl.appendChild(pre);
+  const dlg = ui.dialog({ title: 'Issue 详情', actions: [], size: 'lg' });
+  const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
+}
+
+// Pulls:富行 + +N/-N(增绿减红)+ 合并状态。点击 → 详情弹窗
+async function renderGhPulls(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
+  let pulls: PullDto[];
+  try {
+    pulls = await call<PullDto[]>('github_list_pulls', { owner: repo.owner, repo: repo.repo, state: 'open' });
+  } catch (e) {
+    body.innerHTML = '';
+    body.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  body.innerHTML = '';
+  if (pulls.length === 0) {
+    body.appendChild(ui.empty('暂无 Pull Request'));
+    return;
+  }
+  pulls.forEach((p, i) => {
+    if (i > 0) body.appendChild(document.createElement('div')).className = 'rd-gh-sep';
+    const row = document.createElement('div');
+    row.className = 'rd-gh-row';
+    const merged = p.merged_at ? '已合并' : p.state;
+    row.innerHTML = `
+      <div class="rd-gh-title">
+        <span class="rd-gh-title-text">#${p.number} ${escapeHtml(p.title)}</span>
+        ${stateBadge(merged)}
+      </div>
+      <div class="rd-gh-sub">
+        <span class="rd-gh-pos">+${p.additions}</span> <span class="rd-gh-neg">-${p.deletions}</span>
+        · ${escapeHtml(p.user)} · 更新于 ${fmtDate(p.updated_at)}
+      </div>
+    `;
+    row.addEventListener('click', () => void openGhPull(p));
+    body.appendChild(row);
+  });
+}
+async function openGhPull(p: PullDto): Promise<void> {
+  const bodyEl = document.createElement('div');
+  bodyEl.style.cssText = 'display:flex;flex-direction:column;gap:10px';
+  const head = document.createElement('div');
+  head.style.cssText = 'font-size:var(--font-scale-title);font-weight:600';
+  head.textContent = `#${p.number} ${p.title}`;
+  bodyEl.appendChild(head);
+  const meta = document.createElement('div');
+  meta.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:var(--font-scale-secondary);color:var(--text-mute)';
+  meta.appendChild(ui.badge({ text: p.merged_at ? 'merged' : p.state, variant: p.merged_at ? 'muted' : (p.state === 'open' ? 'success' : 'muted') }));
+  meta.appendChild(ui.badge({ text: `+${p.additions}`, variant: 'success' }));
+  meta.appendChild(ui.badge({ text: `-${p.deletions}`, variant: 'danger' }));
+  bodyEl.appendChild(meta);
+  const info = document.createElement('div');
+  info.style.cssText = 'font-size:var(--font-scale-secondary);color:var(--text-mute)';
+  info.textContent = `${p.user} · 创建 ${fmtDate(p.created_at)} · 更新 ${fmtDate(p.updated_at)}${p.merged_at ? ` · 合并 ${fmtDate(p.merged_at)}` : ''}`;
+  bodyEl.appendChild(info);
+  const dlg = ui.dialog({ title: 'Pull Request', actions: [], size: 'md' });
+  const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
+}
+
+// Commits:mono sha[0:7] + 消息首行 + 作者/日期
+async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
+  let commits: CommitDto[];
+  try {
+    commits = await call<CommitDto[]>('github_list_commits', { owner: repo.owner, repo: repo.repo });
+  } catch (e) {
+    body.innerHTML = '';
+    body.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  body.innerHTML = '';
+  if (commits.length === 0) {
+    body.appendChild(ui.empty('暂无 Commit'));
+    return;
+  }
+  commits.forEach((c, i) => {
+    if (i > 0) body.appendChild(document.createElement('div')).className = 'rd-gh-sep';
+    const row = document.createElement('div');
+    row.className = 'rd-gh-row';
+    row.innerHTML = `
+      <div class="rd-gh-title">
+        <span class="rd-gh-mono">${escapeHtml(c.sha.slice(0, 7))}</span>
+        <span class="rd-gh-title-text">${escapeHtml((c.message || '').split('\n')[0])}</span>
+      </div>
+      <div class="rd-gh-sub">${escapeHtml(c.author ?? '未知')} · ${c.date ? fmtDate(c.date) : '未知时间'}</div>
+    `;
+    body.appendChild(row);
+  });
+}
+
+// 文件:面包屑 + 目录/文件项。目录可进(更新 ghFilesPath + 重渲染),文件 → 内容弹窗
+async function renderGhFiles(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
+  const key = `${repo.owner}/${repo.repo}`;
+  if (ghFilesRepoKey !== key) {
+    ghFilesRepoKey = key;
+    ghFilesPath = '';
+  }
+  body.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:12px';
+  body.appendChild(wrap);
+
+  const crumb = document.createElement('div');
+  crumb.style.cssText = 'display:flex;align-items:center;gap:2px;flex-wrap:wrap;font-size:var(--font-scale-secondary);color:var(--text-mute)';
+  const rootBtn = ui.button({ label: repo.repo, variant: 'ghost', size: 'sm', onClick: () => { ghFilesPath = ''; void renderGhFiles(body, repo); } });
+  crumb.appendChild(rootBtn);
+  if (ghFilesPath) {
+    const segs = ghFilesPath.split('/');
+    segs.forEach((seg, idx) => {
+      crumb.appendChild(document.createTextNode('/'));
+      const b = ui.button({ label: seg, variant: 'ghost', size: 'sm', onClick: () => { ghFilesPath = segs.slice(0, idx + 1).join('/'); void renderGhFiles(body, repo); } });
+      crumb.appendChild(b);
+    });
+  }
+  wrap.appendChild(crumb);
+
+  const list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:2px';
+  wrap.appendChild(list);
+
+  // 上一级目录入口(不在根目录时)
+  if (ghFilesPath) {
+    list.appendChild(ui.listItem({
+      title: '..',
+      subtitle: '上一级',
+      icon: 'arrow-up',
+      onClick: () => { ghFilesPath = ghFilesPath.split('/').slice(0, -1).join('/'); void renderGhFiles(body, repo); },
+    }));
+  }
+
+  let items: ContentDto[];
+  try {
+    items = await call<ContentDto[]>('github_get_content', { owner: repo.owner, repo: repo.repo, path: ghFilesPath });
+  } catch (e) {
+    list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  if (items.length === 0) {
+    list.appendChild(ui.empty('空目录'));
+    return;
+  }
+  for (const it of items) {
+    if (it.typ === 'dir') {
+      list.appendChild(ui.listItem({
+        title: it.name,
+        subtitle: '目录',
+        icon: 'package',
+        onClick: () => { ghFilesPath = it.path; void renderGhFiles(body, repo); },
+      }));
+    } else {
+      list.appendChild(ui.listItem({
+        title: it.name,
+        subtitle: `${it.size} B`,
+        icon: 'file-text',
+        onClick: () => void openGhFile(it, repo),
+      }));
+    }
+  }
+}
+async function openGhFile(it: ContentDto, repo: GithubRepoRef): Promise<void> {
+  let item = it;
+  try {
+    item = await call<ContentDto[]>('github_get_content', { owner: repo.owner, repo: repo.repo, path: it.path }).then((a) => a[0]);
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  const text = item.content ? decodeBase64(item.content) : '(无法读取内容)';
+  const bodyEl = document.createElement('div');
+  bodyEl.style.cssText = 'display:flex;flex-direction:column;gap:8px';
+  const head = document.createElement('div');
+  head.style.cssText = 'font-size:var(--font-scale-body);font-weight:600;word-break:break-all';
+  head.textContent = `${repo.owner}/${repo.repo}/${item.path}`;
+  bodyEl.appendChild(head);
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font-size:var(--font-scale-secondary);line-height:1.6;margin:0;max-height:400px;overflow-y:auto;font-family:var(--font-mono)';
+  pre.textContent = text;
+  bodyEl.appendChild(pre);
+  const dlg = ui.dialog({ title: item.name, actions: [], size: 'lg' });
+  const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
+}
+
+// 动态:时间线 — 事件类型 icon + 摘要(title)+ actor · 相对时间(subtitle)
+async function renderGhEvents(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
+  let events: EventDto[];
+  try {
+    events = await call<EventDto[]>('github_list_events', { owner: repo.owner, repo: repo.repo });
+  } catch (e) {
+    body.innerHTML = '';
+    body.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  body.innerHTML = '';
+  if (events.length === 0) {
+    body.appendChild(ui.empty('暂无动态'));
+    return;
+  }
+  events.forEach((ev, i) => {
+    if (i > 0) body.appendChild(document.createElement('div')).className = 'rd-gh-sep';
+    const row = document.createElement('div');
+    row.className = 'rd-gh-row';
+    row.innerHTML = `
+      <div class="rd-gh-title">
+        ${iconSvg(eventIcon(ev.typ), { width: 14, height: 14, class: 'rd-gh-event-icon' })}
+        <span class="rd-gh-title-text">${escapeHtml(ev.summary || ev.typ)}</span>
+      </div>
+      <div class="rd-gh-sub">${escapeHtml(ev.typ)}${ev.actor ? ' · ' + escapeHtml(ev.actor) : ''} · ${relativeTime(ev.created_at)}</div>
+    `;
+    body.appendChild(row);
+  });
+}
+
+// 详情:仓库信息卡(描述/语言/星标/forks/issues/默认分支)+ README 前段
+async function renderGhDetails(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
+  let d: RepoDto;
+  try {
+    d = await call<RepoDto>('github_repo', { owner: repo.owner, repo: repo.repo });
+  } catch (e) {
+    body.innerHTML = '';
+    body.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  body.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:12px;padding:12px';
+  body.appendChild(wrap);
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:var(--font-scale-title);font-weight:600;word-break:break-all';
+  title.textContent = d.full_name;
+  wrap.appendChild(title);
+
+  if (d.description) {
+    const desc = document.createElement('div');
+    desc.style.cssText = 'font-size:var(--font-scale-body);color:var(--text-mute);line-height:1.6';
+    desc.textContent = d.description;
+    wrap.appendChild(desc);
+  }
+
+  const meta = document.createElement('div');
+  meta.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center';
+  if (d.language) meta.appendChild(ui.badge({ text: d.language, variant: 'default' }));
+  meta.appendChild(ui.badge({ text: `★ ${d.stargazers_count}`, variant: 'default' }));
+  meta.appendChild(ui.badge({ text: `fork ${d.forks_count}`, variant: 'default' }));
+  meta.appendChild(ui.badge({ text: `open issues ${d.open_issues_count}`, variant: 'default' }));
+  meta.appendChild(ui.badge({ text: `default branch ${d.default_branch}`, variant: 'muted' }));
+  wrap.appendChild(meta);
+
+  const readmeTitle = document.createElement('div');
+  readmeTitle.style.cssText = 'font-size:var(--font-scale-body);font-weight:600;color:var(--text-mute)';
+  readmeTitle.textContent = 'README';
+  wrap.appendChild(readmeTitle);
+  const readmeEl = document.createElement('pre');
+  readmeEl.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:var(--font-scale-secondary);line-height:1.6;margin:0;max-height:320px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--font-mono)';
+  wrap.appendChild(readmeEl);
+  try {
+    const root = await call<ContentDto[]>('github_get_content', { owner: repo.owner, repo: repo.repo, path: '' });
+    const readme = root.find((x) => x.typ === 'file' && x.name.toLowerCase().startsWith('readme'));
+    if (readme) {
+      const file = await call<ContentDto[]>('github_get_content', { owner: repo.owner, repo: repo.repo, path: readme.path }).then((a) => a[0]);
+      readmeEl.textContent = file.content ? decodeBase64(file.content).slice(0, 3000) : '(无法读取)';
+    } else {
+      readmeEl.textContent = '(未找到 README)';
+    }
+  } catch (e) {
+    readmeEl.textContent = e instanceof Error ? e.message : String(e);
+  }
+}
+
+// ── GitHub 工具函数(自 rightDrawer 迁入)────────────────────────────────
+function stateBadge(state: string): string {
+  const variant = state === 'open' ? 'success' : 'muted';
+  return `<span class="ui-badge ui-badge-${variant}">${escapeHtml(state)}</span>`;
+}
+function eventIcon(typ: string): IconName {
+  const map: Record<string, IconName> = {
+    WatchEvent: 'star',
+    ForkEvent: 'git-branch',
+    PushEvent: 'arrow-up',
+    CreateEvent: 'plus',
+    DeleteEvent: 'trash',
+    IssuesEvent: 'alert-circle',
+    IssueCommentEvent: 'message-circle',
+    PullRequestEvent: 'git-branch',
+    PullRequestReviewEvent: 'check',
+    ReleaseEvent: 'package',
+    CommitCommentEvent: 'message-circle',
+  };
+  return map[typ] ?? 'timeline';
+}
+function fmtDate(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return iso;
+  return t.toLocaleDateString();
+}
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return iso;
+  const diff = Date.now() - t;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+function decodeBase64(b64: string): string {
+  try {
+    const binary = atob(b64.replace(/\s/g, ''));
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch {
+    return b64;
   }
 }
