@@ -146,18 +146,28 @@
             box-shadow: none;
             animation: card-in 600ms var(--ease-spring) 180ms both;
         }
+        /* 有 token:左右布局 — 左 QR,右 打开/下载 */
+        .card-invite {
+            display: flex;
+            align-items: center;
+            gap: var(--gap);
+            width: 100%;
+        }
+        .card-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: var(--gap);
+        }
+        .dl-hint {
+            font-size: 18px;
+            color: var(--text-3);
+            margin: 0;
+        }
         @keyframes card-in {
             from { opacity: 0; transform: translateY(20px) scale(0.98); }
             to   { opacity: 1; transform: none; }
-        }
-
-        /* 提示行:把编号步骤压缩成一句(§16 简洁性) */
-        .hint {
-            text-align: center;
-            font-size: 20px;
-            color: var(--text-3);
-            line-height: 1.6;
-            margin-bottom: var(--gap);
         }
 
         /* ── 主 CTA:打开 PEYT ─────────────────────── */
@@ -166,8 +176,8 @@
             align-items: center;
             justify-content: center;
             gap: 10px;
-            width: 100%;
-            padding: 26px 30px;
+            align-self: flex-start; /* 右栏内贴合内容,非全宽 */
+            padding: 20px 40px;
             border: none;
             border-radius: var(--radius-md);
             background: linear-gradient(120deg, var(--accent), var(--accent-2));
@@ -187,85 +197,45 @@
         .cta .cta-arrow { transition: transform 150ms var(--ease-spring); }
         .cta:hover .cta-arrow { transform: translateX(3px); }
 
-        /* ── 次级:下载 PEYT(幽灵胶囊,不抢主 CTA)── */
+        /* ── 次级:下载按钮(打开按钮样式,保留原 ghost 色)── */
         .download {
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
-            margin: var(--gap) auto 0;
             width: fit-content;
-            padding: 14px 27px;
-            border-radius: 999px;
+            padding: 14px 32px;
+            border-radius: 14px;
             background: var(--glass-strong);
-            border: 1px solid var(--stroke);
-            color: var(--text-2);
+            border: none;
+            color: var(--text);
             font-size: 20px;
-            font-weight: 500;
+            font-weight: 600;
             text-decoration: none;
             transition: background 120ms, color 120ms, transform 120ms var(--ease-spring);
         }
-        .download:hover { background: var(--glass); color: var(--text); transform: translateY(-1px); }
+        .download:hover { background: var(--glass); transform: translateY(-1px); }
         .download svg { width: 14px; height: 14px; }
 
-        /* ── 二维码区:纵向布局(生成器在上,二维码在下)────────── */
-        .qr-wrap {
-            margin-top: var(--gap);
+        /* ── 二维码(受邀/生成器共用)────────── */
+        .qr-body {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: var(--gap);
         }
-        /* 生成器区:纵向,子项撑满(generator 拉宽),标题/切换自居中 */
-        .qr-left {
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: stretch;
-            gap: var(--gap);
-        }
-        .qr-title {
-            font-size: 39px;
-            font-weight: 600;
-            color: var(--text);
-            align-self: center;
-            letter-spacing: -0.01em;
-        }
-        .qr-toggle { align-self: center; }
-        .qr-toggle {
-            border: none;
-            background: var(--glass-strong);
-            color: var(--text-2);
-            font-family: inherit;
-            font-size: 21px;
-            font-weight: 500;
-            cursor: pointer;
-            padding: 15px 33px;
-            border-radius: 999px;
-            transition: background 120ms, color 120ms;
-        }
-        .qr-toggle:hover { background: var(--glass); color: var(--text); }
-        .qr-toggle svg { vertical-align: -2px; margin-right: 6px; }
-        /* 右栏:二维码(无卡片,融入背景) */
-        .qr-body {
-            flex: none;
+        #qrcode, #qrcode-gen { display: inline-flex; }
+        #qrcode canvas, #qrcode-gen canvas { display: block; border-radius: 10px; }
+        #qr-body-gen {
             display: none;
             flex-direction: column;
             align-items: center;
+            margin-top: var(--gap);
         }
-        .qr-body.open { display: flex; animation: qr-in 320ms var(--ease-spring) both; }
-        @keyframes qr-in {
-            from { opacity: 0; transform: scale(0.94) translateY(6px); }
-            to   { opacity: 1; transform: none; }
-        }
-        /* 二维码 canvas:白底保证可扫,无卡片包裹、融入背景 */
-        #qrcode { display: inline-flex; }
-        #qrcode canvas { display: block; border-radius: 10px; }
 
-        /* 窄屏:退回纵向堆叠 */
-        @media (max-width: 380px) {
-            .qr-wrap { flex-direction: column; gap: 16px; }
-            .qr-left { align-items: center; text-align: center; }
+        /* 窄屏:卡片退回纵向 */
+        @media (max-width: 600px) {
+            .card-invite { flex-direction: column; }
+            .card-right { align-items: center; text-align: center; }
         }
 
         /* ── 生成器(并入左栏)────────────── */
@@ -362,40 +332,36 @@
         </div>
 
         <div class="card" id="card">
-            <p class="hint" id="hint">已有 PEYT 直接打开,还没有则先下载</p>
-
-            <a class="cta" id="dc-link" href="">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                打开 PEYT
-                <svg class="cta-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-            </a>
-
-            <a class="download" href="https://github.com/NoWint/PleaseEnterYourTextCommunity/releases" target="_blank" rel="noopener">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-                下载 PEYT
-            </a>
-
-            <div class="qr-wrap">
-                <!-- 二维码在上(无卡片包裹、无扫码标签) -->
+            <!-- 有 token(受邀):左右布局 — 左 QR,右 打开/下载 -->
+            <div class="card-invite" id="card-invite">
                 <div class="qr-body" id="qr-body">
                     <div id="qrcode"></div>
                 </div>
-                <!-- 生成器在下:标题 + 切换 + 输入框 + 按钮 -->
-                <div class="qr-left">
-                    <div class="qr-title">在另一台设备打开</div>
-                    <button class="qr-toggle" id="qr-toggle">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                        <span id="qr-toggle-text">显示二维码</span>
-                    </button>
-                    <!-- 生成器:粘贴链接 → 生成二维码 -->
-                    <div class="generator" id="generator">
-                        <div class="gen-row">
-                            <input id="gen-input" type="text" placeholder="粘贴邀请链接,生成二维码" autocomplete="off" spellcheck="false">
-                            <button class="gen-btn" id="gen-btn" aria-label="生成二维码">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                            </button>
-                        </div>
+                <div class="card-right">
+                    <a class="cta" id="dc-link" href="">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        打开 PEYT Chat
+                        <svg class="cta-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </a>
+                    <p class="dl-hint">还没有?点击下载</p>
+                    <a class="download" id="download-link" href="https://github.com/NoWint/PleaseEnterYourTextCommunity/releases" target="_blank" rel="noopener">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+                        下载
+                    </a>
+                </div>
+            </div>
+            <!-- 无 token:生成器(粘贴链接 → 生成二维码) -->
+            <div class="card-generator" id="card-generator">
+                <div class="generator" id="generator">
+                    <div class="gen-row">
+                        <input id="gen-input" type="text" placeholder="粘贴邀请链接,生成二维码" autocomplete="off" spellcheck="false">
+                        <button class="gen-btn" id="gen-btn" aria-label="生成二维码">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                        </button>
                     </div>
+                </div>
+                <div class="qr-body" id="qr-body-gen" style="display:none">
+                    <div id="qrcode-gen"></div>
                 </div>
             </div>
         </div>
@@ -407,53 +373,40 @@
 
         var searchParams = new URLSearchParams(window.location.hash.substr(1));
         var nameEl = document.getElementById('name');
-        var hintEl = document.getElementById('hint');
         var ctaEl = document.getElementById('dc-link');
-        var downloadEl = document.querySelector('.download');
-        var qrToggle = document.getElementById('qr-toggle');
-        var qrBody = document.getElementById('qr-body');
+        var downloadEl = document.getElementById('download-link');
+        var cardInvite = document.getElementById('card-invite');
+        var cardGenerator = document.getElementById('card-generator');
+        // 有 token:受邀 QR;无 token:生成器 QR
         var qrEl = document.getElementById('qrcode');
-        var qrWrap = document.querySelector('.qr-wrap');
+        var qrGenEl = document.getElementById('qrcode-gen');
         var genEl = document.getElementById('generator');
 
-        var qrToggleText = document.getElementById('qr-toggle-text');
-        qrToggle.addEventListener('click', function () {
-            qrBody.classList.toggle('open');
-            if (qrToggleText) qrToggleText.textContent = qrBody.classList.contains('open') ? '收起二维码' : '显示二维码';
-        });
+        function renderQr(container, token) {
+            var openpgp4fprStr = "OPENPGP4FPR:" + token.replace(/&/, "#");
+            container.innerHTML = '';
+            var cv = document.createElement('canvas');
+            container.appendChild(cv);
+            QRCode.toCanvas(cv, openpgp4fprStr, { width: 300, margin: 1 });
+        }
 
         function renderInvite(token) {
             // `<FPR>&v=3&i=...` → `OPENPGP4FPR:<FPR>#v=3&i=...`
-            var openpgp4fprStr = "OPENPGP4FPR:" + token.replace(/&/, "#");
-            ctaEl.setAttribute('href', openpgp4fprStr);
+            ctaEl.setAttribute('href', "OPENPGP4FPR:" + token.replace(/&/, "#"));
             nameEl.textContent = searchParams.get("g") || searchParams.get("b") || searchParams.get("n") || searchParams.get("a") || "TA";
-            // 群邀请:提示行微调
-            if (searchParams.get("g") || searchParams.get("b")) {
-                hintEl.textContent = '点开加入群聊,或扫码在另一台设备打开';
-            }
-            // 二维码
-            qrEl.innerHTML = '';
-            var cv = document.createElement('canvas');
-            qrEl.appendChild(cv);
-            QRCode.toCanvas(cv, openpgp4fprStr, { width: 300, margin: 1 });
+            renderQr(qrEl, token);
         }
 
         var token = window.location.hash.substr(1);
         if (token) {
-            // 有 token(受邀方):默认显示二维码(对齐无 token 的"二维码在上"),
-            // 隐藏生成器(受邀方不需要粘贴生成)
-            genEl.style.display = 'none';
-            qrBody.style.display = '';
-            qrBody.classList.add('open');
+            // 有 token(受邀方):左右布局 — 左 QR,右 打开/下载;隐藏生成器
+            cardGenerator.style.display = 'none';
+            cardInvite.style.display = 'flex';
             renderInvite(token);
         } else {
-            // 无 token:隐藏 CTA/下载/标题/切换/右栏二维码,只留左栏生成器
-            hintEl.style.display = 'none';
-            ctaEl.style.display = 'none';
-            downloadEl.style.display = 'none';
-            document.querySelector('.qr-title').style.display = 'none';
-            document.querySelector('.qr-toggle').style.display = 'none';
-            qrBody.style.display = 'none';
+            // 无 token:生成器模式;隐藏受邀区
+            cardInvite.style.display = 'none';
+            cardGenerator.style.display = 'block';
             genEl.classList.add('open');
         }
 
@@ -469,12 +422,12 @@
             else v = v.replace(/openpgp4fpr:/i, '');
             if (v.indexOf('#') === -1) v = v.replace(/%23/, '#');
             if (!v) { genBtn.disabled = true; return; }
-            // 生成器路径:生成后隐藏问候语(位置让给二维码),恢复右栏二维码
+            // 生成器路径:生成后隐藏问候语(位置让给二维码),显示生成器二维码
             var greeting = document.querySelector('.greeting');
             if (greeting) greeting.style.display = 'none';
-            qrBody.style.display = '';
-            qrBody.classList.add('open');
-            renderInvite(v);
+            var genQrBody = document.getElementById('qr-body-gen');
+            if (genQrBody) genQrBody.style.display = 'flex';
+            renderQr(qrGenEl, v);
         }
         genBtn.addEventListener('click', generate);
         // 回车绑定:textarea 内按 Enter 生成
