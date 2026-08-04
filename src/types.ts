@@ -155,7 +155,7 @@ export interface AppState {
   currentView: CurrentView;
   rightDrawerOpen: boolean;
   detailPanelOpen: boolean;
-  detailTab: 'members' | 'pin' | 'github';
+  detailTab: 'members' | 'pin' | 'github' | 'media' | 'archive';
   /** 当前选中的 GitHub 仓库(detailTab==='github' 时抽屉渲染其数据),null = 未选中 */
   currentGithubRepo: GithubRepoRef | null;
   /** GitHub 抽屉当前 tab(选中仓库时重置为 'issues') */

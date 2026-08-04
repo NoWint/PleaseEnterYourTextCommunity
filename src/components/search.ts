@@ -98,7 +98,10 @@ export function openSearch(): void {
   overlay.id = 'search-overlay';
   overlay.innerHTML = `
     <div class="search-dialog">
-      <input id="search-input" placeholder="${chatSearchChatId != null ? '搜索此会话...' : '搜索或输入命令...'}" autocomplete="off" />
+      <div class="search-field">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search-input" placeholder="${chatSearchChatId != null ? '搜索此会话...' : '搜索或输入命令...'}" autocomplete="off" />
+      </div>
       <div id="search-results" class="search-results"></div>
     </div>
   `;

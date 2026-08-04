@@ -16,7 +16,7 @@ export const state: AppState = {
   cards: [],
   currentCardId: null,
   currentView: 'kanban',
-  rightDrawerOpen: false,
+  rightDrawerOpen: true,
   detailPanelOpen: true,
   detailTab: 'members',
   currentGithubRepo: null,

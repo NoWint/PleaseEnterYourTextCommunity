@@ -1,6 +1,6 @@
 # 后端地图（src-tauri/，Rust + Tauri v2）
 
-13 个 Rust 文件（`bots.rs` / `bot_llm.rs` / `llm.rs` 为 bot 系统新增；终端 `terminal.rs` 已移除）。全部业务在 `commands.rs`（~2900 行），应用数据在 `db.rs`（SQLite），与 deltachat 核心（submodule `core/`）对接。
+16 个 Rust 文件（bot 系统 `bots.rs`/`bot_llm.rs`/`llm.rs`；原生通知 `notifications.rs`；深链 `deeplink.rs`；无边框窗口标题栏 `titlebar.rs`；终端 `terminal.rs` 已移除）。全部业务在 `commands.rs`（~2900 行），应用数据在 `db.rs`（SQLite），与 deltachat 核心（submodule `core/`）对接。
 
 ---
 
@@ -8,7 +8,7 @@
 
 - `env_logger` 默认 `debug`。**无任何 tauri-plugin**，全手写 `#[tauri::command]`。
 - setup：取 `app_data_dir` → `AppState::new(dir)`（block_on）→ `spawn_event_forwarder` → `app.manage(state)`。
-- `invoke_handler` 注册 **115 个命令**（主要来自 commands.rs + bots.rs）。**新增命令必须在这里登记**。
+- `invoke_handler` 注册 **129 个命令**（主要来自 commands.rs + bots.rs + notifications.rs + deeplink.rs）。**新增命令必须在这里登记**。
 
 ## 2. AppState（`src-tauri/src/state.rs`）
 
@@ -25,7 +25,7 @@ pub struct AppState {
 - `current()` async：取当前 Context；`set_current(id)` 同步设。
 - **锁注意**：`accounts` 是 tokio Mutex（`.lock().await`）；`current_id` 是 std Mutex（同步，纳秒级持锁）。
 
-## 3. 命令清单（115 个，按功能分组）
+## 3. 命令清单（129 个，按功能分组）
 
 **Auth/Account**：`is_configured` `login` `create_chatmail_account` `get_self_profile` `update_profile` `save_avatar_from_bytes` `get_my_qr` `logout` `list_accounts` `switch_account`（账号切换）
 
@@ -50,6 +50,12 @@ pub struct AppState {
 **SecureJoin**：`get_securejoin_qr`（None=个人二维码，Some=群邀请）`secure_join`
 
 **Bot 系统（bots.rs / bot_llm.rs / llm.rs）**：`create_bot` `list_bots` `delete_bot` `set_bot_io`（开/关自动回帖）`update_bot_llm` `get_bot_llm` `test_llm_config`（连通性测试）`add_bot_to_chat`；bot 会话命令 `bot_get_chatlist` `bot_get_chat_msgs` `bot_send_text` `bot_mark_chat_noticed`。LLM 运行时由 `BotService` 监听核心事件自动回帖（anti-loop 防自回）。
+
+**原生通知（notifications.rs）**：`show_notification` `get_notification_permission` `request_notification_permission`
+
+**深链（deeplink.rs）**：`take_pending_deeplink`（冷启动补收唤起 URL）；`handle_url` 由 Tauri 深链插件回调
+
+**无边框窗口标题栏（titlebar.rs）**：`install`（Windows/Linux 自绘标题栏初始化）
 
 **Workspaces**：`list_workspaces` `create_workspace`（建 master 群 + 默认频道 + core 角色）`join_workspace` `update_workspace` `delete_workspace`（级联删）`leave_workspace`（只删本地元数据，不退出群）
 

@@ -176,21 +176,22 @@ export function renderRightDrawer(): void {
   }
   bindOutsideDismiss();
 
-  // detail panel 展开时清理残留的 expand 按钮
+  // detail panel 展开时清理残留的 expand 按钮,并去掉消息区让位类
   document.querySelectorAll('#chat-main .detail-expand').forEach((el) => el.remove());
+  document.getElementById('chat-main')?.classList.remove('detail-collapsed');
 
   const tab = state.detailTab;
   const tabsHtml = `
     <span class="rd-tab ${tab === 'members' ? 'active' : ''}" data-tab="members">${iconSvg('users', { width: 14, height: 14 })}<span>成员</span></span>
-    <span class="rd-tab ${tab === 'pin' ? 'active' : ''}" data-tab="pin">${iconSvg('pin', { width: 14, height: 14 })}<span>置顶</span></span>
-    <span class="rd-flex"></span>
+    <span class="rd-tab ${tab === 'media' ? 'active' : ''}" data-tab="media">${iconSvg('image', { width: 14, height: 14 })}<span>媒体消息</span></span>
+    <span class="rd-tab ${tab === 'archive' ? 'active' : ''}" data-tab="archive">${iconSvg('pin', { width: 14, height: 14 })}<span>存档消息</span></span>
     <span class="rd-collapse" title="折叠">${iconSvg('chevron-right', { width: 16, height: 16 })}</span>
   `;
   drawer.innerHTML = `<div class="rd-tabs">${tabsHtml}</div><div id="rd-body" style="flex:1;overflow-y:auto"></div>`;
 
   drawer.querySelectorAll<HTMLElement>('.rd-tab').forEach((el) => {
     el.addEventListener('click', () => {
-      state.detailTab = el.dataset.tab as 'members' | 'pin';
+      state.detailTab = el.dataset.tab as 'members' | 'media' | 'archive';
       saveState();
       renderRightDrawer();
     });
@@ -245,6 +246,8 @@ function showExpandButton(): void {
   const main = document.getElementById('chat-main');
   if (!main) return;
   if (main.querySelector('.detail-expand')) return;
+  // 标记:自己发的消息(右对齐)向右让出展开按钮区域
+  main.classList.add('detail-collapsed');
   const btn = document.createElement('div');
   btn.className = 'detail-expand';
   btn.innerHTML = iconSvg('chevron-left', { width: 16, height: 16 });
@@ -263,6 +266,8 @@ async function renderRdBody(): Promise<void> {
   if (!body) return;
   if (state.detailTab === 'members') {
     await renderMembers(body);
+  } else if (state.detailTab === 'media') {
+    await renderMedia(body);
   } else {
     await renderPins(body);
   }
@@ -730,7 +735,7 @@ async function renderMembers(body: HTMLElement): Promise<void> {
                 ? `<button class="rd-add-friend ${isAdded ? 'added' : ''}" data-addr="${escapeAttr(m.addr)}" title="${isAdded ? '已是好友' : '添加为好友'}">${isAdded ? '已添加' : '添加'}</button>`
                 : '';
               const roleId = memberRoleIds.get(m.contact_id);
-              const roleSelectHtml = m.is_self ? '' : `<select class="rd-role-select" data-cid="${m.contact_id}" title="分配角色" style="flex:none;max-width:88px;font-size:11px;padding:1px 4px;background:var(--capsule);color:var(--text);border:1px solid var(--border-strong);border-radius:4px;font-family:inherit">
+              const roleSelectHtml = m.is_self ? '' : `<select class="rd-role-select" data-cid="${m.contact_id}" title="分配角色">
                 <option value="" disabled ${roleId ? '' : 'selected'}>无角色</option>
                 ${roles.map((r) => `<option value="${r.id}" ${roleId === r.id ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
                 <option value="${NEW_ROLE_VALUE}">＋ 新建角色</option>
@@ -927,6 +932,70 @@ async function renderPins(body: HTMLElement): Promise<void> {
       }
     });
   });
+}
+
+// 媒体消息 tab:列出当前聊天的图片/视频/语音/文件,点击跳转并高亮。
+async function renderMedia(body: HTMLElement): Promise<void> {
+  if (!state.currentChatId) {
+    body.innerHTML = `<div class="rd-empty">未选中频道</div>`;
+    return;
+  }
+  let msgs: MsgDto[];
+  try {
+    msgs = await call<MsgDto[]>('get_chat_media', { chatId: state.currentChatId, viewType: null });
+  } catch (e) {
+    body.innerHTML = `<div class="rd-empty">加载失败</div>`;
+    showToast(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  if (!msgs || msgs.length === 0) {
+    body.innerHTML = `<div class="rd-empty">暂无媒体消息</div>`;
+    return;
+  }
+  const items = msgs.map((m) => `
+    <div class="rd-media-item" data-msg="${m.msg_id}">
+      <div class="rd-media-icon">${mediaIcon(m.view_type)}</div>
+      <div class="rd-media-body">
+        <div class="rd-media-name">${escapeHtml(m.file_name || viewLabel(m.view_type))}</div>
+        <div class="rd-media-meta">${escapeHtml(m.from_name || '')} · ${formatRelativeTime(m.ts)}</div>
+      </div>
+    </div>
+  `).join('');
+  body.innerHTML = items;
+  body.querySelectorAll<HTMLElement>('.rd-media-item').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const chatId = state.currentChatId;
+      if (chatId == null) return;
+      const msgId = Number(el.dataset.msg);
+      const { renderChatView } = await import('../chat/chatView.js');
+      await renderChatView(chatId);
+      setTimeout(() => {
+        const msgEl = document.querySelector(`[data-msg="${msgId}"]`);
+        if (msgEl) {
+          msgEl.scrollIntoView({ behavior: 'smooth' });
+          (msgEl as HTMLElement).style.background = 'var(--active)';
+          setTimeout(() => { (msgEl as HTMLElement).style.background = ''; }, 2000);
+        }
+      }, 200);
+    });
+  });
+}
+
+function mediaIcon(viewType: string | null): string {
+  switch (viewType) {
+    case 'Image': case 'Gif': return iconSvg('image', { width: 18, height: 18 });
+    case 'Video': return iconSvg('play', { width: 18, height: 18 });
+    case 'Voice': case 'Audio': return iconSvg('mic', { width: 18, height: 18 });
+    case 'Webxdc': return iconSvg('package', { width: 18, height: 18 });
+    default: return iconSvg('file-text', { width: 18, height: 18 });
+  }
+}
+
+function viewLabel(viewType: string | null): string {
+  const labels: Record<string, string> = {
+    Image: '图片', Gif: 'GIF', Video: '视频', Voice: '语音', Audio: '音频', File: '文件', Webxdc: '应用',
+  };
+  return labels[viewType ?? ''] ?? '文件';
 }
 
 // 成员分组标题本地化:core/Members → 中文,其余 role 名保留

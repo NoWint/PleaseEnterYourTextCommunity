@@ -2,15 +2,15 @@
 
 ```
 核心 EventEmitter（tokio broadcast）
-  → events.rs spawn_event_forwarder()（tokio::spawn 循环，match 22 个变体）
+  → events.rs spawn_event_forwarder()（tokio::spawn 循环，match 23 个变体）
   → app.emit("dc-event", EventPayload)
   → 前端 onEvent(typ, cb)（api.ts，按 payload.typ 过滤）
-  → 各处理器（全部订阅集中在 shell/shell.ts）
+  → 各处理器（全部订阅集中在 shell/shell.ts；DeepLink 深链事件另由 utils/deepLink.ts 监听）
 ```
 
 `EventPayload`：`{ typ, chat_id?, msg_id?, contact_id?, progress?, comment?, text? }`（null 字段会作为 `null` 序列化，不省略）。`IncomingMsg` 的 `text` 是消息前 80 字符（空则 viewtype 标签如 `"[image]"`）。未匹配的事件变体静默丢弃。
 
-## 转发的 22 个事件
+## 转发的 23 个事件
 
 | typ | 前端处理 |
 |---|---|
@@ -19,6 +19,7 @@
 | `ChatlistItemChanged` / `ChatModified` / `ContactsChanged` | `refreshSidebar` + `updateBadge` |
 | `SelfavatarChanged` | 重取 self profile + 重渲染 rail |
 | `MsgDelivered` / `MsgFailed` / `MsgRead` | `updateMsgState(msgId, state)` DOM 补丁 |
+| `MsgReadCountChanged` | 群里有人读了我的消息 → 拉该消息已读人数刷新「N 人已读」（`get_msg_read_counts` + `updateReadCount`） |
 | `MsgDeleted` | `removeMsg(msgId)` |
 | `ReactionsChanged` / `IncomingReaction` | `refreshMsgReactions(msgId)`（含 reactionsCache 更新） |
 | `ChatDeleted` | 从 state 移除频道 + 重渲染 |
@@ -31,6 +32,10 @@
 - `refreshSidebar()`：**150ms 防抖包装**（合并 realtime 事件风暴），触发后 `doRefreshSidebar()` 重拉 chatlist / channels / workspaces，重渲染 rail + navPanel。
 - `refreshCurrentChat()`：当前聊天实时增量（chatView.appendNewMessages）。
 - `updateBadge()`：chatlist 未读求和 → `window.__TAURI__.app.setBadgeCount`（Dock 徽标）。
+
+## DeepLink 事件（单独，不经 dc-event）
+
+Tauri deep-link 插件在唤起/冷启动时发 `DeepLink` 事件;`src/utils/deepLink.ts` 的 `registerDeepLinkListener()` 用 `listen('DeepLink', ...)` 直连(非 onEvent),`routeDeepLink` 分发(登录预填 / 邀请 / QR)。capabilities 需 `deep-link:default`。
 
 ## 修改事件处理时的注意
 
