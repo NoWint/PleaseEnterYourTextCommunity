@@ -1,5 +1,5 @@
-export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'settings' | 'debug';
-export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about';
+export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'settings' | 'debug' | 'github';
+export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about' | 'github';
 export type PluginsTab = 'market' | 'installed';
 
 /** Plugin permission keys — gate which plugin API surfaces are usable. */
@@ -10,7 +10,8 @@ export type PluginPermission =
   | 'ui:theme'
   | 'commands'
   | 'llm'
-  | 'network';
+  | 'network'
+  | 'tools';
 export type SpaceType = 'chat' | 'card';
 export type CurrentView = 'kanban' | 'list' | 'calendar' | 'timeline';
 export type WorkTab = 'channels' | 'activity';
@@ -18,6 +19,13 @@ export type InboxEventType = 'mention' | 'reply' | 'card_assign' | 'system';
 export type MsgState = 'pending' | 'delivered' | 'failed' | 'read';
 export type CardType = 'card' | 'task';
 export type CardStatus = 'todo' | 'in_progress' | 'done';
+/** GitHub 数据抽屉的 tab:issues/pulls/commits/files/events/details */
+export type GithubTab = 'issues' | 'pulls' | 'commits' | 'files' | 'events' | 'details';
+/** 当前选中的 GitHub 仓库标识(抽屉数据渲染用) */
+export interface GithubRepoRef {
+  owner: string;
+  repo: string;
+}
 
 export interface WorkspaceDto {
   id: number;
@@ -147,7 +155,11 @@ export interface AppState {
   currentView: CurrentView;
   rightDrawerOpen: boolean;
   detailPanelOpen: boolean;
-  detailTab: 'members' | 'media' | 'archive';
+  detailTab: 'members' | 'pin' | 'github' | 'media' | 'archive';
+  /** 当前选中的 GitHub 仓库(detailTab==='github' 时抽屉渲染其数据),null = 未选中 */
+  currentGithubRepo: GithubRepoRef | null;
+  /** GitHub 抽屉当前 tab(选中仓库时重置为 'issues') */
+  githubTab: GithubTab;
   self: SelfProfile | null;
   roles: RoleDto[];
   wsMembers: Record<number, number>;

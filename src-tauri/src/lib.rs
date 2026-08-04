@@ -1,18 +1,23 @@
-mod bot_llm;
+mod activity;
 mod bots;
 mod commands;
 mod db;
 mod deeplink;
+mod drivers;
 mod dto;
 mod envelope;
 mod error;
 mod events;
+mod github;
 mod llm;
 mod notifications;
+mod personas;
 mod plugins;
+mod runtime;
 mod state;
 #[cfg(target_os = "windows")]
 mod titlebar;
+mod tools;
 
 use tauri::Manager;
 
@@ -41,7 +46,7 @@ pub fn run() {
         }))
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
-            let state = tauri::async_runtime::block_on(async move {
+            let mut state = tauri::async_runtime::block_on(async move {
                 AppState::new(dir).await
             })?;
             // 深链冷启动:get_current() 取当前实例启动时的 URL;macOS 用 on_open_url。
@@ -98,8 +103,110 @@ pub fn run() {
             if let Err(e) = tauri::async_runtime::block_on(state.bots.start_all()) {
                 log::warn!("failed to start bots: {e}");
             }
-            // 挂载 LLM 自动回复后台运行时(内部 spawn，单次调用)
-            state.bots.spawn_runtime();
+            // 活动日志:落库 + 实时 bot-activity 事件(时间线页/打字指示器通道)
+            let activity = {
+                let handle = app.handle().clone();
+                crate::activity::ActivityLog::new(state.db.clone()).with_callback(move |a| {
+                    use tauri::Emitter;
+                    let _ = handle.emit("bot-activity", &a);
+                })
+            };
+            use std::sync::Arc;
+            // 工具桥:插件工具请求经 app.emit 推前端(B5 前端监听)
+            let handle = app.handle().clone();
+            let bridge = Arc::new(crate::tools::ToolBridge::new().with_emitter(move |v| {
+                use tauri::Emitter;
+                let _ = handle.emit("bot-tool-request", &v);
+            }));
+            let mut built = crate::tools::ToolRegistry::new(bridge);
+            built.register(Arc::new(crate::tools::builtins::GetTimeTool));
+            built.register(Arc::new(crate::tools::builtins::CalculateTool));
+            built.register(Arc::new(crate::tools::builtins::ConvertUnitsTool));
+            built.register(Arc::new(crate::tools::net::GetWeatherTool::new()));
+            built.register(Arc::new(crate::tools::net::FetchUrlTool::new()));
+            built.register(Arc::new(crate::tools::net::WebSearchTool::new()));
+            built.register(Arc::new(crate::tools::file::ReadFileTool));
+            built.register(Arc::new(crate::tools::file::WriteFileTool));
+            built.register(Arc::new(crate::tools::file::ListFilesTool));
+            built.register(Arc::new(crate::tools::app::SearchHistoryTool));
+            built.register(Arc::new(crate::tools::app::CreateCardTool));
+            built.register(Arc::new(crate::tools::app::SetReminderTool));
+            // GitHub 工具集:共享 AppState.github(命令层/工具层单一数据源)
+            let github_client = state.github.clone();
+            built.register(Arc::new(crate::tools::github::GithubGetRepoTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubListIssuesTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetIssueTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubListPullsTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetPullTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubListCommitsTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetCommitTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubSearchRepoTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubSearchCodeTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetFileTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetReadmeTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetRepoEventsTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubCreateIssueTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(
+                crate::tools::github::GithubAddIssueCommentTool::new(github_client.clone()),
+            ));
+            built.register(Arc::new(crate::tools::github::GithubAddIssueLabelsTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(
+                crate::tools::github::GithubCreatePrReviewCommentTool::new(github_client),
+            ));
+            // 从 db 加载插件工具(setup 闭包非 async,用 block_on)
+            let rows = tauri::async_runtime::block_on(state.db.list_plugin_tools())?;
+            built.reload_plugin_tools(&rows);
+            let tool_registry = Arc::new(built);
+            state.bot_tools = tool_registry.clone();
+
+            // 驱动注册:规则 + LLM + 定时(cron)。顺序即优先级:
+            // RuleDriver 在前 → 规则命中即短路,LLM 驱动不再被调用(spec §2.1)。
+            let mut registry = crate::drivers::DriverRegistry::new();
+            registry.register(Arc::new(crate::drivers::rule::RuleDriver::with_llm(
+                Arc::new(crate::llm::LlmClient::new()),
+            )));
+            registry.register(Arc::new(crate::drivers::llm::LlmDriver::new(
+                crate::llm::LlmClient::new(),
+                tool_registry,
+            )));
+            registry.register(Arc::new(crate::drivers::schedule::ScheduleDriver));
+            // 挂载事件调度器(常驻后台)
+            tauri::async_runtime::spawn(crate::runtime::spawn(
+                state.accounts.clone(),
+                state.db.clone(),
+                state.bots.bot_ids(),
+                activity,
+                registry,
+                state.data_dir.clone(),
+            ));
             app.manage(state);
             Ok(())
         })
@@ -228,6 +335,11 @@ pub fn run() {
             commands::set_bot_io,
             commands::update_bot_llm,
             commands::get_bot_llm,
+            commands::get_bot_config,
+            commands::update_bot_config,
+            commands::list_bot_personas,
+            commands::apply_bot_persona,
+            commands::get_bot_stats,
             commands::bot_get_chatlist,
             commands::bot_get_chat_msgs,
             commands::bot_send_text,
@@ -237,6 +349,29 @@ pub fn run() {
             commands::list_accounts,
             commands::switch_account,
             commands::add_bot_to_chat,
+            commands::bot_list_schedules,
+            commands::bot_add_schedule,
+            commands::bot_delete_schedule,
+            commands::register_bot_tool,
+            commands::unregister_bot_tool,
+            commands::list_bot_tools,
+            commands::bot_tool_result,
+            commands::list_bot_activities,
+            // D1 GitHub:界面命令层(Task 4)
+            commands::get_github_settings,
+            commands::set_github_token,
+            commands::list_github_repos,
+            commands::add_github_repo,
+            commands::remove_github_repo,
+            commands::github_repo,
+            commands::github_list_issues,
+            commands::github_get_issue,
+            commands::github_list_pulls,
+            commands::github_list_commits,
+            commands::github_search_repo,
+            commands::github_search_code,
+            commands::github_list_events,
+            commands::github_get_content,
             // 原生系统通知(user-notify)
             notifications::show_notification,
             notifications::get_notification_permission,

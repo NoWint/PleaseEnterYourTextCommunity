@@ -196,17 +196,16 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   const linkCardHtml = extractWebUrls(resolveMessageText(msg.text))
     .map((u) => renderLinkCard(u))
     .join('');
-  // 发送者头像:优先用消息自带的 from_avatar/from_color(后端已解析,对齐 Delta
-  // authorProfileImage)—— 不再依赖 state.currentMembers 反查,根治「显示用户名却无头像」
-  // (成员列表缺失/不匹配时头像静默回退成首字母)。
-  // 兜底:state.currentMembers 反查(旧路径)。
+  // 发送者头像:优先用成员头像(state.currentMembers 与资料页同源、更新鲜),
+  // 消息内嵌 from_avatar 可能取自头像设置前的旧快照,导致聊天里不显示而资料页正常。
+  // 再兜底 from_avatar(成员列表缺失/不匹配时)。
   const member = state.currentMembers?.find((mm) => mm.contact_id === msg.from_id);
-  const msgAvatar = msg.from_avatar ?? member?.avatar ?? null;
+  const msgAvatar = member?.avatar ?? msg.from_avatar ?? null;
   const avatarUrl = msgAvatar ? await transformBlobURL(msgAvatar) : null;
   const bg = colorHex(msg.from_color ?? member?.color);
   const letter = (msg.from_name || '?').charAt(0).toUpperCase() || '?';
   const avatarHtml = avatarUrl
-    ? `<img src="${escapeHtml(avatarUrl)}" class="msg-avatar" alt="" />`
+    ? `<img src="${escapeHtml(avatarUrl)}" class="msg-avatar" alt="" data-bg="${escapeAttr(bg)}" data-letter="${escapeAttr(letter)}" />`
     : `<div class="msg-avatar" style="background:${bg}">${escapeHtml(letter)}</div>`;
   // Attachment rendering (view_type != Text)
   // Uses transformBlobURL (with module-level cache) to avoid repeated IPC on virtualization re-render.
@@ -613,6 +612,17 @@ export function bindMessageActions(container: HTMLElement): void {
       if (url) void openExternal(url);
     });
     void hydrateLinkCard(card.dataset.url || '', card);
+  });
+
+  // 头像加载失败兜底:图片加载不了时换成首字母占位,避免破图
+  container.querySelectorAll<HTMLImageElement>('.msg-avatar img').forEach((img) => {
+    img.addEventListener('error', () => {
+      const div = document.createElement('div');
+      div.className = 'msg-avatar';
+      div.style.background = img.dataset.bg || 'var(--border-strong)';
+      div.textContent = img.dataset.letter || '?';
+      img.replaceWith(div);
+    });
   });
 
   // Reaction toggle (click existing reaction capsule)

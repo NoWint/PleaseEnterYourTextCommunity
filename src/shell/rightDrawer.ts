@@ -38,6 +38,15 @@ let outsideClickHandler: ((e: MouseEvent) => void) | null = null;
 export function renderRightDrawer(): void {
   const drawer = document.getElementById('right-drawer');
   if (!drawer) return;
+  // github 模式只在 github 页有效:离开页后清理残留 tab/仓库,避免泄漏到 messages/groups 的 members/pin
+  if (state.detailTab === 'github' && state.currentPage !== 'github') {
+    state.detailTab = 'members';
+    state.detailPanelOpen = false;
+    state.rightDrawerOpen = false;
+    state.currentGithubRepo = null;
+    state.githubTab = 'issues';
+    saveState();
+  }
   // 每次渲染都同步头部按钮选中态:抽屉折叠/切换/隐藏时,成员/置顶按钮的 active 随弹窗关闭恢复
   syncHeaderButtons();
 

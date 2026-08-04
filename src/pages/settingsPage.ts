@@ -19,6 +19,7 @@ const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = 
   { id: 'team', icon: 'users', label: '当前团队' },
   { id: 'notifications', icon: 'bell', label: '通知' },
   { id: 'plugins', icon: 'layout-grid', label: '插件' },
+  { id: 'github', icon: 'git-branch', label: 'GitHub' },
   { id: 'about', icon: 'info', label: '关于' },
 ];
 
@@ -51,6 +52,7 @@ export async function renderSettingsMain(main: HTMLElement): Promise<void> {
     case 'team': await renderTeam(main); break;
     case 'notifications': await renderNotifications(main); break;
     case 'plugins': await renderPlugins(main); break;
+    case 'github': await renderGithub(main); break;
     case 'about': renderAbout(main); break;
   }
 }
@@ -430,6 +432,60 @@ async function clearBadge(): Promise<void> {
     const tauri = window as unknown as { __TAURI__?: { app?: { setBadgeCount?: (n: number) => Promise<void> } } };
     if (tauri.__TAURI__?.app?.setBadgeCount) await tauri.__TAURI__.app.setBadgeCount(0);
   } catch {}
+}
+
+// ── GitHub ──────────────────────────────────────────────
+// D1:全局 GitHub token(存后端 github_settings 表)。GitHubPage 与 Bot 工具共用。
+async function renderGithub(main: HTMLElement): Promise<void> {
+  main.innerHTML = '';
+  const section = document.createElement('div');
+  section.className = 'settings-section';
+  section.innerHTML = '<h2>GitHub</h2>';
+
+  let current = '';
+  try {
+    const s = await call<{ token?: string | null }>('get_github_settings');
+    current = s.token || '';
+  } catch { /* 忽略 */ }
+
+  const tokenInput = ui.input({ type: 'password', value: current, placeholder: 'GitHub Token(留空 = 公开只读)' });
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;align-items:center';
+  row.appendChild(tokenInput);
+  row.appendChild(ui.button({
+    label: '保存',
+    icon: 'check',
+    variant: 'primary',
+    onClick: async () => {
+      try {
+        await call('set_github_token', { token: tokenInput.value.trim() || null });
+        ui.toast('Token 已保存');
+      } catch (e) {
+        ui.toast(e instanceof Error ? e.message : String(e));
+      }
+    },
+  }));
+  row.appendChild(ui.button({
+    label: '清除',
+    icon: 'trash',
+    danger: true,
+    onClick: async () => {
+      try {
+        await call('set_github_token', { token: null });
+        tokenInput.value = '';
+        ui.toast('Token 已清除');
+      } catch (e) {
+        ui.toast(e instanceof Error ? e.message : String(e));
+      }
+    },
+  }));
+  section.appendChild(ui.field({
+    label: '全局 GitHub Token',
+    children: row,
+    help: '无 token 时公开仓库只读;代码搜索需 token。左侧栏 GitHub 页使用此全局 token。',
+  }));
+
+  main.appendChild(section);
 }
 
 // ── 关于 ──────────────────────────────────────────────

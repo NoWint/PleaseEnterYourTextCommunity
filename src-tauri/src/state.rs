@@ -10,6 +10,7 @@ use deltachat::context::Context;
 use crate::bots::BotService;
 use crate::db::Db;
 use crate::error::AppResult;
+use crate::github::GithubClient;
 use crate::plugins::PluginManager;
 
 pub struct AppState {
@@ -18,6 +19,10 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub bots: BotService,
     pub plugins: PluginManager,
+    /// 工具注册表(内置 + 插件),命令/驱动共享;内部 RwLock 支持热加载
+    pub bot_tools: Arc<crate::tools::ToolRegistry>,
+    /// 共享 GitHub API 客户端(命令层 + 工具层复用;单一数据源)
+    pub github: Arc<GithubClient>,
     /// 应用数据目录(Tauri app_data_dir),供导出路径/备份默认目录
     pub data_dir: PathBuf,
 }
@@ -38,12 +43,16 @@ impl AppState {
         let accounts = Arc::new(Mutex::new(accounts));
         let db = Arc::new(db);
         let bots = BotService::new(accounts.clone(), db.clone());
+        let bot_tools =
+            Arc::new(crate::tools::ToolRegistry::new(Arc::new(crate::tools::ToolBridge::new())));
         Ok(Self {
             accounts,
             current_id: StdMutex::new(current_id),
             db,
             bots,
             plugins: PluginManager::new(app_data_dir.clone()),
+            bot_tools,
+            github: Arc::new(GithubClient::new()),
             data_dir: app_data_dir,
         })
     }

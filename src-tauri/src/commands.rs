@@ -13,13 +13,32 @@ use deltachat::securejoin;
 use tauri::State;
 
 use crate::dto::{
-    ActivityDto, AdvancedLogin, BotDto, CardDto, ChannelDto, ChatDto, ChatInfoDto, ContactDto,
-    ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PeytStudioDto, PinDto, ProfileDto,
-    RawMsgDto, ReactionDto, ReadReceiptDto, RoleDto, SearchResultDto, WorkspaceDto,
+    ActivityDto, AdvancedLogin, BotDto, BotStatsDto, BotToolDto, CardDto, ChannelDto, ChatDto,
+    ChatInfoDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PersonaDto,
+    PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, ReadReceiptDto, RoleDto,
+    ScheduleDto, SearchResultDto, WorkspaceDto,
 };
+use crate::drivers::schedule::next_cron;
 use crate::error::{AppError, AppResult};
 use crate::plugins::{PluginStatus, RegistryPlugin};
 use crate::state::AppState;
+
+// D1 GitHub:命令层导入(见文末 GitHub 命令段)
+use std::sync::Arc;
+
+use crate::db::{Db, GithubRepoRow};
+use crate::dto::{GithubRepoDto, GithubSettingsDto};
+use crate::github::api::{
+    url_get_content, url_get_issue, url_list_commits, url_list_events, url_list_issues,
+    url_list_pulls, url_repo, url_search_code, url_search_repo,
+};
+use crate::github::client::GithubAuth;
+use crate::github::types::{
+    parse_commit_list, parse_content, parse_content_list, parse_event_list, parse_issue,
+    parse_issue_list, parse_pull_list, parse_repo, parse_search_code, parse_search_repo,
+    CommitDto, ContentDto, EventDto, IssueDto, PullDto, RepoDto, SearchCodeDto, SearchRepoDto,
+};
+use crate::tools::github::filter_out_pull_requests;
 
 /// SP5 Task 11: 区分"字段缺失"(None, 不更新) / "字段为 null"(Some(None), 清空) /
 /// "字段有值"(Some(Some(v)), 更新)。
@@ -3277,13 +3296,15 @@ pub async fn create_bot(state: State<'_, AppState>, display_name: String) -> App
 /// 列出当前用户的所有 bot。
 #[tauri::command]
 pub async fn list_bots(state: State<'_, AppState>) -> AppResult<Vec<BotDto>> {
-    state.bots.list().await
+    let owner_id = current_owner_id(&state)?;
+    state.bots.list(owner_id).await
 }
 
 /// 删除当前用户的一个 bot。
 #[tauri::command]
 pub async fn delete_bot(state: State<'_, AppState>, bot_id: i64) -> AppResult<()> {
-    state.bots.delete(bot_id).await
+    let owner_id = current_owner_id(&state)?;
+    state.bots.delete(owner_id, bot_id).await
 }
 
 /// 启/停当前用户某个 bot 的 IO。
@@ -3293,26 +3314,99 @@ pub async fn set_bot_io(
     bot_id: i64,
     running: bool,
 ) -> AppResult<BotDto> {
-    state.bots.set_io(bot_id, running).await
+    let owner_id = current_owner_id(&state)?;
+    state.bots.set_io(owner_id, bot_id, running).await
 }
 
-/// 更新当前用户某个 bot 的 LLM 配置。
+/// 更新当前用户某个 bot 的 LLM 配置（兼容旧前端）。
 #[tauri::command]
 pub async fn update_bot_llm(
     state: State<'_, AppState>,
     bot_id: i64,
     config: crate::dto::LlmConfigInput,
 ) -> AppResult<BotDto> {
-    state.bots.update_bot_llm(bot_id, config).await
+    let owner_id = current_owner_id(&state)?;
+    state.bots.update_llm(owner_id, bot_id, config).await
 }
 
-/// 读取当前用户某个 bot 的 LLM 配置（未配置时为 None）。
+/// 读取当前用户某个 bot 的 LLM 配置（兼容旧前端；未配置时为 None）。
 #[tauri::command]
 pub async fn get_bot_llm(
     state: State<'_, AppState>,
     bot_id: i64,
-) -> AppResult<Option<crate::dto::LlmConfigInput>> {
-    state.bots.get_bot_llm(bot_id).await
+) -> AppResult<Option<crate::dto::LlmConfig>> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.llm_of(owner_id, bot_id).await
+}
+
+/// 读取当前用户某个 bot 的完整结构化配置。
+#[tauri::command]
+pub async fn get_bot_config(
+    state: State<'_, AppState>,
+    bot_id: i64,
+) -> AppResult<Option<crate::dto::BotConfig>> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await
+}
+
+/// 整体覆写当前用户某个 bot 的完整结构化配置。
+#[tauri::command]
+pub async fn update_bot_config(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    config: crate::dto::BotConfig,
+) -> AppResult<BotDto> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.save_config(owner_id, bot_id, &config).await?;
+    state.bots.dto(owner_id, bot_id).await
+}
+
+/// 列出全部人设模板(id/name/description;不含 system_prompt)。
+#[tauri::command]
+pub async fn list_bot_personas() -> AppResult<Vec<PersonaDto>> {
+    Ok(crate::personas::PERSONAS
+        .iter()
+        .map(|p| PersonaDto {
+            id: p.id.into(),
+            name: p.name.into(),
+            description: p.description.into(),
+        })
+        .collect())
+}
+
+/// 给当前用户的某个 bot 套用指定人设（写 persona_id + 覆盖 system_prompt）。
+#[tauri::command]
+pub async fn apply_bot_persona(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    persona_id: String,
+) -> AppResult<BotDto> {
+    let owner_id = current_owner_id(&state)?;
+    let persona = crate::personas::find_persona(&persona_id)
+        .ok_or_else(|| AppError::Core(format!("未知人设: {persona_id}")))?;
+    let mut config = state.bots.get_config(owner_id, bot_id).await?.unwrap_or_default();
+    config.persona = Some(persona_id);
+    let mut llm = config.llm.take().unwrap_or_else(|| {
+        crate::dto::LlmConfig::from(crate::dto::LlmConfigInput {
+            system_prompt: None,
+            base_url: None,
+            api_key: None,
+            model: None,
+            provider: None,
+        })
+    });
+    llm.system_prompt = Some(persona.system_prompt.to_string());
+    config.llm = Some(llm);
+    state.bots.save_config(owner_id, bot_id, &config).await?;
+    state.bots.dto(owner_id, bot_id).await
+}
+
+/// 统计当前用户某个 bot 的活动（按 kind 聚合）。
+#[tauri::command]
+pub async fn get_bot_stats(state: State<'_, AppState>, bot_id: i64) -> AppResult<BotStatsDto> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await?; // owner 校验
+    state.db.get_bot_stats(bot_id).await
 }
 
 /// 获取当前用户某个 bot 账号的聊天列表。
@@ -3321,7 +3415,7 @@ pub async fn bot_get_chatlist(
     state: State<'_, AppState>,
     bot_id: i64,
 ) -> AppResult<Vec<ChatDto>> {
-    let ctx = state.bots.ctx_for_bot(bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
     build_chatlist(&ctx, None).await
 }
 
@@ -3332,7 +3426,7 @@ pub async fn bot_get_chat_msgs(
     bot_id: i64,
     chat_id: u32,
 ) -> AppResult<Vec<MsgDto>> {
-    let ctx = state.bots.ctx_for_bot(bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
     get_chat_msgs_impl(&ctx, chat_id, None).await
 }
 
@@ -3344,7 +3438,7 @@ pub async fn bot_send_text(
     chat_id: u32,
     text: String,
 ) -> AppResult<MsgDto> {
-    let ctx = state.bots.ctx_for_bot(bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
     let msg_id = send_text_impl(&ctx, chat_id, text).await?;
     msg_to_dto(&ctx, msg_id).await
 }
@@ -3356,7 +3450,7 @@ pub async fn bot_mark_chat_noticed(
     bot_id: i64,
     chat_id: u32,
 ) -> AppResult<()> {
-    let ctx = state.bots.ctx_for_bot(bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
     mark_chat_noticed_impl(&ctx, chat_id).await
 }
 
@@ -3367,18 +3461,169 @@ pub async fn bot_mark_chat_seen(
     bot_id: i64,
     chat_id: u32,
 ) -> AppResult<()> {
-    let ctx = state.bots.ctx_for_bot(bot_id).await?;
+    let ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
     mark_chat_seen_impl(&ctx, chat_id).await
+}
+
+/// 列出某个 bot 的定时任务。
+#[tauri::command]
+pub async fn bot_list_schedules(
+    state: State<'_, AppState>,
+    bot_id: i64,
+) -> AppResult<Vec<ScheduleDto>> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await?; // owner 校验
+    let rows = state.db.list_bot_schedules(bot_id).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ScheduleDto {
+            id: r.id,
+            bot_id: r.bot_id,
+            chat_id: r.chat_id,
+            minute: r.minute,
+            hour: r.hour,
+            day_of_week: r.day_of_week,
+            message: r.message,
+            enabled: r.enabled,
+            next_run_at: r.next_run_at,
+        })
+        .collect())
+}
+
+/// 添加定时任务。
+#[tauri::command]
+pub async fn bot_add_schedule(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    chat_id: u32,
+    minute: i32,
+    hour: i32,
+    day_of_week: i32,
+    message: String,
+) -> AppResult<ScheduleDto> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await?;
+    let now = chrono::Utc::now().timestamp();
+    let next = next_cron(now, minute, hour, day_of_week).unwrap_or(now);
+    let id = state
+        .db
+        .insert_bot_schedule(bot_id, chat_id, minute, hour, day_of_week, &message, next)
+        .await?;
+    Ok(ScheduleDto {
+        id,
+        bot_id,
+        chat_id,
+        minute,
+        hour,
+        day_of_week,
+        message,
+        enabled: true,
+        next_run_at: next,
+    })
+}
+
+/// 删除定时任务。
+#[tauri::command]
+pub async fn bot_delete_schedule(state: State<'_, AppState>, schedule_id: i64) -> AppResult<()> {
+    let owner_id = current_owner_id(&state)?;
+    let row = state
+        .db
+        .get_bot_schedule(schedule_id)
+        .await?
+        .ok_or_else(|| AppError::Core("schedule not found".into()))?;
+    state.bots.get_config(owner_id, row.bot_id).await?;
+    state.db.delete_bot_schedule(schedule_id).await
+}
+
+/// 注册一个插件工具(定义入库 + 热加载)。
+#[tauri::command]
+pub async fn register_bot_tool(
+    state: State<'_, AppState>,
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+) -> AppResult<()> {
+    let params = serde_json::to_string(&parameters)
+        .map_err(|e| AppError::Core(format!("parameters serialize: {e}")))?;
+    state
+        .db
+        .upsert_plugin_tool(&name, &description, &params, chrono::Utc::now().timestamp())
+        .await?;
+    let rows = state.db.list_plugin_tools().await?;
+    state.bot_tools.reload_plugin_tools(&rows);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn unregister_bot_tool(state: State<'_, AppState>, name: String) -> AppResult<()> {
+    state.db.delete_plugin_tool(&name).await?;
+    let rows = state.db.list_plugin_tools().await?;
+    state.bot_tools.reload_plugin_tools(&rows);
+    Ok(())
+}
+
+/// 列出全部可用工具(内置 + 插件)。
+#[tauri::command]
+pub async fn list_bot_tools(state: State<'_, AppState>) -> AppResult<Vec<BotToolDto>> {
+    Ok(state
+        .bot_tools
+        .list_meta()
+        .into_iter()
+        .map(|(name, description, safe)| BotToolDto {
+            name,
+            description,
+            safe,
+        })
+        .collect())
+}
+
+/// 前端插件执行完工具后回调结果。
+#[tauri::command]
+pub async fn bot_tool_result(
+    state: State<'_, AppState>,
+    id: String,
+    result: String,
+) -> AppResult<()> {
+    state.bot_tools.bridge.resolve(&id, result);
+    Ok(())
+}
+
+/// 列出某个 bot 的活动日志(时间线,倒序)。
+#[tauri::command]
+pub async fn list_bot_activities(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    limit: Option<i64>,
+) -> AppResult<Vec<crate::dto::BotActivityDto>> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await?; // owner 校验
+    let lim = limit.unwrap_or(50).clamp(1, 500) as u32;
+    let rows = state.db.list_bot_activities(bot_id, lim).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| crate::dto::BotActivityDto {
+            id: r.id,
+            bot_id: r.bot_id,
+            kind: r.kind,
+            chat_id: r.chat_id,
+            msg_id: r.msg_id,
+            summary: r.summary,
+            detail_json: r.detail_json,
+            created_at: r.created_at,
+        })
+        .collect())
 }
 
 /// 测试 LLM 配置：用固定示例消息调用一次，返回回复文本（用于配置对话框的「测试连接」）。
 #[tauri::command]
 pub async fn test_llm_config(config: crate::dto::LlmConfigInput) -> AppResult<String> {
+    let client = crate::llm::shared_client();
     let msg = crate::llm::ChatMessage {
         role: "user".into(),
         content: "你好，请用一句话回复。".into(),
+        ..Default::default()
     };
-    crate::llm::complete(&config, vec![msg]).await
+    client.complete(&crate::dto::LlmConfig::from(config), vec![msg]).await
 }
 
 /// 把 bot 拉入主账号的某个群聊/频道:主账号生成该会话的邀请 QR,bot 通过 securejoin 加入。
@@ -3392,7 +3637,7 @@ pub async fn add_bot_to_chat(
         .current()
         .await
         .ok_or_else(|| AppError::Core("no account".into()))?;
-    let bot_ctx = state.bots.ctx_for_bot(bot_id).await?;
+    let bot_ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
     // 仅群组/广播可生成邀请 QR;1:1 会话 get_securejoin_qr 会报错
     let qr = securejoin::get_securejoin_qr(&main_ctx, Some(deltachat::chat::ChatId::new(chat_id)))
         .await
@@ -3681,4 +3926,383 @@ fn clean_html(s: String) -> String {
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&nbsp;", " ")
+}
+
+// ── D1 GitHub:界面命令层 ──────────────────────────────────────────────
+// 全部命令用全局 token(db.github_settings.token,None = 公开只读),复用共享
+// `AppState.github`(Arc<GithubClient>,lib.rs setup 创建一次,与工具层共用)。
+// 错误变体(GitHubAuth/RateLimit/NotFound/Server)直接透传,前端 toast 展示。
+
+/// 网络命令通用校验:owner/repo 非空(空白视为空)。
+fn check_owner_repo(owner: &str, repo: &str) -> AppResult<()> {
+    if owner.trim().is_empty() || repo.trim().is_empty() {
+        return Err(AppError::Core("owner/repo 不能为空".into()));
+    }
+    Ok(())
+}
+
+/// `add_github_repo` 严格校验:非空、不含 `/`、仅含 `[A-Za-z0-9._-]`。
+fn check_repo_ident(owner: &str, repo: &str) -> AppResult<()> {
+    let valid = |s: &str| {
+        !s.trim().is_empty()
+            && !s.contains('/')
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
+    if !valid(owner) || !valid(repo) {
+        return Err(AppError::Core(
+            "仓库标识非法:owner/repo 需非空、不含 '/',且仅含字母数字及 ._-".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// 读取全局 token 构造认证(trim 后空串视为 None = 公开只读)。
+async fn github_auth(db: &Arc<Db>) -> AppResult<GithubAuth> {
+    let settings = db.get_github_settings().await?;
+    Ok(GithubAuth {
+        token: settings
+            .token
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty()),
+    })
+}
+
+/// search_code 等需要 token 的命令:无 token 报错。
+async fn github_auth_required(db: &Arc<Db>) -> AppResult<GithubAuth> {
+    let auth = github_auth(db).await?;
+    if auth.token.is_none() {
+        return Err(AppError::Core("需要 GitHub token".into()));
+    }
+    Ok(auth)
+}
+
+fn map_repo_rows(rows: Vec<GithubRepoRow>) -> Vec<GithubRepoDto> {
+    rows.into_iter()
+        .map(|r| GithubRepoDto { id: r.id, owner: r.owner, repo: r.repo, full_name: r.full_name })
+        .collect()
+}
+
+/// list_github_repos 命令逻辑(命令/测试共用)。
+async fn list_repos_dtos(db: &Arc<Db>) -> AppResult<Vec<GithubRepoDto>> {
+    Ok(map_repo_rows(db.list_github_repos().await?))
+}
+
+/// add_github_repo 核心逻辑(校验 + 落库),命令/测试共用。
+async fn add_repo_validated(db: &Arc<Db>, owner: &str, repo: &str) -> AppResult<GithubRepoDto> {
+    let owner = owner.trim();
+    let repo = repo.trim();
+    check_repo_ident(owner, repo)?;
+    let id = db.add_github_repo(owner, repo).await?;
+    Ok(GithubRepoDto { id, owner: owner.to_string(), repo: repo.to_string(), full_name: format!("{owner}/{repo}") })
+}
+
+#[tauri::command]
+pub async fn get_github_settings(state: State<'_, AppState>) -> AppResult<GithubSettingsDto> {
+    state.db.get_github_settings().await
+}
+
+#[tauri::command]
+pub async fn set_github_token(state: State<'_, AppState>, token: Option<String>) -> AppResult<()> {
+    state.db.set_github_token(token.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn list_github_repos(state: State<'_, AppState>) -> AppResult<Vec<GithubRepoDto>> {
+    list_repos_dtos(&state.db).await
+}
+
+#[tauri::command]
+pub async fn add_github_repo(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> AppResult<GithubRepoDto> {
+    add_repo_validated(&state.db, &owner, &repo).await
+}
+
+#[tauri::command]
+pub async fn remove_github_repo(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    state.db.remove_github_repo(id).await
+}
+
+#[tauri::command]
+pub async fn github_repo(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> AppResult<RepoDto> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_repo(&owner, &repo)).await?;
+    Ok(parse_repo(&raw))
+}
+
+/// GitHub `/issues` 会混入 PR,返回前过滤含 `pull_request` 键的条目(复用工具层纯函数)。
+#[tauri::command]
+pub async fn github_list_issues(
+    st: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    state: Option<String>,
+) -> AppResult<Vec<IssueDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&st.db).await?;
+    let raw = st
+        .github
+        .get_json(&auth, &url_list_issues(&owner, &repo, state.as_deref()))
+        .await?;
+    Ok(parse_issue_list(&filter_out_pull_requests(&raw)))
+}
+
+#[tauri::command]
+pub async fn github_get_issue(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    number: i64,
+) -> AppResult<IssueDto> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state
+        .github
+        .get_json(&auth, &url_get_issue(&owner, &repo, number))
+        .await?;
+    Ok(parse_issue(&raw))
+}
+
+#[tauri::command]
+pub async fn github_list_pulls(
+    st: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    state: Option<String>,
+) -> AppResult<Vec<PullDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&st.db).await?;
+    let raw = st
+        .github
+        .get_json(&auth, &url_list_pulls(&owner, &repo, state.as_deref()))
+        .await?;
+    Ok(parse_pull_list(&raw))
+}
+
+#[tauri::command]
+pub async fn github_list_commits(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    path: Option<String>,
+) -> AppResult<Vec<CommitDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state
+        .github
+        .get_json(&auth, &url_list_commits(&owner, &repo, path.as_deref()))
+        .await?;
+    Ok(parse_commit_list(&raw))
+}
+
+#[tauri::command]
+pub async fn github_search_repo(
+    state: State<'_, AppState>,
+    query: String,
+) -> AppResult<Vec<SearchRepoDto>> {
+    if query.trim().is_empty() {
+        return Err(AppError::Core("搜索关键词不能为空".into()));
+    }
+    let auth = github_auth(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_search_repo(&query)).await?;
+    Ok(parse_search_repo(&raw))
+}
+
+#[tauri::command]
+pub async fn github_search_code(
+    state: State<'_, AppState>,
+    query: String,
+) -> AppResult<Vec<SearchCodeDto>> {
+    if query.trim().is_empty() {
+        return Err(AppError::Core("搜索关键词不能为空".into()));
+    }
+    let auth = github_auth_required(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_search_code(&query)).await?;
+    Ok(parse_search_code(&raw))
+}
+
+#[tauri::command]
+pub async fn github_list_events(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> AppResult<Vec<EventDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_list_events(&owner, &repo)).await?;
+    Ok(parse_event_list(&raw))
+}
+
+/// 目录返回数组;单文件返回 1 项(带 base64 content)。
+#[tauri::command]
+pub async fn github_get_content(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    path: String,
+) -> AppResult<Vec<ContentDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_get_content(&owner, &repo, &path)).await?;
+    if raw.as_array().is_some() {
+        Ok(parse_content_list(&raw))
+    } else {
+        Ok(vec![parse_content(&raw)])
+    }
+}
+
+#[cfg(test)]
+mod github_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 临时 db:持有 TempDir 防文件被删(sqlite 写会 readonly)。
+    struct TestDb {
+        db: Arc<Db>,
+        _tmp: tempfile::TempDir,
+    }
+
+    async fn test_db() -> TestDb {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(Db::new(tmp.path().join("test.db")).await.unwrap());
+        db.migrate().await.unwrap();
+        TestDb { db, _tmp: tmp }
+    }
+
+    fn kind(e: &AppError) -> &'static str {
+        match e {
+            AppError::Core(_) => "core",
+            _ => "other",
+        }
+    }
+
+    #[test]
+    fn test_check_repo_ident_rejects_empty_slash_invalid() {
+        let err = |owner: &str, repo: &str| {
+            check_repo_ident(owner, repo).unwrap_err();
+        };
+        err("", "repo"); // 空 owner
+        err("owner", ""); // 空 repo
+        err("own/er", "repo"); // owner 含 /
+        err("owner", "re/po"); // repo 含 /
+        err("own er", "repo"); // owner 空格非法
+        err("owner", "repo中文"); // 非 ASCII 非法
+    }
+
+    #[test]
+    fn test_check_repo_ident_accepts_valid() {
+        assert!(check_repo_ident("octocat", "Hello-World").is_ok());
+        assert!(check_repo_ident("my.user_org-2", "repo.name_1").is_ok());
+    }
+
+    #[test]
+    fn test_check_owner_repo_rejects_empty() {
+        assert_eq!(kind(&check_owner_repo("", "r").unwrap_err()), "core");
+        assert_eq!(kind(&check_owner_repo("o", "").unwrap_err()), "core");
+        assert_eq!(kind(&check_owner_repo("  ", "r").unwrap_err()), "core");
+        assert!(check_owner_repo("octocat", "Hello-World").is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_add_repo_validated_persists_and_rejects_invalid() {
+        let td = test_db().await;
+        let db = &td.db;
+
+        // 非法标识 → 报错且不落库
+        for (owner, repo) in [("", "r"), ("o/r", "x"), ("o", "x!")] {
+            assert!(add_repo_validated(db, owner, repo).await.is_err());
+        }
+        assert!(db.list_github_repos().await.unwrap().is_empty());
+
+        // 合法 → 通过并落库
+        let dto = add_repo_validated(db, " octocat ", "Hello-World ").await.unwrap();
+        assert_eq!(dto.owner, "octocat");
+        assert_eq!(dto.repo, "Hello-World");
+        assert_eq!(dto.full_name, "octocat/Hello-World");
+        assert!(dto.id > 0);
+
+        let list = db.list_github_repos().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].full_name, "octocat/Hello-World");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_github_repos_empty_then_has() {
+        let td = test_db().await;
+        let db = &td.db;
+        assert!(list_repos_dtos(db).await.unwrap().is_empty());
+
+        db.add_github_repo("alice", "peytchat").await.unwrap();
+        db.add_github_repo("bob", "dotfiles").await.unwrap();
+        let dtos = list_repos_dtos(db).await.unwrap();
+        assert_eq!(dtos.len(), 2);
+        assert_eq!(dtos[0].full_name, "alice/peytchat");
+        assert_eq!(dtos[1].full_name, "bob/dotfiles");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_settings_read_write_clear() {
+        let td = test_db().await;
+        let db = &td.db;
+
+        // 默认:无 token(公开只读)
+        assert_eq!(db.get_github_settings().await.unwrap(), GithubSettingsDto::default());
+        assert!(github_auth(db).await.unwrap().token.is_none());
+
+        // 写入 → 可读回
+        db.set_github_token(Some("ghp_test_123")).await.unwrap();
+        assert_eq!(
+            db.get_github_settings().await.unwrap(),
+            GithubSettingsDto { token: Some("ghp_test_123".into()) }
+        );
+        assert_eq!(github_auth(db).await.unwrap().token.as_deref(), Some("ghp_test_123"));
+
+        // 清除 → 回默认
+        db.set_github_token(None).await.unwrap();
+        assert_eq!(db.get_github_settings().await.unwrap(), GithubSettingsDto::default());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_auth_required_errors_without_token() {
+        let td = test_db().await;
+        let db = &td.db;
+        let err = github_auth_required(db).await.unwrap_err();
+        assert_eq!(kind(&err), "core");
+        assert!(err.to_string().contains("需要 GitHub token"));
+
+        db.set_github_token(Some("ghp_x")).await.unwrap();
+        assert_eq!(
+            github_auth_required(db).await.unwrap().token.as_deref(),
+            Some("ghp_x")
+        );
+    }
+
+    #[test]
+    fn test_list_issues_filters_pull_requests_at_command_pipeline() {
+        let raw = json!([
+            { "number": 1, "title": "real issue", "state": "open", "user": { "login": "a" },
+              "created_at": "x", "updated_at": "y", "labels": [], "body": null, "html_url": "u" },
+            { "number": 2, "title": "a PR", "state": "open", "user": { "login": "b" },
+              "pull_request": { "url": "u" }, "created_at": "x", "updated_at": "y",
+              "labels": [], "body": null, "html_url": "u" }
+        ]);
+        let issues = parse_issue_list(&filter_out_pull_requests(&raw));
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].number, 1);
+    }
+
+    #[test]
+    fn test_map_repo_rows_round_trip() {
+        let rows = vec![GithubRepoRow { id: 7, owner: "a".into(), repo: "b".into(), full_name: "a/b".into() }];
+        let dtos = map_repo_rows(rows);
+        assert_eq!(dtos[0].id, 7);
+        assert_eq!(dtos[0].full_name, "a/b");
+    }
 }

@@ -7,9 +7,8 @@ use deltachat::accounts::Accounts;
 use deltachat::config::Config;
 use deltachat::context::Context;
 
-use crate::bot_llm;
 use crate::db::Db;
-use crate::dto::{BotDto, LlmConfigInput};
+use crate::dto::{BotConfig, BotDto, LlmConfig, LlmConfigInput};
 use crate::error::{AppError, AppResult};
 
 /// Bot 系统服务：管理"机器人"账号的创建/查询/删除/IO 启停。
@@ -123,9 +122,8 @@ impl BotService {
 
     /// 列出指定用户的所有 bot，读取其账号地址与 IO 运行状态。
     /// 账号上下文不可用时优雅跳过（addr = None）。
-    /// 列出全部 bot(应用级服务,不区分 owner)。
-    pub async fn list(&self) -> AppResult<Vec<BotDto>> {
-        let rows = self.db.list_all_bots().await?;
+    pub async fn list(&self, owner_id: u32) -> AppResult<Vec<BotDto>> {
+        let rows = self.db.list_bots(owner_id).await?;
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             let ctx = self.accounts.lock().await.get_account(row.bot_account_id);
@@ -145,11 +143,11 @@ impl BotService {
         Ok(out)
     }
 
-    /// 删除 bot：停 IO → 移除 accounts 账号 → 删除 db 行。
-    pub async fn delete(&self, bot_id: i64) -> AppResult<()> {
+    /// 删除 bot：校验归属 → 停 IO → 移除 accounts 账号 → 删除 db 行。
+    pub async fn delete(&self, owner_id: u32, bot_id: i64) -> AppResult<()> {
         let row = self
             .db
-            .get_bot_by_id(bot_id)
+            .get_bot(owner_id, bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
         if let Some(ctx) = self.accounts.lock().await.get_account(row.bot_account_id) {
@@ -160,16 +158,16 @@ impl BotService {
             .await
             .remove_account(row.bot_account_id)
             .await?;
-        self.db.delete_bot_by_id(bot_id).await?;
+        self.db.delete_bot(owner_id, bot_id).await?;
         self.bot_ids.lock().await.remove(&row.bot_account_id);
         Ok(())
     }
 
-    /// 返回 bot 的 deltachat Context(全局按 bot_id,不校验当前账号归属)。
-    pub async fn ctx_for_bot(&self, bot_id: i64) -> AppResult<Context> {
+    /// 返回 bot 的 deltachat Context（校验归属）。
+    pub async fn ctx_for_bot(&self, owner_id: u32, bot_id: i64) -> AppResult<Context> {
         let row = self
             .db
-            .get_bot_by_id(bot_id)
+            .get_bot(owner_id, bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
         let ctx = self
@@ -181,11 +179,11 @@ impl BotService {
         Ok(ctx)
     }
 
-    /// 启/停单个 bot 的 IO，并把状态写回 db，返回最新 DTO。
-    pub async fn set_io(&self, bot_id: i64, running: bool) -> AppResult<BotDto> {
+    /// 启/停单个 bot 的 IO（校验归属），并把状态写回 db，返回最新 DTO。
+    pub async fn set_io(&self, owner_id: u32, bot_id: i64, running: bool) -> AppResult<BotDto> {
         let row = self
             .db
-            .get_bot_by_id(bot_id)
+            .get_bot(owner_id, bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
         let ctx = self.accounts.lock().await.get_account(row.bot_account_id);
@@ -197,19 +195,8 @@ impl BotService {
             }
         }
         let status = if running { "running" } else { "stopped" };
-        self.db.set_bot_status_by_id(bot_id, status).await?;
-        let addr = match &ctx {
-            Some(ctx) => ctx.get_config(Config::ConfiguredAddr).await?,
-            None => None,
-        };
-        Ok(BotDto {
-            id: row.id,
-            bot_account_id: row.bot_account_id,
-            display_name: row.display_name,
-            addr,
-            io_running: running,
-            created_at: row.created_at,
-        })
+        self.db.set_bot_status(owner_id, bot_id, status).await?;
+        self.dto(owner_id, bot_id).await
     }
 
     /// 启动全部 bot 的 IO(应用级后台服务,不依赖当前账号)。单个 bot 失败只记日志。
@@ -284,22 +271,52 @@ impl BotService {
         Ok(None)
     }
 
-    /// 更新某个 bot 的 LLM 配置，并返回最新 DTO。
-    pub async fn update_bot_llm(
-        &self,
-        bot_id: i64,
-        config: LlmConfigInput,
-    ) -> AppResult<BotDto> {
-        let row = self
-            .db
-            .get_bot_by_id(bot_id)
+    /// 读取某个 bot 的结构化配置（BotConfig）；未配置或非法返回 None。
+    pub async fn get_config(&self, owner_id: u32, bot_id: i64) -> AppResult<Option<BotConfig>> {
+        self.db
+            .get_bot(owner_id, bot_id)
             .await?
             .ok_or_else(|| AppError::Core("bot not found".into()))?;
-        let json = serde_json::to_string(&config)
-            .map_err(|e| AppError::Core(format!("llm config serialize: {e}")))?;
+        let raw = self.db.get_bot_config(owner_id, bot_id).await?;
+        Ok(BotConfig::parse(raw.as_deref()))
+    }
+
+    /// 整体覆写某个 bot 的结构化配置。
+    pub async fn save_config(&self, owner_id: u32, bot_id: i64, config: &BotConfig) -> AppResult<()> {
         self.db
-            .set_bot_config_by_id(bot_id, Some(&json))
-            .await?;
+            .get_bot(owner_id, bot_id)
+            .await?
+            .ok_or_else(|| AppError::Core("bot not found".into()))?;
+        let json = serde_json::to_string(config)
+            .map_err(|e| AppError::Core(format!("config serialize: {e}")))?;
+        self.db.set_bot_config(owner_id, bot_id, Some(&json)).await
+    }
+
+    /// 更新某个 bot 的 LLM 配置（兼容旧命令 update_bot_llm），返回最新 DTO。
+    pub async fn update_llm(
+        &self,
+        owner_id: u32,
+        bot_id: i64,
+        input: LlmConfigInput,
+    ) -> AppResult<BotDto> {
+        let mut config = self.get_config(owner_id, bot_id).await?.unwrap_or_default();
+        config.llm = Some(LlmConfig::from(input));
+        self.save_config(owner_id, bot_id, &config).await?;
+        self.dto(owner_id, bot_id).await
+    }
+
+    /// 读取某个 bot 的 LLM 配置（兼容旧命令 get_bot_llm）；未配置返回 None。
+    pub async fn llm_of(&self, owner_id: u32, bot_id: i64) -> AppResult<Option<LlmConfig>> {
+        Ok(self.get_config(owner_id, bot_id).await?.and_then(|c| c.llm))
+    }
+
+    /// 组装某个 bot 的最新 DTO（供命令复用）。
+    pub async fn dto(&self, owner_id: u32, bot_id: i64) -> AppResult<BotDto> {
+        let row = self
+            .db
+            .get_bot(owner_id, bot_id)
+            .await?
+            .ok_or_else(|| AppError::Core("bot not found".into()))?;
         let ctx = self.accounts.lock().await.get_account(row.bot_account_id);
         let addr = match &ctx {
             Some(ctx) => ctx.get_config(Config::ConfiguredAddr).await?,
@@ -313,32 +330,6 @@ impl BotService {
             io_running: row.status == "running",
             created_at: row.created_at,
         })
-    }
-
-    /// 读取某个 bot 的 LLM 配置；未配置或 JSON 解析失败返回 None。
-    pub async fn get_bot_llm(&self, bot_id: i64) -> AppResult<Option<LlmConfigInput>> {
-        self.db
-            .get_bot_by_id(bot_id)
-            .await?
-            .ok_or_else(|| AppError::Core("bot not found".into()))?;
-        let raw = self.db.get_bot_config_by_id(bot_id).await?;
-        match raw.as_deref() {
-            None | Some("") => Ok(None),
-            Some(json) => match serde_json::from_str::<LlmConfigInput>(json) {
-                Ok(cfg) => Ok(Some(cfg)),
-                // 设置回读场景下解析失败更安全地返回 None，而非报错
-                Err(_) => Ok(None),
-            },
-        }
-    }
-
-    /// 启动 LLM 自动回复后台运行时(内部 spawn，不阻塞当前调用方)。
-    pub fn spawn_runtime(&self) {
-        tauri::async_runtime::spawn(bot_llm::spawn(
-            self.accounts.clone(),
-            self.db.clone(),
-            self.bot_ids.clone(),
-        ));
     }
 }
 
@@ -376,14 +367,14 @@ mod tests {
             .await
             .unwrap();
 
-        let dto = svc.set_io(bot_id, false).await.unwrap();
+        let dto = svc.set_io(owner_id, bot_id, false).await.unwrap();
         assert!(!dto.io_running);
         assert_eq!(dto.bot_account_id, bot_account_id);
         assert_eq!(dto.display_name, "TestBot");
         let row = db.get_bot(owner_id, bot_id).await.unwrap().unwrap();
         assert_eq!(row.status, "stopped");
 
-        let dto = svc.set_io(bot_id, true).await.unwrap();
+        let dto = svc.set_io(owner_id, bot_id, true).await.unwrap();
         assert!(dto.io_running);
         let row = db.get_bot(owner_id, bot_id).await.unwrap().unwrap();
         assert_eq!(row.status, "running");
@@ -395,11 +386,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (_, _, svc) = test_env(&tmp).await;
 
-        let err = svc.delete(999).await.unwrap_err();
+        let err = svc.delete(999, 999).await.unwrap_err();
         assert!(matches!(err, AppError::Core(_)));
     }
 
-    /// ctx_for_bot 全局按 id:存在的 bot 能拿到 context,不存在的 id 报 not found。
+    /// ctx_for_bot owner 校验：存在的 bot 能拿到 context,不存在的 id 报 not found。
     #[tokio::test(flavor = "multi_thread")]
     async fn test_ctx_for_bot_global_by_id() {
         let tmp = tempfile::tempdir().unwrap();
@@ -415,16 +406,43 @@ mod tests {
             .await
             .unwrap();
 
-        let ctx = svc.ctx_for_bot(bot_id).await.unwrap();
+        let ctx = svc.ctx_for_bot(owner_id, bot_id).await.unwrap();
         assert_eq!(ctx.get_id(), bot_account_id);
 
-        let err = svc.ctx_for_bot(999).await.unwrap_err();
+        let err = svc.ctx_for_bot(999, 999).await.unwrap_err();
         assert!(matches!(err, AppError::Core(_)));
     }
 
-    /// update_bot_llm 写入的 LLM 配置能被 get_bot_llm 读回（往返一致）。
+    /// list 只返回当前 owner 的 bot；owner 不匹配的 get_config 报 not found。
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_update_bot_llm_round_trip() {
+    async fn test_list_and_config_owner_scoped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (accounts, db, svc) = test_env(&tmp).await;
+
+        let owner_id = 1u32;
+        let bot_account_id = {
+            let mut accounts = accounts.lock().await;
+            accounts.add_account().await.unwrap()
+        };
+        let bot_id = db
+            .insert_bot(owner_id, bot_account_id, "ScopedBot", chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+
+        // owner 正确
+        assert_eq!(svc.list(owner_id).await.unwrap().len(), 1);
+        assert_eq!(svc.get_config(owner_id, bot_id).await.unwrap(), None);
+        // 非 owner 一律 not found
+        assert!(svc.list(999).await.unwrap().is_empty());
+        let err = svc.get_config(999, bot_id).await.unwrap_err();
+        assert!(matches!(err, AppError::Core(_)));
+        let err = svc.ctx_for_bot(999, bot_id).await.unwrap_err();
+        assert!(matches!(err, AppError::Core(_)));
+    }
+
+    /// update_llm → llm_of 往返一致；llm_of 返回可读回的 LlmConfig。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_update_llm_round_trip() {
         let tmp = tempfile::tempdir().unwrap();
         let (accounts, db, svc) = test_env(&tmp).await;
 
@@ -438,21 +456,24 @@ mod tests {
             .await
             .unwrap();
 
-        let config = LlmConfigInput {
+        let input = LlmConfigInput {
             system_prompt: Some("你是助手".to_string()),
             base_url: Some("https://api.example.com/v1".to_string()),
             api_key: Some("sk-test".to_string()),
             model: Some("gpt-4o-mini".to_string()),
             provider: Some("openai".to_string()),
         };
-        let dto = svc.update_bot_llm(bot_id, config.clone()).await.unwrap();
-        assert_eq!(dto.bot_account_id, bot_account_id);
+        svc.update_llm(owner_id, bot_id, input.clone()).await.unwrap();
 
-        let read = svc.get_bot_llm(bot_id).await.unwrap().unwrap();
-        assert_eq!(read.system_prompt, config.system_prompt);
-        assert_eq!(read.base_url, config.base_url);
-        assert_eq!(read.api_key, config.api_key);
-        assert_eq!(read.model, config.model);
-        assert_eq!(read.provider, config.provider);
+        let read = svc.llm_of(owner_id, bot_id).await.unwrap().expect("llm config present");
+        assert_eq!(read.system_prompt, input.system_prompt);
+        assert_eq!(read.model, input.model);
+        assert_eq!(read.temperature, 0.7);
+        assert!(read.is_complete());
+
+        // 整包 get_config 也能读回
+        let cfg = svc.get_config(owner_id, bot_id).await.unwrap().expect("config present");
+        assert!(cfg.llm.is_some());
+        assert_eq!(cfg.limits.max_concurrent, 2);
     }
 }

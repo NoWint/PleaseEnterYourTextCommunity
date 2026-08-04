@@ -6,7 +6,7 @@ use rusqlite::params;
 use rusqlite::OptionalExtension;
 use tokio::sync::Mutex;
 
-use crate::dto::{ActivityDto, ChannelDto, InboxEventDto, PinDto, RoleDto, WorkspaceDto};
+use crate::dto::{ActivityDto, BotStatsDto, ChannelDto, GithubSettingsDto, InboxEventDto, PinDto, RoleDto, WorkspaceDto};
 use crate::error::{AppError, AppResult};
 
 // bots 表行结构，供 Bot 服务模块使用
@@ -18,6 +18,48 @@ pub struct BotRow {
     pub display_name: String,
     pub status: String,
     pub created_at: i64,
+}
+
+/// bot_activities 表行结构。
+pub struct BotActivityRow {
+    pub id: i64,
+    pub bot_id: i64,
+    pub kind: String,
+    pub chat_id: Option<u32>,
+    pub msg_id: Option<u32>,
+    pub summary: String,
+    pub detail_json: Option<String>,
+    pub created_at: i64,
+}
+
+/// bot_schedules 表行结构。
+pub struct BotScheduleRow {
+    pub id: i64,
+    pub bot_id: i64,
+    pub chat_id: u32,
+    pub minute: i32,
+    pub hour: i32,
+    pub day_of_week: i32,
+    pub message: String,
+    pub enabled: bool,
+    pub next_run_at: i64,
+    pub created_at: i64,
+}
+
+/// bot_plugin_tools 表行结构。
+pub struct PluginToolRow {
+    pub name: String,
+    pub description: String,
+    pub parameters: String,
+    pub created_at: i64,
+}
+
+/// github_repos 表行结构。
+pub struct GithubRepoRow {
+    pub id: i64,
+    pub owner: String,
+    pub repo: String,
+    pub full_name: String,
 }
 
 pub struct Db {
@@ -139,6 +181,48 @@ impl Db {
                     config_json TEXT,
                     created_at INTEGER NOT NULL,
                     UNIQUE(owner_account_id, bot_account_id)
+                );
+                CREATE TABLE IF NOT EXISTS bot_activities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bot_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    chat_id INTEGER,
+                    msg_id INTEGER,
+                    summary TEXT NOT NULL,
+                    detail_json TEXT,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_bot_activities_bot ON bot_activities(bot_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS bot_schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bot_id INTEGER NOT NULL,
+                    chat_id INTEGER NOT NULL,
+                    minute INTEGER NOT NULL DEFAULT -1,
+                    hour INTEGER NOT NULL DEFAULT -1,
+                    day_of_week INTEGER NOT NULL DEFAULT -1,
+                    message TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    next_run_at INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_bot_schedules_due ON bot_schedules(next_run_at);
+                CREATE TABLE IF NOT EXISTS bot_plugin_tools (
+                    name TEXT PRIMARY KEY,
+                    description TEXT NOT NULL,
+                    parameters TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS github_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    token TEXT,
+                    updated_at INTEGER
+                );
+                CREATE TABLE IF NOT EXISTS github_repos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner TEXT NOT NULL,
+                    repo TEXT NOT NULL,
+                    full_name TEXT NOT NULL UNIQUE,
+                    added_at INTEGER NOT NULL
                 );",
             )?;
             Ok(())
@@ -245,6 +329,26 @@ impl Db {
             let c = conn.blocking_lock();
             let mut stmt = c.prepare("SELECT id, name, master_chat_id, icon, created_at FROM workspaces WHERE master_chat_id = ?1")?;
             let mut rows = stmt.query_map(rusqlite::params![master_chat_id as i64], |r| {
+                Ok(WorkspaceDto {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    master_chat_id: r.get::<_, i64>(2)? as u32,
+                    icon: r.get(3)?,
+                    created_at: r.get(4)?,
+                })
+            })?;
+            Ok(rows.next().transpose()?)
+        })
+        .await?
+    }
+
+    /// 按 id 查工作区(Bot /whoami 等场景展示工作区名用)。
+    pub async fn get_workspace(&self, id: i64) -> AppResult<Option<WorkspaceDto>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<WorkspaceDto>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare("SELECT id, name, master_chat_id, icon, created_at FROM workspaces WHERE id = ?1")?;
+            let mut rows = stmt.query_map(rusqlite::params![id], |r| {
                 Ok(WorkspaceDto {
                     id: r.get(0)?,
                     name: r.get(1)?,
@@ -1010,9 +1114,9 @@ impl Db {
             let row = c.query_row(
                 "SELECT config_json FROM bots WHERE owner_account_id = ?1 AND id = ?2",
                 params![owner_account_id, bot_id],
-                |row| row.get(0),
+                |row| row.get::<_, Option<String>>(0),
             ).optional()?;
-            Ok(row)
+            Ok(row.flatten())
         })
         .await?
     }
@@ -1059,9 +1163,396 @@ impl Db {
         tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
             let c = conn.blocking_lock();
             let row = c
-                .query_row("SELECT config_json FROM bots WHERE id = ?1", params![bot_id], |row| row.get(0))
+                .query_row("SELECT config_json FROM bots WHERE id = ?1", params![bot_id], |row| row.get::<_, Option<String>>(0))
+                .optional()?;
+            Ok(row.flatten())
+        })
+        .await?
+    }
+
+    // ── Bot 活动日志 ──────────────────────────────────────────────────────
+
+    pub async fn insert_bot_activity(
+        &self,
+        bot_id: i64,
+        kind: &str,
+        chat_id: Option<u32>,
+        msg_id: Option<u32>,
+        summary: &str,
+        detail_json: Option<&str>,
+    ) -> AppResult<i64> {
+        let conn = self.conn.clone();
+        let kind = kind.to_string();
+        let summary = summary.to_string();
+        let detail_json = detail_json.map(|s| s.to_string());
+        let now = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<i64> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO bot_activities (bot_id, kind, chat_id, msg_id, summary, detail_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    bot_id,
+                    kind,
+                    chat_id.map(|v| v as i64),
+                    msg_id.map(|v| v as i64),
+                    summary,
+                    detail_json,
+                    now
+                ],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await?
+    }
+
+    pub async fn list_bot_activities(&self, bot_id: i64, limit: u32) -> AppResult<Vec<BotActivityRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<BotActivityRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, bot_id, kind, chat_id, msg_id, summary, detail_json, created_at
+                 FROM bot_activities WHERE bot_id = ?1 ORDER BY id DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![bot_id, limit], |r| {
+                Ok(BotActivityRow {
+                    id: r.get(0)?,
+                    bot_id: r.get(1)?,
+                    kind: r.get(2)?,
+                    chat_id: r.get::<_, Option<i64>>(3)?.map(|v| v as u32),
+                    msg_id: r.get::<_, Option<i64>>(4)?.map(|v| v as u32),
+                    summary: r.get(5)?,
+                    detail_json: r.get(6)?,
+                    created_at: r.get(7)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    /// 按 kind 聚合某个 bot 的活动统计（单条 SQL）。
+    pub async fn get_bot_stats(&self, bot_id: i64) -> AppResult<BotStatsDto> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<BotStatsDto> {
+            let c = conn.blocking_lock();
+            let row = c.query_row(
+                "SELECT COUNT(*),
+                   COALESCE(SUM(CASE WHEN kind='reply_sent' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='rule_reply' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='schedule_sent' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='tool_called' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='llm_error' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='reply_rate_limited' THEN 1 ELSE 0 END), 0),
+                   MAX(created_at), MIN(created_at)
+                 FROM bot_activities WHERE bot_id=?1",
+                params![bot_id],
+                |r| {
+                    Ok(BotStatsDto {
+                        total_activities: r.get(0)?,
+                        reply_sent: r.get(1)?,
+                        rule_reply: r.get(2)?,
+                        schedule_sent: r.get(3)?,
+                        tool_called: r.get(4)?,
+                        llm_error: r.get(5)?,
+                        rate_limited: r.get(6)?,
+                        last_activity_at: r.get(7)?,
+                        first_seen_at: r.get(8)?,
+                    })
+                },
+            )?;
+            Ok(row)
+        })
+        .await?
+    }
+
+    // ── Bot 定时消息 ──────────────────────────────────────────────────────
+
+    pub async fn insert_bot_schedule(
+        &self,
+        bot_id: i64,
+        chat_id: u32,
+        minute: i32,
+        hour: i32,
+        day_of_week: i32,
+        message: &str,
+        next_run_at: i64,
+    ) -> AppResult<i64> {
+        let conn = self.conn.clone();
+        let message = message.to_string();
+        let created_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<i64> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO bot_schedules (bot_id, chat_id, minute, hour, day_of_week, message, enabled, next_run_at, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)",
+                params![bot_id, chat_id, minute, hour, day_of_week, message, next_run_at, created_at],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await?
+    }
+
+    pub async fn list_bot_schedules(&self, bot_id: i64) -> AppResult<Vec<BotScheduleRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<BotScheduleRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, bot_id, chat_id, minute, hour, day_of_week, message, enabled, next_run_at, created_at
+                 FROM bot_schedules WHERE bot_id = ?1 ORDER BY id",
+            )?;
+            let rows = stmt.query_map(params![bot_id], |r| {
+                Ok(BotScheduleRow {
+                    id: r.get(0)?,
+                    bot_id: r.get(1)?,
+                    chat_id: r.get::<_, i64>(2)? as u32,
+                    minute: r.get(3)?,
+                    hour: r.get(4)?,
+                    day_of_week: r.get(5)?,
+                    message: r.get(6)?,
+                    enabled: r.get::<_, i64>(7)? != 0,
+                    next_run_at: r.get(8)?,
+                    created_at: r.get(9)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    pub async fn get_bot_schedule(&self, id: i64) -> AppResult<Option<BotScheduleRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<BotScheduleRow>> {
+            let c = conn.blocking_lock();
+            let row = c
+                .query_row(
+                    "SELECT id, bot_id, chat_id, minute, hour, day_of_week, message, enabled, next_run_at, created_at
+                     FROM bot_schedules WHERE id = ?1",
+                    params![id],
+                    |r| {
+                        Ok(BotScheduleRow {
+                            id: r.get(0)?,
+                            bot_id: r.get(1)?,
+                            chat_id: r.get::<_, i64>(2)? as u32,
+                            minute: r.get(3)?,
+                            hour: r.get(4)?,
+                            day_of_week: r.get(5)?,
+                            message: r.get(6)?,
+                            enabled: r.get::<_, i64>(7)? != 0,
+                            next_run_at: r.get(8)?,
+                            created_at: r.get(9)?,
+                        })
+                    },
+                )
                 .optional()?;
             Ok(row)
+        })
+        .await?
+    }
+
+    pub async fn delete_bot_schedule(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM bot_schedules WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 查询到期的定时消息:enabled=1 且 next_run_at <= now。
+    pub async fn list_due_schedules(&self, now: i64) -> AppResult<Vec<BotScheduleRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<BotScheduleRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, bot_id, chat_id, minute, hour, day_of_week, message, enabled, next_run_at, created_at
+                 FROM bot_schedules WHERE enabled = 1 AND next_run_at <= ?1 ORDER BY next_run_at",
+            )?;
+            let rows = stmt.query_map(params![now], |r| {
+                Ok(BotScheduleRow {
+                    id: r.get(0)?,
+                    bot_id: r.get(1)?,
+                    chat_id: r.get::<_, i64>(2)? as u32,
+                    minute: r.get(3)?,
+                    hour: r.get(4)?,
+                    day_of_week: r.get(5)?,
+                    message: r.get(6)?,
+                    enabled: r.get::<_, i64>(7)? != 0,
+                    next_run_at: r.get(8)?,
+                    created_at: r.get(9)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    pub async fn set_schedule_next_run(&self, id: i64, next_run_at: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("UPDATE bot_schedules SET next_run_at = ?2 WHERE id = ?1", params![id, next_run_at])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    // ── 插件工具 ──────────────────────────────────────────────────────────
+
+    /// 注册或更新插件工具(以 name 为主键,INSERT OR REPLACE 覆盖)。
+    pub async fn upsert_plugin_tool(&self, name: &str, description: &str, parameters: &str, created_at: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let name = name.to_string();
+        let description = description.to_string();
+        let parameters = parameters.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT OR REPLACE INTO bot_plugin_tools (name, description, parameters, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![name, description, parameters, created_at],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn delete_plugin_tool(&self, name: &str) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let name = name.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM bot_plugin_tools WHERE name = ?1", params![name])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    pub async fn list_plugin_tools(&self) -> AppResult<Vec<PluginToolRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<PluginToolRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT name, description, parameters, created_at FROM bot_plugin_tools ORDER BY name",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(PluginToolRow {
+                    name: r.get(0)?,
+                    description: r.get(1)?,
+                    parameters: r.get(2)?,
+                    created_at: r.get(3)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    // ── GitHub 集成 ────────────────────────────────────────────────────
+
+    /// 读取全局 GitHub 设置;无行返回默认(空 token)。
+    pub async fn get_github_settings(&self) -> AppResult<GithubSettingsDto> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<GithubSettingsDto> {
+            let c = conn.blocking_lock();
+            let token = c
+                .query_row(
+                    "SELECT token FROM github_settings WHERE id = 1",
+                    [],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .optional()?
+                .flatten();
+            Ok(GithubSettingsDto { token })
+        })
+        .await?
+    }
+
+    /// 写入全局 GitHub token(UPSERT id=1);None 置 NULL 并刷新 updated_at。
+    pub async fn set_github_token(&self, token: Option<&str>) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let token = token.map(str::to_string);
+        let updated_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO github_settings (id, token, updated_at) VALUES (1, ?1, ?2)
+                 ON CONFLICT(id) DO UPDATE SET token = excluded.token, updated_at = excluded.updated_at",
+                params![token, updated_at],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 列出已绑定仓库(按添加顺序)。
+    pub async fn list_github_repos(&self) -> AppResult<Vec<GithubRepoRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<GithubRepoRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, owner, repo, full_name FROM github_repos ORDER BY id",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(GithubRepoRow {
+                    id: r.get(0)?,
+                    owner: r.get(1)?,
+                    repo: r.get(2)?,
+                    full_name: r.get(3)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    /// 绑定仓库;full_name = "{owner}/{repo}",owner/repo 重复时唯一约束冲突返回 Db 错误。
+    pub async fn add_github_repo(&self, owner: &str, repo: &str) -> AppResult<i64> {
+        let conn = self.conn.clone();
+        let owner = owner.to_string();
+        let repo = repo.to_string();
+        let full_name = format!("{owner}/{repo}");
+        let added_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<i64> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO github_repos (owner, repo, full_name, added_at) VALUES (?1, ?2, ?3, ?4)",
+                params![owner, repo, full_name, added_at],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await?
+    }
+
+    /// 解除绑定仓库。
+    pub async fn remove_github_repo(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM github_repos WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 仓库是否已绑定(write 工具限绑定仓库用)。
+    pub async fn is_repo_bound(&self, owner: &str, repo: &str) -> AppResult<bool> {
+        let conn = self.conn.clone();
+        let full_name = format!("{owner}/{repo}");
+        tokio::task::spawn_blocking(move || -> AppResult<bool> {
+            let c = conn.blocking_lock();
+            let count: i64 = c.query_row(
+                "SELECT COUNT(*) FROM github_repos WHERE full_name = ?1",
+                params![full_name],
+                |r| r.get(0),
+            )?;
+            Ok(count > 0)
         })
         .await?
     }
@@ -1299,5 +1790,278 @@ mod tests {
         db.set_bot_status(1, bot_id, "stopped").await.unwrap();
         let row = db.get_bot(1, bot_id).await.unwrap().unwrap();
         assert_eq!(row.status, "stopped");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_activity_insert_and_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let id1 = db
+            .insert_bot_activity(9, "reply_sent", Some(3), Some(7), "回复 alice", None)
+            .await
+            .unwrap();
+        let id2 = db
+            .insert_bot_activity(9, "llm_error", Some(3), Some(8), "llm 失败", Some("{\"error\":\"timeout\"}"))
+            .await
+            .unwrap();
+        db.insert_bot_activity(10, "no_config", None, None, "无配置", None).await.unwrap();
+
+        let rows = db.list_bot_activities(9, 10).await.unwrap();
+        // ORDER BY id DESC → 最新在前
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, id2);
+        assert_eq!(rows[0].kind, "llm_error");
+        assert_eq!(rows[0].detail_json.as_deref(), Some("{\"error\":\"timeout\"}"));
+        assert_eq!(rows[1].id, id1);
+        assert_eq!(rows[1].chat_id, Some(3));
+        assert_eq!(rows[1].msg_id, Some(7));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_activity_list_limit_and_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        for _ in 0..3 {
+            db.insert_bot_activity(5, "reply_sent", None, None, "r", None).await.unwrap();
+        }
+        let limited = db.list_bot_activities(5, 2).await.unwrap();
+        assert_eq!(limited.len(), 2);
+        assert!(db.list_bot_activities(99, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_stats() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        // 空 bot → 全 0,时间戳为 None
+        let empty = db.get_bot_stats(1).await.unwrap();
+        assert_eq!(empty.total_activities, 0);
+        assert_eq!(empty.reply_sent, 0);
+        assert_eq!(empty.rule_reply, 0);
+        assert_eq!(empty.schedule_sent, 0);
+        assert_eq!(empty.tool_called, 0);
+        assert_eq!(empty.llm_error, 0);
+        assert_eq!(empty.rate_limited, 0);
+        assert_eq!(empty.last_activity_at, None);
+        assert_eq!(empty.first_seen_at, None);
+
+        // 插入不同 kind 的活动,统计正确
+        let now = chrono::Utc::now().timestamp();
+        let bot_id = 9;
+        let t1 = now - 100;
+        let t2 = now;
+        let conn = db.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO bot_activities (bot_id, kind, chat_id, msg_id, summary, detail_json, created_at) VALUES (?1, ?2, NULL, NULL, 's', NULL, ?3)",
+                params![bot_id, "reply_sent", t1],
+            )?;
+            Ok(())
+        }).await.unwrap();
+        db.insert_bot_activity(bot_id, "reply_sent", None, None, "回复", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "rule_reply", None, None, "规则回复", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "rule_reply", None, None, "规则回复2", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "schedule_sent", None, None, "定时", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "tool_called", None, None, "工具", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "llm_error", None, None, "失败", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "reply_rate_limited", None, None, "限流", None).await.unwrap();
+        // 不属于统计的 kind 只算进 total
+        db.insert_bot_activity(bot_id, "no_config", None, None, "无配置", None).await.unwrap();
+        // 别的 bot 不影响本 bot 统计
+        db.insert_bot_activity(99, "reply_sent", None, None, "other", None).await.unwrap();
+
+        let s = db.get_bot_stats(bot_id).await.unwrap();
+        assert_eq!(s.total_activities, 9);
+        assert_eq!(s.reply_sent, 2);
+        assert_eq!(s.rule_reply, 2);
+        assert_eq!(s.schedule_sent, 1);
+        assert_eq!(s.tool_called, 1);
+        assert_eq!(s.llm_error, 1);
+        assert_eq!(s.rate_limited, 1);
+        // created_at 为 Utc::now().timestamp(),必大于 t1
+        assert!(s.last_activity_at.is_some());
+        assert!(s.first_seen_at.is_some());
+        assert_eq!(s.first_seen_at, Some(t1));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_schedule_crud_and_due() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let id1 = db.insert_bot_schedule(9, 3, 30, 9, -1, "每天 9:30 打卡", 100).await.unwrap();
+        let id2 = db.insert_bot_schedule(9, 3, -1, -1, -1, "一次性提醒", 200).await.unwrap();
+        assert!(id1 > 0 && id2 > 0);
+
+        // list 按 bot_id 过滤
+        let list = db.list_bot_schedules(9).await.unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list.iter().all(|s| s.bot_id == 9));
+        assert_eq!(list[0].message, "每天 9:30 打卡");
+        assert!(list[0].enabled);
+        assert_eq!(list[1].day_of_week, -1);
+
+        // 非本 bot 查不到
+        assert!(db.list_bot_schedules(99).await.unwrap().is_empty());
+
+        // get
+        let row = db.get_bot_schedule(id1).await.unwrap().unwrap();
+        assert_eq!(row.id, id1);
+        assert_eq!(row.minute, 30);
+        assert_eq!(row.hour, 9);
+        assert!(db.get_bot_schedule(9999).await.unwrap().is_none());
+
+        // due 查询:now=100 → id1 到期,id2(200)未到期
+        let due = db.list_due_schedules(100).await.unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].id, id1);
+
+        // set_next_run 后不再 due
+        db.set_schedule_next_run(id1, 99999).await.unwrap();
+        assert!(db.list_due_schedules(100).await.unwrap().is_empty());
+
+        // delete → empty
+        db.delete_bot_schedule(id1).await.unwrap();
+        db.delete_bot_schedule(id2).await.unwrap();
+        assert!(db.list_bot_schedules(9).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_schedule_due_ignores_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let id = db.insert_bot_schedule(9, 3, -1, -1, -1, "提醒", 10).await.unwrap();
+        let conn = db.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("UPDATE bot_schedules SET enabled = 0 WHERE id = ?1", params![id])?;
+            Ok(())
+        }).await.unwrap();
+        assert!(db.list_due_schedules(10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_plugin_tool_upsert_list_delete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        // upsert 两次,同名覆盖更新
+        db.upsert_plugin_tool("webhook", "触发 webhook", "{\"type\":\"object\"}", 1000).await.unwrap();
+        db.upsert_plugin_tool("webhook", "触发 webhook v2", "{\"type\":\"object\",\"v\":2}", 2000).await.unwrap();
+        db.upsert_plugin_tool("calc", "计算", "{\"type\":\"object\"}", 1500).await.unwrap();
+
+        let list = db.list_plugin_tools().await.unwrap();
+        assert_eq!(list.len(), 2);
+        let webhook = list.iter().find(|t| t.name == "webhook").unwrap();
+        assert_eq!(webhook.description, "触发 webhook v2");
+        assert_eq!(webhook.parameters, "{\"type\":\"object\",\"v\":2}");
+        assert_eq!(webhook.created_at, 2000);
+
+        // delete → empty
+        db.delete_plugin_tool("webhook").await.unwrap();
+        db.delete_plugin_tool("calc").await.unwrap();
+        assert!(db.list_plugin_tools().await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_settings_upsert_and_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        // 无行 → 默认
+        let s = db.get_github_settings().await.unwrap();
+        assert_eq!(s, GithubSettingsDto::default());
+
+        // 写入 token
+        db.set_github_token(Some("ghp_test_123")).await.unwrap();
+        let s = db.get_github_settings().await.unwrap();
+        assert_eq!(s.token.as_deref(), Some("ghp_test_123"));
+
+        // UPSERT 覆盖
+        db.set_github_token(Some("ghp_test_456")).await.unwrap();
+        let s = db.get_github_settings().await.unwrap();
+        assert_eq!(s.token.as_deref(), Some("ghp_test_456"));
+
+        // None 清除 → NULL
+        db.set_github_token(None).await.unwrap();
+        let s = db.get_github_settings().await.unwrap();
+        assert_eq!(s.token, None);
+
+        // 单行约束:仍只有一行
+        let conn = db.conn.lock().await;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM github_settings", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_repos_crud_and_unique() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        // 初始为空
+        assert!(db.list_github_repos().await.unwrap().is_empty());
+        assert!(!db.is_repo_bound("owner", "repo").await.unwrap());
+
+        // 添加
+        let id1 = db.add_github_repo("owner", "repo").await.unwrap();
+        let id2 = db.add_github_repo("alice", "peytchat").await.unwrap();
+        assert!(id1 > 0 && id2 > 0 && id1 != id2);
+
+        let list = db.list_github_repos().await.unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].full_name, "owner/repo");
+        assert_eq!(list[1].full_name, "alice/peytchat");
+
+        // is_repo_bound 按 owner/repo 匹配 full_name
+        assert!(db.is_repo_bound("owner", "repo").await.unwrap());
+        assert!(db.is_repo_bound("alice", "peytchat").await.unwrap());
+        assert!(!db.is_repo_bound("owner", "other").await.unwrap());
+        assert!(!db.is_repo_bound("other", "repo").await.unwrap());
+
+        // 唯一约束:重复 owner/repo 冲突 → Db 错误
+        let dup = db.add_github_repo("owner", "repo").await;
+        assert!(dup.is_err(), "重复绑定应返回 Db 错误");
+        assert_eq!(db.list_github_repos().await.unwrap().len(), 2);
+
+        // remove
+        db.remove_github_repo(id1).await.unwrap();
+        let list = db.list_github_repos().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id2);
+        assert!(!db.is_repo_bound("owner", "repo").await.unwrap());
+
+        // 移除后可以重新绑定
+        db.add_github_repo("owner", "repo").await.unwrap();
+        assert!(db.is_repo_bound("owner", "repo").await.unwrap());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_tables_created_in_migrate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        let conn = db.conn.lock().await;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('github_settings','github_repos')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
     }
 }
