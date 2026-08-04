@@ -265,6 +265,9 @@
         .generator textarea::-webkit-scrollbar { display: none; }
         .generator textarea:focus { border-color: var(--accent); }
         .gen-btn {
+            /* 右对齐(块级 + margin-left:auto 推到右侧) */
+            display: block;
+            margin-left: auto;
             margin-top: 14px;
             padding: 12px 18px;
             border: none;
@@ -406,6 +409,8 @@
             else v = v.replace(/openpgp4fpr:/i, '');
             if (v.indexOf('#') === -1) v = v.replace(/%23/, '#');
             if (!v) { genBtn.disabled = true; return; }
+            // 生成器路径下 qr-wrap 初始是 hidden,这里恢复显示,二维码才能看到
+            qrWrap.style.display = '';
             qrBody.classList.add('open');
             renderInvite(v);
         });
