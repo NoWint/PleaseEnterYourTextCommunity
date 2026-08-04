@@ -15,7 +15,7 @@ use tauri::State;
 use crate::dto::{
     ActivityDto, AdvancedLogin, BotDto, CardDto, ChannelDto, ChatDto, ChatInfoDto, ContactDto,
     ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PeytStudioDto, PinDto, ProfileDto,
-    RawMsgDto, ReactionDto, RoleDto, SearchResultDto, WorkspaceDto,
+    RawMsgDto, ReactionDto, ReadReceiptDto, RoleDto, SearchResultDto, WorkspaceDto,
 };
 use crate::error::{AppError, AppResult};
 use crate::plugins::{PluginStatus, RegistryPlugin};
@@ -2900,6 +2900,51 @@ pub async fn get_message_read_receipt_count(
         .ok_or_else(|| AppError::Core("no account".into()))?;
     let count = message::get_msg_read_receipt_count(&ctx, MsgId::new(msg_id)).await?;
     Ok(count as u32)
+}
+
+/// 某条消息的完整已读名单(谁在何时读过)。
+/// core get_msg_read_receipts 返回 (ContactId, timestamp),逐条转成带联系人信息的 DTO。
+#[tauri::command]
+pub async fn get_message_read_receipts(
+    state: State<'_, AppState>,
+    msg_id: u32,
+) -> AppResult<Vec<ReadReceiptDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let receipts = message::get_msg_read_receipts(&ctx, MsgId::new(msg_id)).await?;
+    let mut out = Vec::with_capacity(receipts.len());
+    for (cid, ts) in receipts {
+        let m = member_to_dto(&ctx, cid).await?;
+        out.push(ReadReceiptDto {
+            contact_id: m.contact_id,
+            name: m.name,
+            addr: m.addr,
+            avatar: m.avatar,
+            color: m.color,
+            ts,
+        });
+    }
+    Ok(out)
+}
+
+/// 批量查询多条消息的已读人数(与传入顺序一致)。
+/// 打开会话时前端一次拉取所有已发消息的计数,避免逐条 IPC。
+#[tauri::command]
+pub async fn get_msg_read_counts(
+    state: State<'_, AppState>,
+    msg_ids: Vec<u32>,
+) -> AppResult<Vec<u32>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let mut out = Vec::with_capacity(msg_ids.len());
+    for id in msg_ids {
+        out.push(message::get_msg_read_receipt_count(&ctx, MsgId::new(id)).await? as u32);
+    }
+    Ok(out)
 }
 
 // ==== 屏蔽列表 / 取消屏蔽 (Delta UnblockContacts) ====

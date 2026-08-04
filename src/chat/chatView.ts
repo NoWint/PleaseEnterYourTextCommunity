@@ -1,6 +1,6 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
-import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache, type GroupRole } from './message.js';
+import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache, setReadCounts, type GroupRole } from './message.js';
 import { renderComposer } from './composer.js';
 import { renderRightDrawer } from '../shell/rightDrawer.js';
 import { saveState } from '../persist.js';
@@ -261,6 +261,8 @@ export async function appendNewMessages(chatId: number): Promise<void> {
     });
     // 全量渲染(复用已有节点,只新建新消息),浏览器原生滚动
     await renderAllMessages(box);
+    // 新消息若含已发消息,补齐其已读计数
+    void loadReadCounts(newMsgs);
     if (wasAtBottom) {
       box.scrollTop = box.scrollHeight;
       // 用户看到了新消息 → 标记 seen 并触发 MDN,让发送方显示已读。
@@ -299,6 +301,22 @@ async function refreshMessages(chatId: number): Promise<void> {
   // (scrollHeight = 真实高度,scrollTop 天然稳定,零手动补偿)。
   await renderAllMessages(box);
   box.scrollTop = box.scrollHeight;
+  void loadReadCounts(msgs);
+}
+
+// 已读系统:批量拉取发出的消息的已读人数,填充 readCountMap(气泡渲染「N 人已读」)。
+// 只对真实 id(非 tmp_ 乐观消息)的发出消息查询;失败静默(下次刷新会补)。
+async function loadReadCounts(msgs: MsgDto[]): Promise<void> {
+  const ids: number[] = [];
+  for (const m of msgs) {
+    const isOut = state.self ? m.from_id === state.self.id : false;
+    if (isOut) ids.push(m.msg_id);
+  }
+  if (ids.length === 0) return;
+  try {
+    const counts = await call<number[]>('get_msg_read_counts', { msgIds: ids });
+    setReadCounts(ids, counts);
+  } catch { /* 失败静默,下次渲染自动补齐 */ }
 }
 
 async function loadEarlier(chatId: number): Promise<void> {
@@ -338,6 +356,7 @@ async function loadEarlier(chatId: number): Promise<void> {
   const heightDelta = box.scrollHeight - prevHeight;
   box.scrollTop = prevTop + heightDelta;
   loadingEarlier = false;
+  void loadReadCounts(older);
 }
 
 // Delta 式全量渲染:所有已加载消息都是真实 DOM 节点,浏览器原生管理滚动。

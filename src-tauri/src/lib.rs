@@ -201,6 +201,8 @@ pub fn run() {
             // Delta 对齐批次 2
             commands::get_chat_media,
             commands::get_message_read_receipt_count,
+            commands::get_message_read_receipts,
+            commands::get_msg_read_counts,
             // 屏蔽列表 / 取消屏蔽
             commands::get_blocked_contacts,
             commands::unblock_contact,

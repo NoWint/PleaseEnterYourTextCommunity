@@ -94,6 +94,16 @@ pub fn spawn_event_forwarder(
                     comment: None,
                     text: None,
                 },
+                // 群聊/广播的已读计数变化(有人读了 → 刷新「N 人已读」文字)。
+                EventType::MsgReadCountChanged { chat_id, msg_id } => EventPayload {
+                    typ: "MsgReadCountChanged".into(),
+                    chat_id: Some(chat_id.to_u32()),
+                    msg_id: Some(msg_id.to_u32()),
+                    contact_id: None,
+                    progress: None,
+                    comment: None,
+                    text: None,
+                },
                 EventType::MsgDeleted { chat_id, msg_id } => EventPayload {
                     typ: "MsgDeleted".into(),
                     chat_id: Some(chat_id.to_u32()),
