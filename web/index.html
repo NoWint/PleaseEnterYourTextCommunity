@@ -232,15 +232,32 @@
             from { opacity: 0; transform: scale(0.94) translateY(6px); }
             to   { opacity: 1; transform: none; }
         }
-        #qrcode {
+        /* 二维码卡:白底"悬浮码卡"(§12 材料/§7 锚定),圆角 + 柔和多层阴影 */
+        .qr-card {
             display: inline-flex;
-            padding: 14px;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 18px;
             background: #fff;
-            border-radius: var(--radius-md);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+            border-radius: 20px;
+            box-shadow:
+                0 2px 4px rgba(0,0,0,0.12),
+                0 12px 32px rgba(0,0,0,0.28);
         }
-        #qrcode canvas { display: block; }
-        .qr-hint { margin-top: 10px; font-size: 12px; color: var(--text-3); }
+        #qrcode { display: inline-flex; }
+        #qrcode canvas { display: block; border-radius: 4px; }
+        /* 码下方的小标签:扫码打开提示(§16 直接具体文案) */
+        .qr-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            color: #4a4a55;
+        }
+        .qr-label svg { width: 14px; height: 14px; color: #6a5cff; }
+        .qr-hint { margin-top: 12px; font-size: 12px; color: var(--text-3); }
 
         /* ── 生成器(无 #token)────────────── */
         .generator { display: none; }
@@ -335,8 +352,14 @@
                     在另一台设备上打开
                 </button>
                 <div class="qr-body" id="qr-body">
-                    <div id="qrcode"></div>
-                    <p class="qr-hint">扫码在另一台设备打开对话</p>
+                    <div class="qr-card">
+                        <div id="qrcode"></div>
+                        <span class="qr-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h2v2H7zM11 7h2v2h-2zM15 7h2v2h-2zM7 11h2v2H7zM15 11h2v2h-2zM7 15h2v2H7zM11 15h2v2h-2zM15 15h2v2h-2z"/></svg>
+                            扫码打开对话
+                        </span>
+                    </div>
+                    <p class="qr-hint">在另一台设备扫码,打开这段对话</p>
                 </div>
             </div>
 
