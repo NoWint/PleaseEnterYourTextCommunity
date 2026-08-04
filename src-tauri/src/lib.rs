@@ -131,8 +131,8 @@ pub fn run() {
             built.register(Arc::new(crate::tools::app::SearchHistoryTool));
             built.register(Arc::new(crate::tools::app::CreateCardTool));
             built.register(Arc::new(crate::tools::app::SetReminderTool));
-            // GitHub 工具集:共享一个 GithubClient(连接池)
-            let github_client = Arc::new(crate::github::GithubClient::new());
+            // GitHub 工具集:共享 AppState.github(命令层/工具层单一数据源)
+            let github_client = state.github.clone();
             built.register(Arc::new(crate::tools::github::GithubGetRepoTool::new(
                 github_client.clone(),
             )));
@@ -355,6 +355,21 @@ pub fn run() {
             commands::list_bot_tools,
             commands::bot_tool_result,
             commands::list_bot_activities,
+            // D1 GitHub:界面命令层(Task 4)
+            commands::get_github_settings,
+            commands::set_github_token,
+            commands::list_github_repos,
+            commands::add_github_repo,
+            commands::remove_github_repo,
+            commands::github_repo,
+            commands::github_list_issues,
+            commands::github_get_issue,
+            commands::github_list_pulls,
+            commands::github_list_commits,
+            commands::github_search_repo,
+            commands::github_search_code,
+            commands::github_list_events,
+            commands::github_get_content,
             // 原生系统通知(user-notify)
             notifications::show_notification,
             notifications::get_notification_permission,

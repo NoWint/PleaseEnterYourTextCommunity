@@ -23,6 +23,23 @@ use crate::error::{AppError, AppResult};
 use crate::plugins::{PluginStatus, RegistryPlugin};
 use crate::state::AppState;
 
+// D1 GitHub:命令层导入(见文末 GitHub 命令段)
+use std::sync::Arc;
+
+use crate::db::{Db, GithubRepoRow};
+use crate::dto::{GithubRepoDto, GithubSettingsDto};
+use crate::github::api::{
+    url_get_content, url_get_issue, url_list_commits, url_list_events, url_list_issues,
+    url_list_pulls, url_repo, url_search_code, url_search_repo,
+};
+use crate::github::client::GithubAuth;
+use crate::github::types::{
+    parse_commit_list, parse_content, parse_content_list, parse_event_list, parse_issue,
+    parse_issue_list, parse_pull_list, parse_repo, parse_search_code, parse_search_repo,
+    CommitDto, ContentDto, EventDto, IssueDto, PullDto, RepoDto, SearchCodeDto, SearchRepoDto,
+};
+use crate::tools::github::filter_out_pull_requests;
+
 /// SP5 Task 11: 区分"字段缺失"(None, 不更新) / "字段为 null"(Some(None), 清空) /
 /// "字段有值"(Some(Some(v)), 更新)。
 ///
@@ -3605,3 +3622,383 @@ pub async fn switch_account(state: State<'_, AppState>, id: u32) -> AppResult<cr
     }
     Err(AppError::Core("账号不可用".into()))
 }
+
+// ── D1 GitHub:界面命令层 ──────────────────────────────────────────────
+// 全部命令用全局 token(db.github_settings.token,None = 公开只读),复用共享
+// `AppState.github`(Arc<GithubClient>,lib.rs setup 创建一次,与工具层共用)。
+// 错误变体(GitHubAuth/RateLimit/NotFound/Server)直接透传,前端 toast 展示。
+
+/// 网络命令通用校验:owner/repo 非空(空白视为空)。
+fn check_owner_repo(owner: &str, repo: &str) -> AppResult<()> {
+    if owner.trim().is_empty() || repo.trim().is_empty() {
+        return Err(AppError::Core("owner/repo 不能为空".into()));
+    }
+    Ok(())
+}
+
+/// `add_github_repo` 严格校验:非空、不含 `/`、仅含 `[A-Za-z0-9._-]`。
+fn check_repo_ident(owner: &str, repo: &str) -> AppResult<()> {
+    let valid = |s: &str| {
+        !s.trim().is_empty()
+            && !s.contains('/')
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
+    if !valid(owner) || !valid(repo) {
+        return Err(AppError::Core(
+            "仓库标识非法:owner/repo 需非空、不含 '/',且仅含字母数字及 ._-".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// 读取全局 token 构造认证(trim 后空串视为 None = 公开只读)。
+async fn github_auth(db: &Arc<Db>) -> AppResult<GithubAuth> {
+    let settings = db.get_github_settings().await?;
+    Ok(GithubAuth {
+        token: settings
+            .token
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty()),
+    })
+}
+
+/// search_code 等需要 token 的命令:无 token 报错。
+async fn github_auth_required(db: &Arc<Db>) -> AppResult<GithubAuth> {
+    let auth = github_auth(db).await?;
+    if auth.token.is_none() {
+        return Err(AppError::Core("需要 GitHub token".into()));
+    }
+    Ok(auth)
+}
+
+fn map_repo_rows(rows: Vec<GithubRepoRow>) -> Vec<GithubRepoDto> {
+    rows.into_iter()
+        .map(|r| GithubRepoDto { id: r.id, owner: r.owner, repo: r.repo, full_name: r.full_name })
+        .collect()
+}
+
+/// list_github_repos 命令逻辑(命令/测试共用)。
+async fn list_repos_dtos(db: &Arc<Db>) -> AppResult<Vec<GithubRepoDto>> {
+    Ok(map_repo_rows(db.list_github_repos().await?))
+}
+
+/// add_github_repo 核心逻辑(校验 + 落库),命令/测试共用。
+async fn add_repo_validated(db: &Arc<Db>, owner: &str, repo: &str) -> AppResult<GithubRepoDto> {
+    let owner = owner.trim();
+    let repo = repo.trim();
+    check_repo_ident(owner, repo)?;
+    let id = db.add_github_repo(owner, repo).await?;
+    Ok(GithubRepoDto { id, owner: owner.to_string(), repo: repo.to_string(), full_name: format!("{owner}/{repo}") })
+}
+
+#[tauri::command]
+pub async fn get_github_settings(state: State<'_, AppState>) -> AppResult<GithubSettingsDto> {
+    state.db.get_github_settings().await
+}
+
+#[tauri::command]
+pub async fn set_github_token(state: State<'_, AppState>, token: Option<String>) -> AppResult<()> {
+    state.db.set_github_token(token.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn list_github_repos(state: State<'_, AppState>) -> AppResult<Vec<GithubRepoDto>> {
+    list_repos_dtos(&state.db).await
+}
+
+#[tauri::command]
+pub async fn add_github_repo(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> AppResult<GithubRepoDto> {
+    add_repo_validated(&state.db, &owner, &repo).await
+}
+
+#[tauri::command]
+pub async fn remove_github_repo(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    state.db.remove_github_repo(id).await
+}
+
+#[tauri::command]
+pub async fn github_repo(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> AppResult<RepoDto> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_repo(&owner, &repo)).await?;
+    Ok(parse_repo(&raw))
+}
+
+/// GitHub `/issues` 会混入 PR,返回前过滤含 `pull_request` 键的条目(复用工具层纯函数)。
+#[tauri::command]
+pub async fn github_list_issues(
+    st: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    state: Option<String>,
+) -> AppResult<Vec<IssueDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&st.db).await?;
+    let raw = st
+        .github
+        .get_json(&auth, &url_list_issues(&owner, &repo, state.as_deref()))
+        .await?;
+    Ok(parse_issue_list(&filter_out_pull_requests(&raw)))
+}
+
+#[tauri::command]
+pub async fn github_get_issue(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    number: i64,
+) -> AppResult<IssueDto> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state
+        .github
+        .get_json(&auth, &url_get_issue(&owner, &repo, number))
+        .await?;
+    Ok(parse_issue(&raw))
+}
+
+#[tauri::command]
+pub async fn github_list_pulls(
+    st: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    state: Option<String>,
+) -> AppResult<Vec<PullDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&st.db).await?;
+    let raw = st
+        .github
+        .get_json(&auth, &url_list_pulls(&owner, &repo, state.as_deref()))
+        .await?;
+    Ok(parse_pull_list(&raw))
+}
+
+#[tauri::command]
+pub async fn github_list_commits(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    path: Option<String>,
+) -> AppResult<Vec<CommitDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state
+        .github
+        .get_json(&auth, &url_list_commits(&owner, &repo, path.as_deref()))
+        .await?;
+    Ok(parse_commit_list(&raw))
+}
+
+#[tauri::command]
+pub async fn github_search_repo(
+    state: State<'_, AppState>,
+    query: String,
+) -> AppResult<Vec<SearchRepoDto>> {
+    if query.trim().is_empty() {
+        return Err(AppError::Core("搜索关键词不能为空".into()));
+    }
+    let auth = github_auth(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_search_repo(&query)).await?;
+    Ok(parse_search_repo(&raw))
+}
+
+#[tauri::command]
+pub async fn github_search_code(
+    state: State<'_, AppState>,
+    query: String,
+) -> AppResult<Vec<SearchCodeDto>> {
+    if query.trim().is_empty() {
+        return Err(AppError::Core("搜索关键词不能为空".into()));
+    }
+    let auth = github_auth_required(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_search_code(&query)).await?;
+    Ok(parse_search_code(&raw))
+}
+
+#[tauri::command]
+pub async fn github_list_events(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> AppResult<Vec<EventDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_list_events(&owner, &repo)).await?;
+    Ok(parse_event_list(&raw))
+}
+
+/// 目录返回数组;单文件返回 1 项(带 base64 content)。
+#[tauri::command]
+pub async fn github_get_content(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+    path: String,
+) -> AppResult<Vec<ContentDto>> {
+    check_owner_repo(&owner, &repo)?;
+    let auth = github_auth(&state.db).await?;
+    let raw = state.github.get_json(&auth, &url_get_content(&owner, &repo, &path)).await?;
+    if raw.as_array().is_some() {
+        Ok(parse_content_list(&raw))
+    } else {
+        Ok(vec![parse_content(&raw)])
+    }
+}
+
+#[cfg(test)]
+mod github_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 临时 db:持有 TempDir 防文件被删(sqlite 写会 readonly)。
+    struct TestDb {
+        db: Arc<Db>,
+        _tmp: tempfile::TempDir,
+    }
+
+    async fn test_db() -> TestDb {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(Db::new(tmp.path().join("test.db")).await.unwrap());
+        db.migrate().await.unwrap();
+        TestDb { db, _tmp: tmp }
+    }
+
+    fn kind(e: &AppError) -> &'static str {
+        match e {
+            AppError::Core(_) => "core",
+            _ => "other",
+        }
+    }
+
+    #[test]
+    fn test_check_repo_ident_rejects_empty_slash_invalid() {
+        let err = |owner: &str, repo: &str| {
+            check_repo_ident(owner, repo).unwrap_err();
+        };
+        err("", "repo"); // 空 owner
+        err("owner", ""); // 空 repo
+        err("own/er", "repo"); // owner 含 /
+        err("owner", "re/po"); // repo 含 /
+        err("own er", "repo"); // owner 空格非法
+        err("owner", "repo中文"); // 非 ASCII 非法
+    }
+
+    #[test]
+    fn test_check_repo_ident_accepts_valid() {
+        assert!(check_repo_ident("octocat", "Hello-World").is_ok());
+        assert!(check_repo_ident("my.user_org-2", "repo.name_1").is_ok());
+    }
+
+    #[test]
+    fn test_check_owner_repo_rejects_empty() {
+        assert_eq!(kind(&check_owner_repo("", "r").unwrap_err()), "core");
+        assert_eq!(kind(&check_owner_repo("o", "").unwrap_err()), "core");
+        assert_eq!(kind(&check_owner_repo("  ", "r").unwrap_err()), "core");
+        assert!(check_owner_repo("octocat", "Hello-World").is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_add_repo_validated_persists_and_rejects_invalid() {
+        let td = test_db().await;
+        let db = &td.db;
+
+        // 非法标识 → 报错且不落库
+        for (owner, repo) in [("", "r"), ("o/r", "x"), ("o", "x!")] {
+            assert!(add_repo_validated(db, owner, repo).await.is_err());
+        }
+        assert!(db.list_github_repos().await.unwrap().is_empty());
+
+        // 合法 → 通过并落库
+        let dto = add_repo_validated(db, " octocat ", "Hello-World ").await.unwrap();
+        assert_eq!(dto.owner, "octocat");
+        assert_eq!(dto.repo, "Hello-World");
+        assert_eq!(dto.full_name, "octocat/Hello-World");
+        assert!(dto.id > 0);
+
+        let list = db.list_github_repos().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].full_name, "octocat/Hello-World");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_list_github_repos_empty_then_has() {
+        let td = test_db().await;
+        let db = &td.db;
+        assert!(list_repos_dtos(db).await.unwrap().is_empty());
+
+        db.add_github_repo("alice", "peytchat").await.unwrap();
+        db.add_github_repo("bob", "dotfiles").await.unwrap();
+        let dtos = list_repos_dtos(db).await.unwrap();
+        assert_eq!(dtos.len(), 2);
+        assert_eq!(dtos[0].full_name, "alice/peytchat");
+        assert_eq!(dtos[1].full_name, "bob/dotfiles");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_settings_read_write_clear() {
+        let td = test_db().await;
+        let db = &td.db;
+
+        // 默认:无 token(公开只读)
+        assert_eq!(db.get_github_settings().await.unwrap(), GithubSettingsDto::default());
+        assert!(github_auth(db).await.unwrap().token.is_none());
+
+        // 写入 → 可读回
+        db.set_github_token(Some("ghp_test_123")).await.unwrap();
+        assert_eq!(
+            db.get_github_settings().await.unwrap(),
+            GithubSettingsDto { token: Some("ghp_test_123".into()) }
+        );
+        assert_eq!(github_auth(db).await.unwrap().token.as_deref(), Some("ghp_test_123"));
+
+        // 清除 → 回默认
+        db.set_github_token(None).await.unwrap();
+        assert_eq!(db.get_github_settings().await.unwrap(), GithubSettingsDto::default());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_github_auth_required_errors_without_token() {
+        let td = test_db().await;
+        let db = &td.db;
+        let err = github_auth_required(db).await.unwrap_err();
+        assert_eq!(kind(&err), "core");
+        assert!(err.to_string().contains("需要 GitHub token"));
+
+        db.set_github_token(Some("ghp_x")).await.unwrap();
+        assert_eq!(
+            github_auth_required(db).await.unwrap().token.as_deref(),
+            Some("ghp_x")
+        );
+    }
+
+    #[test]
+    fn test_list_issues_filters_pull_requests_at_command_pipeline() {
+        let raw = json!([
+            { "number": 1, "title": "real issue", "state": "open", "user": { "login": "a" },
+              "created_at": "x", "updated_at": "y", "labels": [], "body": null, "html_url": "u" },
+            { "number": 2, "title": "a PR", "state": "open", "user": { "login": "b" },
+              "pull_request": { "url": "u" }, "created_at": "x", "updated_at": "y",
+              "labels": [], "body": null, "html_url": "u" }
+        ]);
+        let issues = parse_issue_list(&filter_out_pull_requests(&raw));
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].number, 1);
+    }
+
+    #[test]
+    fn test_map_repo_rows_round_trip() {
+        let rows = vec![GithubRepoRow { id: 7, owner: "a".into(), repo: "b".into(), full_name: "a/b".into() }];
+        let dtos = map_repo_rows(rows);
+        assert_eq!(dtos[0].id, 7);
+        assert_eq!(dtos[0].full_name, "a/b");
+    }
+}
+

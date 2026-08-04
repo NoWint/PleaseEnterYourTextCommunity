@@ -10,6 +10,7 @@ use crate::error::{AppError, AppResult};
 pub const USER_AGENT_VALUE: &str = "peytchat";
 
 /// 请求认证:None = 公开只读(限速 60/h);Some = `Authorization: Bearer <token>`。
+#[derive(Debug, Clone)]
 pub struct GithubAuth {
     pub token: Option<String>,
 }

@@ -122,7 +122,7 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 /// 过滤掉含 `pull_request` 键的条目(GitHub `/issues` 会混入 PR)。
-fn filter_out_pull_requests(v: &Value) -> Value {
+pub fn filter_out_pull_requests(v: &Value) -> Value {
     match v.as_array() {
         Some(arr) => Value::Array(
             arr.iter()
