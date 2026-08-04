@@ -19,23 +19,18 @@
             --glass: rgba(255, 255, 255, 0.07);
             --glass-strong: rgba(255, 255, 255, 0.11);
             --stroke: rgba(255, 255, 255, 0.10);
-            --stroke-strong: rgba(255, 255, 255, 0.18);
             --text: #f2f2f6;
             --text-2: #a1a1b0;
             --text-3: #6d6d7c;
             --accent: #6a5cff;
             --accent-2: #8b7bff;
-            --danger: #ff453a;
             --radius-xl: 28px;
-            --radius-lg: 20px;
             --radius-md: 14px;
             --shadow-lg: 0 24px 60px rgba(0,0,0,0.45);
-            --shadow-md: 0 12px 32px rgba(0,0,0,0.30);
             --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.1);
             --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { height: 100%; }
         body {
             font-family: var(--font);
             color: var(--text);
@@ -47,7 +42,7 @@
             align-items: center;
             overflow-x: hidden;
         }
-        /* 顶部光晕 + 柔和网格,制造层次 */
+        /* 顶部紫色光晕 + 柔和网格(层次) */
         body::before {
             content: '';
             position: fixed;
@@ -60,12 +55,11 @@
             z-index: 0;
         }
 
-        /* ── 容器 ──────────────────────────────────── */
         .page {
             position: relative;
             z-index: 1;
             width: min(100%, 460px);
-            padding: 72px 24px 48px;
+            padding: 64px 24px 48px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -76,13 +70,12 @@
             to   { opacity: 1; transform: none; }
         }
 
-        /* ── Logo ──────────────────────────────────── */
+        /* ── Logo:品牌符号,单一焦点 ─────────────── */
         .logo {
-            width: 76px; height: 76px;
-            border-radius: 22px;
+            width: 64px; height: 64px;
+            border-radius: 18px;
             object-fit: cover;
             box-shadow: 0 12px 32px rgba(106,92,255,0.35);
-            margin-bottom: 24px;
             animation: logo-in 700ms var(--ease-spring) 80ms both;
         }
         @keyframes logo-in {
@@ -90,39 +83,42 @@
             to   { opacity: 1; transform: none; }
         }
 
-        /* ── 问候 ──────────────────────────────────── */
+        /* ── 问候区:层级 = brand kicker → hero → slogan ── */
         .greeting {
             text-align: center;
-            margin-bottom: 36px;
+            margin: 20px 0 32px;
         }
+        /* kicker:品牌锚点,小号大写拉开字距(§15 小字号正字距) */
         .brand {
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
-            letter-spacing: 0.14em;
+            letter-spacing: 0.18em;
             text-transform: uppercase;
             color: var(--text-2);
-            margin-bottom: 12px;
         }
-        .greeting .hello {
-            font-size: 34px;
+        /* hero:主信息,大号负字距紧排(§15 大字号负字距) */
+        .hello {
+            margin-top: 10px;
+            font-size: clamp(28px, 5vw, 34px);
             font-weight: 700;
-            letter-spacing: -0.02em;
-            line-height: 1.15;
+            letter-spacing: -0.022em;
+            line-height: 1.18;
         }
-        .greeting .hello b {
+        .hello b {
             background: linear-gradient(120deg, var(--accent-2), #c9a2ff);
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
         }
-        .greeting .sub {
-            margin-top: 10px;
-            font-size: 15px;
-            color: var(--text-2);
+        /* slogan:品牌声音,安静小字(§15 body 字距归零) */
+        .slogan {
+            margin-top: 8px;
+            font-size: 14px;
+            color: var(--text-3);
             letter-spacing: 0.01em;
         }
 
-        /* ── 卡片 ──────────────────────────────────── */
+        /* ── 卡片:材料层 ─────────────────────────── */
         .card {
             width: 100%;
             background: var(--glass);
@@ -139,29 +135,14 @@
             to   { opacity: 1; transform: none; }
         }
 
-        /* 步骤 */
-        .steps { list-style: none; counter-reset: step; }
-        .steps li {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 14px 0;
-            counter-increment: step;
+        /* 提示行:把编号步骤压缩成一句(§16 简洁性) */
+        .hint {
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-3);
+            line-height: 1.6;
+            margin-bottom: 20px;
         }
-        .steps li:not(:last-child) { border-bottom: 1px solid var(--stroke); }
-        .steps li::before {
-            content: counter(step);
-            flex: none;
-            width: 34px; height: 34px;
-            display: flex; align-items: center; justify-content: center;
-            border-radius: 50%;
-            font-size: 15px; font-weight: 600;
-            color: var(--accent-2);
-            background: rgba(106, 92, 255, 0.14);
-            border: 1px solid rgba(106, 92, 255, 0.25);
-        }
-        .steps .step-text { font-size: 15px; color: var(--text); }
-        .steps .step-text small { display: block; font-size: 13px; color: var(--text-3); margin-top: 2px; }
 
         /* ── 主 CTA:打开 PEYT ─────────────────────── */
         .cta {
@@ -170,8 +151,7 @@
             justify-content: center;
             gap: 10px;
             width: 100%;
-            margin-top: 24px;
-            padding: 16px 20px;
+            padding: 17px 20px;
             border: none;
             border-radius: var(--radius-md);
             background: linear-gradient(120deg, var(--accent), var(--accent-2));
@@ -181,33 +161,36 @@
             font-weight: 600;
             letter-spacing: 0.01em;
             cursor: pointer;
-            box-shadow: 0 8px 24px rgba(106,92,255,0.35);
+            box-shadow: 0 10px 28px rgba(106,92,255,0.4);
             transition: transform 120ms var(--ease-spring), box-shadow 200ms var(--ease-spring), filter 150ms;
             text-decoration: none;
-            position: relative;
         }
-        .cta:hover { filter: brightness(1.08); box-shadow: 0 10px 30px rgba(106,92,255,0.45); }
+        .cta:hover { filter: brightness(1.08); box-shadow: 0 12px 32px rgba(106,92,255,0.5); }
         .cta:active { transform: scale(0.97); }
         .cta svg { width: 20px; height: 20px; }
         .cta .cta-arrow { transition: transform 150ms var(--ease-spring); }
         .cta:hover .cta-arrow { transform: translateX(3px); }
 
-        /* 下载链接(次级) */
+        /* ── 次级:下载 PEYT(幽灵胶囊,不抢主 CTA)── */
         .download {
-            display: inline-flex;
+            display: flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
-            margin-top: 14px;
-            padding: 8px 14px;
+            margin: 12px auto 0;
+            width: fit-content;
+            padding: 9px 18px;
             border-radius: 999px;
             background: var(--glass-strong);
             border: 1px solid var(--stroke);
             color: var(--text-2);
             font-size: 13px;
+            font-weight: 500;
             text-decoration: none;
             transition: background 120ms, color 120ms, transform 120ms var(--ease-spring);
         }
         .download:hover { background: var(--glass); color: var(--text); transform: translateY(-1px); }
+        .download svg { width: 14px; height: 14px; }
 
         /* ── 二维码区(其他设备)────────────────── */
         .qr-wrap {
@@ -228,6 +211,7 @@
             transition: color 120ms, background 120ms;
         }
         .qr-toggle:hover { color: var(--text); background: var(--glass-strong); }
+        .qr-toggle svg { vertical-align: -2px; margin-right: 4px; }
         .qr-body { display: none; margin-top: 16px; }
         .qr-body.open { display: block; animation: qr-in 320ms var(--ease-spring) both; }
         @keyframes qr-in {
@@ -238,13 +222,13 @@
             display: inline-flex;
             padding: 14px;
             background: #fff;
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-md);
+            border-radius: var(--radius-md);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
         }
         #qrcode canvas { display: block; }
         .qr-hint { margin-top: 10px; font-size: 12px; color: var(--text-3); }
 
-        /* ── 生成器表单(无 #token)────────────── */
+        /* ── 生成器(无 #token)────────────── */
         .generator { display: none; }
         .generator.open { display: block; animation: qr-in 320ms var(--ease-spring) both; }
         .generator textarea {
@@ -262,13 +246,12 @@
             line-height: 1.5;
             outline: none;
             transition: border-color 150ms;
+            scrollbar-width: none;
         }
-        .generator textarea:focus { border-color: var(--accent); }
-        /* 隐藏滚动条(保留滚动能力,视觉更干净) */
-        .generator textarea { scrollbar-width: none; }
         .generator textarea::-webkit-scrollbar { display: none; }
+        .generator textarea:focus { border-color: var(--accent); }
         .gen-btn {
-            margin-top: 12px;
+            margin-top: 14px;
             padding: 12px 18px;
             border: none;
             border-radius: var(--radius-md);
@@ -285,15 +268,10 @@
         .gen-btn:active { transform: scale(0.97); }
         .gen-btn:disabled { opacity: 0.4; cursor: default; filter: none; }
 
-        /* ── 无 JS 兜底 ─────────────────────────── */
-        .nojs { display: none; }
-        body.no-js .nojs { display: block; }
-        .nojs ol { margin: 12px 0 0 22px; color: var(--text-2); font-size: 14px; line-height: 1.7; }
-
         /* ── 响应式 ─────────────────────────────── */
         @media (max-width: 480px) {
-            .page { padding: 48px 20px 32px; }
-            .greeting .hello { font-size: 28px; }
+            .page { padding: 44px 20px 32px; }
+            .hello { font-size: 26px; }
             .card { padding: 22px 18px; }
         }
 
@@ -308,18 +286,15 @@
     <main class="page">
         <img class="logo" src="logo.jpg" alt="PEYT">
 
+        <!-- 层级:品牌 kicker → hero 问候 → slogan -->
         <div class="greeting">
-            <div class="brand">PEYT&nbsp;Chat</div>
+            <div class="brand">PEYT Chat</div>
             <h1 class="hello">向 <b id="name">TA</b> 打个招呼 👋</h1>
-            <p class="sub">Type Everything</p>
+            <p class="slogan">Type Everything</p>
         </div>
 
         <div class="card" id="card">
-            <!-- 正常路径(有 #token):步骤 + CTA + 二维码 -->
-            <ol class="steps" id="steps">
-                <li><span class="step-text">下载 PEYT <small>Windows · macOS · Linux</small></span></li>
-                <li><span class="step-text">打开应用,开始私密聊天</span></li>
-            </ol>
+            <p class="hint" id="hint">已有 PEYT 直接打开,还没有则先下载</p>
 
             <a class="cta" id="dc-link" href="">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -328,13 +303,13 @@
             </a>
 
             <a class="download" href="https://peyt.yzjtiantian.cn/download">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
                 下载 PEYT
             </a>
 
             <div class="qr-wrap">
                 <button class="qr-toggle" id="qr-toggle">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
                     在另一台设备上打开
                 </button>
                 <div class="qr-body" id="qr-body">
@@ -345,7 +320,7 @@
 
             <!-- 生成器(无 #token) -->
             <div class="generator" id="generator">
-                <p class="sub" style="margin-top:0">粘贴一条 PEYT / Delta 邀请链接,生成二维码</p>
+                <p class="slogan" style="margin:0">粘贴一条 PEYT / Delta 邀请链接,生成二维码</p>
                 <textarea id="gen-input" placeholder="粘贴 https://peyt.yzjtiantian.cn/#… 或 OPENPGP4FPR:…"></textarea>
                 <button class="gen-btn" id="gen-btn">生成二维码</button>
             </div>
@@ -353,16 +328,18 @@
     </main>
 
     <script>
-        // 无 JS 兜底:显示复制 URL 提示,隐藏动态区
+        // 无 JS 兜底
         if (!window.QRCode) document.body.classList.add('no-js');
 
         var searchParams = new URLSearchParams(window.location.hash.substr(1));
         var nameEl = document.getElementById('name');
-        var stepsEl = document.getElementById('steps');
+        var hintEl = document.getElementById('hint');
         var ctaEl = document.getElementById('dc-link');
-        var qrBody = document.getElementById('qr-body');
+        var downloadEl = document.querySelector('.download');
         var qrToggle = document.getElementById('qr-toggle');
+        var qrBody = document.getElementById('qr-body');
         var qrEl = document.getElementById('qrcode');
+        var qrWrap = document.querySelector('.qr-wrap');
         var genEl = document.getElementById('generator');
 
         qrToggle.addEventListener('click', function () {
@@ -375,33 +352,33 @@
             var openpgp4fprStr = "OPENPGP4FPR:" + token.replace(/&/, "#");
             ctaEl.setAttribute('href', openpgp4fprStr);
             nameEl.textContent = searchParams.get("g") || searchParams.get("b") || searchParams.get("n") || searchParams.get("a") || "TA";
-            // 群邀请:文案微调
+            // 群邀请:提示行微调
             if (searchParams.get("g") || searchParams.get("b")) {
-                document.querySelector('.greeting .sub').textContent = '加入群聊,开始协作';
+                hintEl.textContent = '点开加入群聊,或扫码在另一台设备打开';
             }
             // 二维码
             qrEl.innerHTML = '';
             var cv = document.createElement('canvas');
             qrEl.appendChild(cv);
             QRCode.toCanvas(cv, openpgp4fprStr, { width: 200, margin: 1 });
-            stepsEl.style.display = 'none';
         }
 
         var token = window.location.hash.substr(1);
         if (token) {
             renderInvite(token);
         } else {
-            stepsEl.style.display = 'none';
+            // 无 token:隐藏 CTA/下载/二维码,只留生成器
+            hintEl.style.display = 'none';
             ctaEl.style.display = 'none';
-            document.querySelector('.download').style.display = 'none';
-            document.querySelector('.qr-wrap').style.display = 'none';
+            downloadEl.style.display = 'none';
+            qrWrap.style.display = 'none';
             genEl.classList.add('open');
         }
 
-        // 生成器:点击「生成二维码」确认后才渲染(避免输入即生成,操作更明确)
+        // 生成器:点击「生成二维码」确认后才渲染
         var genInput = document.getElementById('gen-input');
         var genBtn = document.getElementById('gen-btn');
-        genBtn.disabled = true; // 空输入禁用,有输入才可点
+        genBtn.disabled = true; // 空输入禁用
         genBtn.addEventListener('click', function () {
             var v = genInput.value.trim();
             if (!v) { genBtn.disabled = true; return; }
@@ -413,7 +390,6 @@
             qrBody.classList.add('open');
             renderInvite(v);
         });
-        // 有输入才可点按钮
         genInput.addEventListener('input', function () {
             genBtn.disabled = !genInput.value.trim();
         });
