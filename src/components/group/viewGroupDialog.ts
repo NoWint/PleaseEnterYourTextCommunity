@@ -5,6 +5,7 @@ import { ui, colorHex } from '../ui.js';
 import { iconSvg } from '../icon.js';
 import { escapeHtml, escapeAttr } from '../escape.js';
 import { openMemberPicker, type MemberPick } from './memberPicker.js';
+import { sendInviteLink } from '../shareLink.js';
 import { normalizeUrlForQr } from '../../utils/deepLink.js';
 import type { ChatInfoDto, MemberDto } from '../../types.js';
 // @ts-expect-error qrcode 无类型声明
@@ -294,6 +295,10 @@ async function openGroupQr(chatId: number, name: string): Promise<void> {
       } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
     },
   });
+  const shareBtn = ui.button({
+    label: '分享', size: 'sm',
+    onClick: () => void sendInviteLink(qr),
+  });
   ui.dialog({
     title: `加入「${name}」`,
     size: 'sm',
@@ -304,7 +309,7 @@ async function openGroupQr(chatId: number, name: string): Promise<void> {
         <input class="ui-input" type="text" value="${escapeAttr(qr)}" readonly style="width:100%;font-size:11px" />
       </div>
     `,
-    actions: [copyBtn],
+    actions: [copyBtn, shareBtn],
   });
 }
 

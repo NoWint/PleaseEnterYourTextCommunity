@@ -4,6 +4,7 @@ import { showToast } from '../toast.js';
 import { saveState } from '../persist.js';
 import { iconSvg } from '../components/icon.js';
 import { escapeHtml, escapeAttr } from '../components/escape.js';
+import { sendInviteLink } from '../components/shareLink.js';
 import { ui, type MenuItem } from '../components/ui.js';
 import { getSpaceType, refreshChannels } from '../shell/navPanel.js';
 import { refreshWorkspaces } from '../shell/rail.js';
@@ -214,6 +215,18 @@ function showChannelContextMenu(anchor: HTMLElement, chatId: number): void {
           const qr = await call<string>('get_securejoin_qr', { chatId });
           await navigator.clipboard.writeText(qr);
           showToast('邀请链接已复制');
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : String(e));
+        }
+      },
+    },
+    {
+      label: '分享邀请链接',
+      icon: 'forward',
+      action: async () => {
+        try {
+          const qr = await call<string>('get_securejoin_qr', { chatId });
+          await sendInviteLink(qr);
         } catch (e) {
           showToast(e instanceof Error ? e.message : String(e));
         }
