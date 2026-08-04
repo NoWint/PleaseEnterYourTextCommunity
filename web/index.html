@@ -95,6 +95,14 @@
             text-align: center;
             margin-bottom: 36px;
         }
+        .brand {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--text-2);
+            margin-bottom: 12px;
+        }
         .greeting .hello {
             font-size: 34px;
             font-weight: 700;
@@ -256,6 +264,26 @@
             transition: border-color 150ms;
         }
         .generator textarea:focus { border-color: var(--accent); }
+        /* 隐藏滚动条(保留滚动能力,视觉更干净) */
+        .generator textarea { scrollbar-width: none; }
+        .generator textarea::-webkit-scrollbar { display: none; }
+        .gen-btn {
+            margin-top: 12px;
+            padding: 12px 18px;
+            border: none;
+            border-radius: var(--radius-md);
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            color: #fff;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 6px 18px rgba(106,92,255,0.3);
+            transition: transform 120ms var(--ease-spring), filter 150ms, opacity 150ms;
+        }
+        .gen-btn:hover { filter: brightness(1.08); }
+        .gen-btn:active { transform: scale(0.97); }
+        .gen-btn:disabled { opacity: 0.4; cursor: default; filter: none; }
 
         /* ── 无 JS 兜底 ─────────────────────────── */
         .nojs { display: none; }
@@ -281,8 +309,9 @@
         <img class="logo" src="logo.jpg" alt="PEYT">
 
         <div class="greeting">
+            <div class="brand">PEYT&nbsp;Chat</div>
             <h1 class="hello">向 <b id="name">TA</b> 打个招呼 👋</h1>
-            <p class="sub">在 PEYT 上开始一段私密对话</p>
+            <p class="sub">Type Everything</p>
         </div>
 
         <div class="card" id="card">
@@ -317,7 +346,8 @@
             <!-- 生成器(无 #token) -->
             <div class="generator" id="generator">
                 <p class="sub" style="margin-top:0">粘贴一条 PEYT / Delta 邀请链接,生成二维码</p>
-                <textarea id="gen-input" placeholder="粘贴 https://peyt.yzjtiantian.cn/#… 或 OPENPGP4FPR:…" autofocus></textarea>
+                <textarea id="gen-input" placeholder="粘贴 https://peyt.yzjtiantian.cn/#… 或 OPENPGP4FPR:…"></textarea>
+                <button class="gen-btn" id="gen-btn">生成二维码</button>
             </div>
         </div>
     </main>
@@ -368,18 +398,24 @@
             genEl.classList.add('open');
         }
 
-        // 生成器:输入即出二维码
+        // 生成器:点击「生成二维码」确认后才渲染(避免输入即生成,操作更明确)
         var genInput = document.getElementById('gen-input');
-        genInput.addEventListener('input', function () {
+        var genBtn = document.getElementById('gen-btn');
+        genBtn.disabled = true; // 空输入禁用,有输入才可点
+        genBtn.addEventListener('click', function () {
             var v = genInput.value.trim();
-            if (!v) { qrEl.innerHTML = ''; return; }
+            if (!v) { genBtn.disabled = true; return; }
             if (v.startsWith('https://peyt.yzjtiantian.cn')) v = v.replace(/https:\/\/peyt\.yzjtiantian\.cn\/?#/, '');
             else if (v.startsWith('https://i.delta.chat')) v = v.replace(/https:\/\/i\.delta\.chat\/?#/, '');
             else v = v.replace(/openpgp4fpr:/i, '');
             if (v.indexOf('#') === -1) v = v.replace(/%23/, '#');
-            if (!v) return;
+            if (!v) { genBtn.disabled = true; return; }
             qrBody.classList.add('open');
             renderInvite(v);
+        });
+        // 有输入才可点按钮
+        genInput.addEventListener('input', function () {
+            genBtn.disabled = !genInput.value.trim();
         });
     </script>
 </body>
