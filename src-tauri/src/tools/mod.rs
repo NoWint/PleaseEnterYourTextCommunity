@@ -2,6 +2,7 @@ pub mod app;
 pub mod bridge;
 pub mod builtins;
 pub mod file;
+pub mod github;
 pub mod net;
 pub mod plugin;
 

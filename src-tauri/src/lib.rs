@@ -131,6 +131,56 @@ pub fn run() {
             built.register(Arc::new(crate::tools::app::SearchHistoryTool));
             built.register(Arc::new(crate::tools::app::CreateCardTool));
             built.register(Arc::new(crate::tools::app::SetReminderTool));
+            // GitHub 工具集:共享一个 GithubClient(连接池)
+            let github_client = Arc::new(crate::github::GithubClient::new());
+            built.register(Arc::new(crate::tools::github::GithubGetRepoTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubListIssuesTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetIssueTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubListPullsTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetPullTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubListCommitsTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetCommitTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubSearchRepoTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubSearchCodeTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetFileTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetReadmeTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubGetRepoEventsTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(crate::tools::github::GithubCreateIssueTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(
+                crate::tools::github::GithubAddIssueCommentTool::new(github_client.clone()),
+            ));
+            built.register(Arc::new(crate::tools::github::GithubAddIssueLabelsTool::new(
+                github_client.clone(),
+            )));
+            built.register(Arc::new(
+                crate::tools::github::GithubCreatePrReviewCommentTool::new(github_client),
+            ));
             // 从 db 加载插件工具(setup 闭包非 async,用 block_on)
             let rows = tauri::async_runtime::block_on(state.db.list_plugin_tools())?;
             built.reload_plugin_tools(&rows);
