@@ -409,7 +409,7 @@ html.window-overlay .wb-controls { display: none; }
 .chat-header {
   flex-shrink: 0;
   padding: 10px 16px;
-  display: flex; justify-content: space-between; align-items: center;
+  display: flex; justify-content: center; align-items: center;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
