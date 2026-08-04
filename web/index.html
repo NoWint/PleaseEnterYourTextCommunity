@@ -25,9 +25,9 @@
             --text-3: #6d6d7c;
             --accent: #6a5cff;
             --accent-2: #8b7bff;
-            --gap: 22px; /* 统一间距:区块间与区块内一致 */
-            --radius-xl: 28px;
-            --radius-md: 14px;
+            --gap: 33px; /* 统一间距(×1.5) */
+            --radius-xl: 42px;
+            --radius-md: 21px;
             --shadow-lg: 0 24px 60px rgba(0,0,0,0.45);
             --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.1);
             --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -37,10 +37,9 @@
         body {
             font-family: var(--font);
             color: var(--text);
-            /* min-height:100vh 让 body 至少撑满整个视口;渐变 120% 相对 body 铺满,
-               不会出现 body 只占一部分、下方露出 html 背景的"两段" */
-            background: radial-gradient(120% 100vh at 50% 0%, #1b1b2a 0%, var(--bg-0) 72%);
-            min-height: 100vh;
+            /* 背景渐变铺满视口 */
+            background: radial-gradient(120% 100% at 50% 0%, #1b1b2a 0%, var(--bg-0) 72%);
+            min-height: 100%;
             -webkit-font-smoothing: antialiased;
             display: flex;
             flex-direction: column;
@@ -64,7 +63,7 @@
         .page {
             position: relative;
             z-index: 1;
-            width: min(100%, 460px);
+            width: min(100%, 690px);
             /* 初始内容停在视口约 1/3 处(margin-top 让位,顶部留白美观) */
             margin-top: 13vh;
             padding: 0 24px 48px;
@@ -87,8 +86,8 @@
         }
         .brand-block .logo {
             flex: none;
-            width: 56px; height: 56px;
-            border-radius: 16px;
+            width: 84px; height: 84px;
+            border-radius: 24px;
             object-fit: cover;
             box-shadow: 0 10px 28px rgba(106,92,255,0.35);
             animation: logo-in 700ms var(--ease-spring) 80ms both;
@@ -105,7 +104,7 @@
         }
         /* 品牌名:大号主体,与 hero 呼应(§15 层级主) */
         .brand {
-            font-size: 24px;
+            font-size: 36px;
             font-weight: 700;
             letter-spacing: -0.015em;
             color: var(--text);
@@ -113,7 +112,7 @@
         /* slogan:品牌声音,弱化但清晰 */
         .slogan {
             margin-top: 3px;
-            font-size: 14px;
+            font-size: 21px;
             color: var(--text-2);
             letter-spacing: 0.02em;
         }
@@ -124,7 +123,7 @@
             margin: var(--gap) 0 var(--gap);
         }
         .hello {
-            font-size: clamp(28px, 5vw, 34px);
+            font-size: clamp(42px, 7.5vw, 51px);
             font-weight: 700;
             letter-spacing: -0.022em;
             line-height: 1.18;
@@ -155,7 +154,7 @@
         /* 提示行:把编号步骤压缩成一句(§16 简洁性) */
         .hint {
             text-align: center;
-            font-size: 13px;
+            font-size: 20px;
             color: var(--text-3);
             line-height: 1.6;
             margin-bottom: var(--gap);
@@ -168,13 +167,13 @@
             justify-content: center;
             gap: 10px;
             width: 100%;
-            padding: 17px 20px;
+            padding: 26px 30px;
             border: none;
             border-radius: var(--radius-md);
             background: linear-gradient(120deg, var(--accent), var(--accent-2));
             color: #fff;
             font-family: inherit;
-            font-size: 17px;
+            font-size: 39px;
             font-weight: 600;
             letter-spacing: 0.01em;
             cursor: pointer;
@@ -184,7 +183,7 @@
         }
         .cta:hover { filter: brightness(1.08); box-shadow: 0 12px 32px rgba(106,92,255,0.5); }
         .cta:active { transform: scale(0.97); }
-        .cta svg { width: 20px; height: 20px; }
+        .cta svg { width: 30px; height: 30px; }
         .cta .cta-arrow { transition: transform 150ms var(--ease-spring); }
         .cta:hover .cta-arrow { transform: translateX(3px); }
 
@@ -196,12 +195,12 @@
             gap: 6px;
             margin: var(--gap) auto 0;
             width: fit-content;
-            padding: 9px 18px;
+            padding: 14px 27px;
             border-radius: 999px;
             background: var(--glass-strong);
             border: 1px solid var(--stroke);
             color: var(--text-2);
-            font-size: 13px;
+            font-size: 20px;
             font-weight: 500;
             text-decoration: none;
             transition: background 120ms, color 120ms, transform 120ms var(--ease-spring);
@@ -226,7 +225,7 @@
             gap: var(--gap);
         }
         .qr-title {
-            font-size: 17px;
+            font-size: 39px;
             font-weight: 600;
             color: var(--text);
             align-self: center;
@@ -238,10 +237,10 @@
             background: var(--glass-strong);
             color: var(--text-2);
             font-family: inherit;
-            font-size: 14px;
+            font-size: 21px;
             font-weight: 500;
             cursor: pointer;
-            padding: 10px 22px;
+            padding: 15px 33px;
             border-radius: 999px;
             transition: background 120ms, color 120ms;
         }
@@ -285,9 +284,9 @@
             width: 100%;
             /* 无间隙:按钮与输入框同底色,视觉一体 */
             gap: 0;
-            padding: 8px 8px 8px 22px; /* 更宽内边距,呼吸感 */
+            padding: 12px 12px 12px 33px; /* 更宽内边距,呼吸感 */
             border: none;
-            border-radius: 28px; /* 胶囊型大圆角 */
+            border-radius: 42px; /* 胶囊型大圆角 */
             background: rgba(255, 255, 255, 0.06); /* 微亮深灰,与背景融合 */
             transition: box-shadow 200ms var(--ease-spring), background 200ms var(--ease-spring);
             box-sizing: border-box;
@@ -299,14 +298,14 @@
         }
         .generator input {
             flex: 1;
-            min-height: 44px;
+            min-height: 66px;
             padding: 0;
             border: none;
             background: transparent; /* 融入 gen-row 底色 */
             color: var(--text);
             /* 字体与 hero「向 TA 打个招呼」一致:系统无衬线,非等宽 */
             font-family: var(--font);
-            font-size: 17px;
+            font-size: 39px;
             line-height: 1.5;
             outline: none;
             box-sizing: border-box;
@@ -318,8 +317,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 44px;
-            height: 44px;
+            width: 66px;
+            height: 66px;
             border-radius: 50%;
             border: none;
             background: transparent;
@@ -327,7 +326,7 @@
             cursor: pointer;
             transition: border-color 120ms, color 120ms, background 120ms, transform 120ms var(--ease-spring);
         }
-        .gen-btn svg { width: 22px; height: 22px; }
+        .gen-btn svg { width: 33px; height: 33px; }
         .gen-btn:hover { color: var(--accent-2); background: rgba(106,92,255,0.12); }
         .gen-btn:active { transform: scale(0.92); }
         .gen-btn:disabled { opacity: 0.35; cursor: default; background: none; }
@@ -335,7 +334,7 @@
         /* ── 响应式 ─────────────────────────────── */
         @media (max-width: 480px) {
             .page { padding: 44px 20px 32px; }
-            .hello { font-size: 26px; }
+            .hello { font-size: 39px; }
             .card { padding: 22px 18px; }
         }
 
@@ -436,7 +435,7 @@
             qrEl.innerHTML = '';
             var cv = document.createElement('canvas');
             qrEl.appendChild(cv);
-            QRCode.toCanvas(cv, openpgp4fprStr, { width: 200, margin: 1 });
+            QRCode.toCanvas(cv, openpgp4fprStr, { width: 300, margin: 1 });
         }
 
         var token = window.location.hash.substr(1);
