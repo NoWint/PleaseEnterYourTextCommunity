@@ -156,7 +156,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   const repoLabel = document.createElement('span');
   repoLabel.style.cssText = 'font-size:13px;color:var(--text-mute);white-space:nowrap';
   repoLabel.textContent = '仓库';
-  const repoSelect = ui.select({ options: [{ value: '', label: '未绑定仓库' }], onChange: (v) => void selectRepo(v) });
+  const repoSelect = ui.select({ options: [{ value: '', label: '未绑定仓库(+ 添加)' }], onChange: (v) => void selectRepo(v) });
   repoSelect.style.cssText = 'flex:1;max-width:320px';
   repoRow.appendChild(repoLabel);
   repoRow.appendChild(repoSelect);
@@ -267,7 +267,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     const prevFull = repo?.full_name ?? '';
     repoSelect.innerHTML = '';
     if (repos.length === 0) {
-      repoSelect.appendChild(new Option('未绑定仓库', ''));
+      repoSelect.appendChild(new Option('未绑定仓库(+ 添加)', ''));
     } else {
       for (const r of repos) repoSelect.appendChild(new Option(r.full_name, r.full_name));
     }
@@ -329,10 +329,33 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     filesPath = '';
     if (!repo) {
       content.innerHTML = '';
-      content.appendChild(ui.empty('选择或添加一个仓库后查看数据'));
+      renderEmptyGuide();
       return;
     }
     renderTab();
+  }
+
+  // ── 未绑定仓库时的引导(替代裸 empty)──
+  function renderEmptyGuide(): void {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 20px;text-align:center';
+    const title = document.createElement('div');
+    title.textContent = '还没有可浏览的仓库';
+    title.style.cssText = 'font-size:15px;font-weight:600;color:var(--text)';
+    const steps = document.createElement('div');
+    steps.style.cssText = 'font-size:13px;color:var(--text-mute);line-height:1.8';
+    steps.innerHTML = '1. 在上方「设置」卡片输入 <code>owner/repo</code>(如 <code>octocat/Hello-World</code>)<br>2. 点击「添加」绑定<br>3. 回到仓库下拉选择它';
+    const btn = ui.button({
+      label: '去绑定仓库', icon: 'plus', variant: 'primary',
+      onClick: () => {
+        repoInput.focus();
+        body.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+    });
+    wrap.appendChild(title);
+    wrap.appendChild(steps);
+    wrap.appendChild(btn);
+    content.appendChild(wrap);
   }
 
   // ── Tab 渲染 ──
@@ -340,7 +363,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     const seq = ++renderSeq;
     content.innerHTML = '';
     if (!repo) {
-      content.appendChild(ui.empty('选择或添加一个仓库后查看数据'));
+      renderEmptyGuide();
       return;
     }
     content.appendChild(ui.spinner());
