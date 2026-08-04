@@ -430,8 +430,12 @@ export function renderReactionCapsule(r: Reaction, msgId: number): string {
 }
 export function bindMessageActions(container: HTMLElement): void {
   // 已读弹层:群聊点「N 人已读」→ 名单;单聊点「已读」→ 对方读取时间。
-  container.querySelectorAll<HTMLElement>('.msg-state[data-read-popup]').forEach((el) => {
+  // 绑定所有 .msg-state,点击时再判断 data-read-popup —— 消息可能在渲染后才进入
+  // 已读态(updateMsgState 动态加属性),若固定按 [data-read-popup] 绑定会漏掉监听,
+  // 导致后进入已读态的消息点击无响应。
+  container.querySelectorAll<HTMLElement>('.msg-state').forEach((el) => {
     el.addEventListener('click', (e) => {
+      if (!el.hasAttribute('data-read-popup')) return;
       e.stopPropagation();
       const msgId = Number(el.dataset.msgState);
       void import('../components/readReceiptsPopup.js').then((m) => {
