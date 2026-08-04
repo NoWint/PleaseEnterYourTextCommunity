@@ -67,6 +67,8 @@ export interface MsgDto {
   reactions: Record<string, number[]> | null;
   /** 系统消息(群成员变更/群资料变更/加密状态等),渲染为居中信息行 */
   is_info: boolean;
+  /** 是否为本人发出的消息(后端 get_state().is_outgoing() 计算) */
+  is_out: boolean;
 }
 
 export interface CardDto {

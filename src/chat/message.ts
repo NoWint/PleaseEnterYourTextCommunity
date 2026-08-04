@@ -37,7 +37,6 @@ hljs.registerLanguage('json', json);
 // but are present at runtime via `as unknown as MsgDto` cast in composer.ts.
 // Note: pinned 状态改由模块级 pinnedMsgIds 集合管理 (见下方),不再挂在 RenderableMsg 上。
 interface RenderableMsg extends MsgDto {
-  is_out?: boolean;
   _state?: string;
   file_bytes?: number | null;
 }
