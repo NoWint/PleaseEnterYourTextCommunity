@@ -14,31 +14,32 @@
     <style>
         /* ── 设计系统 ──────────────────────────────── */
         :root {
-            --bg-0: #0d0d12;
-            --bg-1: #16161e;
-            --glass: rgba(255, 255, 255, 0.07);
-            --glass-strong: rgba(255, 255, 255, 0.11);
-            --stroke: rgba(255, 255, 255, 0.10);
-            --stroke-strong: rgba(255, 255, 255, 0.22);
-            --text: #f2f2f6;
-            --text-2: #a1a1b0;
-            --text-3: #6d6d7c;
-            --accent: #6a5cff;
-            --accent-2: #8b7bff;
+            /* X.com 风格黑白高级色系 */
+            --bg-0: #000000;
+            --bg-1: #16181c;
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-strong: rgba(255, 255, 255, 0.10);
+            --stroke: rgba(255, 255, 255, 0.12);
+            --stroke-strong: rgba(255, 255, 255, 0.25);
+            --text: #e7e9ea;
+            --text-2: #a0a3a8;
+            --text-3: #6e7175;
+            --accent: #ffffff;
+            --accent-2: #ffffff;
             --gap: 33px; /* 统一间距(×1.5) */
             --radius-xl: 42px;
             --radius-md: 21px;
-            --shadow-lg: 0 24px 60px rgba(0,0,0,0.45);
+            --shadow-lg: 0 24px 60px rgba(0,0,0,0.6);
             --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.1);
-            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html { background: var(--bg-0); } /* html 兜底:渐变未覆盖区域也是深色,不露白 */
         body {
             font-family: var(--font);
             color: var(--text);
-            /* 背景渐变铺满视口 */
-            background: radial-gradient(120% 100% at 50% 0%, #1b1b2a 0%, var(--bg-0) 72%);
+            /* X.com 风格:纯黑背景 */
+            background: var(--bg-0);
             min-height: 100%;
             -webkit-font-smoothing: antialiased;
             display: flex;
@@ -46,16 +47,16 @@
             align-items: center;
             overflow-x: hidden;
         }
-        /* 顶部紫色光晕 + 柔和网格(层次)。
-           position:fixed 让光晕随视口固定(不随滚动错位),渐变撑满避免分界。 */
+        /* 顶部极淡灰白光晕 + 柔和网格(层次,黑白克制)。
+           position:fixed 让光晕随视口固定(不随滚动错位)。 */
         body::before {
             content: '';
             position: fixed;
             inset: 0;
             background:
-                radial-gradient(80% 60% at 50% -10%, rgba(106, 92, 255, 0.16) 0%, transparent 75%),
-                radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.08) 0%, transparent 100%),
-                radial-gradient(1px 1px at 80% 70%, rgba(255,255,255,0.06) 0%, transparent 100%);
+                radial-gradient(80% 60% at 50% -10%, rgba(255, 255, 255, 0.06) 0%, transparent 75%),
+                radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.06) 0%, transparent 100%),
+                radial-gradient(1px 1px at 80% 70%, rgba(255,255,255,0.04) 0%, transparent 100%);
             pointer-events: none;
             z-index: 0;
         }
@@ -89,7 +90,7 @@
             width: 84px; height: 84px;
             border-radius: 24px;
             object-fit: cover;
-            box-shadow: 0 10px 28px rgba(106,92,255,0.35);
+            box-shadow: 0 10px 28px rgba(0,0,0,0.5);
             animation: logo-in 700ms var(--ease-spring) 80ms both;
         }
         @keyframes logo-in {
@@ -130,10 +131,7 @@
             white-space: nowrap; /* 强制单行,避免 51px 字号下文字被挤成两行 */
         }
         .hello b {
-            background: linear-gradient(120deg, var(--accent-2), #c9a2ff);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
+            color: var(--accent);
         }
 
         /* ── 卡片:材料层 ─────────────────────────── */
@@ -176,18 +174,19 @@
             padding: 20px 28px;
             border: none;
             border-radius: var(--radius-md);
-            background: linear-gradient(120deg, var(--accent), var(--accent-2));
-            color: #fff;
+            /* X.com 主按钮:纯白底 + 黑字 */
+            background: var(--accent);
+            color: #000;
             font-family: inherit;
             font-size: 26px;
             font-weight: 600;
             letter-spacing: 0.01em;
             cursor: pointer;
-            box-shadow: 0 10px 28px rgba(106,92,255,0.4);
+            box-shadow: 0 10px 28px rgba(0,0,0,0.4);
             transition: transform 120ms var(--ease-spring), box-shadow 200ms var(--ease-spring), filter 150ms;
             text-decoration: none;
         }
-        .cta:hover { filter: brightness(1.08); box-shadow: 0 12px 32px rgba(106,92,255,0.5); }
+        .cta:hover { filter: brightness(0.92); box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
         .cta:active { transform: scale(0.97); }
         .cta svg { width: 30px; height: 30px; }
         .cta .cta-arrow { transition: transform 150ms var(--ease-spring); }
@@ -257,10 +256,10 @@
             transition: box-shadow 200ms var(--ease-spring), background 200ms var(--ease-spring);
             box-sizing: border-box;
         }
-        /* focus-within:容器整体泛起紫色光晕(输入框或按钮获得焦点时) */
+        /* focus-within:容器整体泛起白色光晕(输入框或按钮获得焦点时) */
         .gen-row:focus-within {
             background: rgba(255, 255, 255, 0.09);
-            box-shadow: 0 0 0 3px rgba(106, 92, 255, 0.35), 0 0 24px rgba(106, 92, 255, 0.18);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35), 0 0 24px rgba(255, 255, 255, 0.18);
         }
         .generator input {
             flex: 1;
@@ -293,7 +292,7 @@
             transition: border-color 120ms, color 120ms, background 120ms, transform 120ms var(--ease-spring);
         }
         .gen-btn svg { width: 33px; height: 33px; }
-        .gen-btn:hover { color: var(--accent-2); background: rgba(106,92,255,0.12); }
+        .gen-btn:hover { color: var(--accent); background: rgba(255,255,255,0.12); }
         .gen-btn:active { transform: scale(0.92); }
         .gen-btn:disabled { opacity: 0.35; cursor: default; background: none; }
 
