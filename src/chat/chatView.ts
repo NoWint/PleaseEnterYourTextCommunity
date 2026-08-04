@@ -169,6 +169,11 @@ export async function renderChatView(chatId: number): Promise<void> {
     main.innerHTML = `<div class="guide-card">加载失败:${escapeHtml(e instanceof Error ? e.message : String(e))}</div>`;
     ui.toast(e instanceof Error ? e.message : String(e));
   }
+  // 切换聊天后刷新右侧抽屉:折叠态重挂展开按钮,展开态刷新成员/媒体/存档内容
+  try {
+    const { renderRightDrawer } = await import('../shell/rightDrawer.js');
+    renderRightDrawer();
+  } catch {}
 }
 
 // Task 9: 增量追加新消息。Delta 式全量 DOM 下,新消息到达时:
