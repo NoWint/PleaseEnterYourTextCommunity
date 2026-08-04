@@ -1,6 +1,6 @@
 # 前端地图（src/，Vanilla TS）
 
-63 个 TS 文件。无框架、无路由库、无状态管理库。全部样式在单文件 `src/styles.css`（~2959 行）。
+70 个 TS 文件。无框架、无路由库、无状态管理库。全部样式在单文件 `src/styles.css`（~3000 行）。
 
 ---
 
@@ -140,11 +140,18 @@ DTO 接口（与后端 `dto.rs` 对应）：`WorkspaceDto` `{ id, name, master_c
 
 ## 9. Shell（`src/shell/`）
 
+- **titlebar.ts**：macOS/Windows 顶栏 VSCode 式居中全局搜索条（`#titlebar-tools`/`#titlebar-search`），点击打开 `openSearch()`。仅无边框平台显示。
+- **windowControls.ts**：Windows/Linux 自绘标题栏窗口控制按钮（`#wb-min`/`#wb-max`/`#wb-close`），含最大化/还原图标切换。macOS 走原生红绿灯不调用。
+
 - **shell.ts**：骨架 HTML + **`handleIncomingMsg`**（[CARD]/[PEYT_INVITE] 前缀，见 conventions.md）+ 全部事件订阅（见 events.md）+ 全局快捷键（Cmd/Ctrl+K 搜索，Esc 关浮层/清回复/折叠抽屉）+ `updateBadge`（Dock 徽标）。`refreshSidebar()` 是 **150ms 防抖包装**（内部 `doRefreshSidebar`）——避免 realtime 事件风暴下并发 renderNavPanel 导致「保存的消息」入口重复 prepend。
 - **rail.ts**：最左 56px 图标栏。页面图标 + 插件 + 设置 + 底部头像（主题/账号设置/登出）。
 - **navPanel.ts**：路由分发 + `refreshChannels()` + `getSpaceType(chatId)`（带 Map 缓存）+ `renderSavedMessagesEntry()`（「保存的消息」入口，置顶在消息列表顶部，点击打开 self-talk chat；`.saved-messages-entry` class 保证唯一）。
 - **rightDrawer.ts**：members（按角色分组 + 搜索）/ pins tab；折叠后显示悬浮展开按钮。
 - **columnResizer.ts**：pointer 拖拽调列宽（NAV 180–460 / DRAWER 220–520，橡皮筋阻尼，`--nav-w`/`--drawer-w` CSS 变量，localStorage 持久化）。
+
+## 9.5 深链（`src/utils/deepLink.ts`）
+
+`registerDeepLinkListener()` 监听 `DeepLink` 事件（唤起 URL）、`processPendingDeepLink()` 冷启动补收、`routeDeepLink()` 路由（登录预填 / 邀请 / QR）。由 `main.ts` boot 时调用。
 
 ## 10. 组件（`src/components/`）
 

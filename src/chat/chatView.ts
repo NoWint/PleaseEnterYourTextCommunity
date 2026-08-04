@@ -2,7 +2,6 @@ import { call } from '../api.js';
 import { state } from '../state.js';
 import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache, setReadCounts, type GroupRole } from './message.js';
 import { renderComposer } from './composer.js';
-import { renderRightDrawer } from '../shell/rightDrawer.js';
 import { saveState } from '../persist.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
@@ -91,11 +90,9 @@ export async function renderChatView(chatId: number): Promise<void> {
     }
     // 拉频道信息(topic + pins)
     let topic = '';
-    let pinCount = 0;
     try { topic = (await call<string>('get_channel_topic', { chatId })) || ''; } catch {}
     try {
       const pins = await call<ChannelPin[]>('get_channel_pins', { chatId });
-      pinCount = pins.length;
       // F3:回填 pinned msg_id 集合,供右键菜单显示真实置顶状态
       updatePinnedCache(pins.map((p) => p.msg_id));
     } catch {}
@@ -121,52 +118,10 @@ export async function renderChatView(chatId: number): Promise<void> {
           ${membersTag}
           <span class="ch-topic">${escapeHtml(topic)}</span>
         </div>
-        <div class="chat-header-actions"></div>
       </div>
       <div class="messages" id="messages"></div>
       <div id="composer-area"></div>
     `;
-    // Task 13: 头部按钮 — 切换 detail panel(members/pin)。
-    // 同 tab 已展开 → 折叠;否则展开并切到该 tab。同时确保 rightDrawerOpen=true 让抽屉可见。
-    const headerEl = main.querySelector<HTMLElement>('.chat-header-actions');
-    if (headerEl) {
-      const membersBtn = ui.iconButton({ icon: 'users', title: '成员' });
-      const pinBtn = ui.iconButton({ icon: 'pin', title: `置顶 · ${pinCount}` });
-      const toggle = (tab: 'members' | 'pin'): void => {
-        // 仅在抽屉已展开且停留在同一 tab 时才切换关闭;否则打开对应 tab。
-        // 避免启动时 detailPanelOpen=true 但 rightDrawerOpen=false 导致首次点击反而收起。
-        if (state.detailPanelOpen && state.detailTab === tab && state.rightDrawerOpen) {
-          state.detailPanelOpen = false;
-        } else {
-          state.detailPanelOpen = true;
-          state.detailTab = tab;
-          state.rightDrawerOpen = true;
-        }
-        saveState();
-        renderRightDrawer();
-        membersBtn.classList.toggle('active', state.detailPanelOpen && state.detailTab === 'members');
-        pinBtn.classList.toggle('active', state.detailPanelOpen && state.detailTab === 'pin');
-      };
-      membersBtn.addEventListener('click', () => toggle('members'));
-      pinBtn.addEventListener('click', () => toggle('pin'));
-      if (state.detailPanelOpen && state.detailTab === 'members') membersBtn.classList.add('active');
-      if (state.detailPanelOpen && state.detailTab === 'pin') pinBtn.classList.add('active');
-      // Delta 批次 2:会话内搜索 + Gallery 相册按钮
-      const searchBtn = ui.iconButton({ icon: 'search', title: '会话内搜索' });
-      searchBtn.addEventListener('click', () => {
-        void import('../components/search.js').then(({ openChatSearch }) => openChatSearch(chatId));
-      });
-      const galleryBtn = ui.iconButton({ icon: 'image', title: '媒体相册' });
-      galleryBtn.addEventListener('click', () => {
-        void import('../components/gallery.js').then(({ openGallery }) => openGallery(chatId));
-      });
-      // Delta 批次 4:保护状态徽章(点击打开加密指纹对话框)
-      const shieldBtn = ui.iconButton({ icon: 'shield', title: '保护状态' });
-      shieldBtn.addEventListener('click', () => {
-        void import('../components/protectionDialog.js').then(({ openProtectionDialog }) => openProtectionDialog(chatId));
-      });
-      headerEl.append(searchBtn, galleryBtn, shieldBtn, membersBtn, pinBtn);
-    }
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
     // Task 12: 在 mark_chat_noticed 之前拉取 unread count,
     // 否则 unread 已被清零。失败时为 0,不渲染分隔线。
@@ -177,16 +132,6 @@ export async function renderChatView(chatId: number): Promise<void> {
       currentChatIsSelfTalk = chat?.is_self_talk === true;
       // 群聊标记存 state(message.ts 渲染气泡时也读):单聊隐藏 name/role tag
       state.currentChatIsGroup = chat?.is_group === true;
-      // 群聊 → 头部补「群信息」按钮(此时 headerEl 已存在,currentChatIsGroup 才赋值)。
-      // 对齐 Delta ChatView 头部 ViewGroup 入口。
-      if (state.currentChatIsGroup && headerEl && !headerEl.querySelector('[data-group-info]')) {
-        const groupBtn = ui.iconButton({ icon: 'users', title: '群信息' });
-        groupBtn.dataset.groupInfo = '1';
-        groupBtn.addEventListener('click', () => {
-          void import('../components/group/viewGroupDialog.js').then(({ openViewGroupDialog }) => openViewGroupDialog(chatId));
-        });
-        headerEl.appendChild(groupBtn);
-      }
     } catch {
       currentChatUnread = 0;
       currentChatIsSelfTalk = false;
@@ -224,6 +169,11 @@ export async function renderChatView(chatId: number): Promise<void> {
     main.innerHTML = `<div class="guide-card">加载失败:${escapeHtml(e instanceof Error ? e.message : String(e))}</div>`;
     ui.toast(e instanceof Error ? e.message : String(e));
   }
+  // 切换聊天后刷新右侧抽屉:折叠态重挂展开按钮,展开态刷新成员/媒体/存档内容
+  try {
+    const { renderRightDrawer } = await import('../shell/rightDrawer.js');
+    renderRightDrawer();
+  } catch {}
 }
 
 // Task 9: 增量追加新消息。Delta 式全量 DOM 下,新消息到达时:

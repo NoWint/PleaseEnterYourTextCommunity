@@ -147,7 +147,7 @@ export interface AppState {
   currentView: CurrentView;
   rightDrawerOpen: boolean;
   detailPanelOpen: boolean;
-  detailTab: 'members' | 'pin';
+  detailTab: 'members' | 'media' | 'archive';
   self: SelfProfile | null;
   roles: RoleDto[];
   wsMembers: Record<number, number>;

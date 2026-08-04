@@ -63,8 +63,8 @@ pub fn run() {
                     let app_handle = app.handle().clone();
                     handle
                         .deep_link()
-                        .on_open_url(move |urls| {
-                            if let Some(url) = urls.first() {
+                        .on_open_url(move |event| {
+                            if let Some(url) = event.urls().first() {
                                 deeplink::handle_url(&app_handle, url.as_str());
                             }
                         });

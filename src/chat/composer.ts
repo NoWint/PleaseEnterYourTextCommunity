@@ -46,14 +46,7 @@ let mentionQueryStart = -1;
 // 草稿:输入防抖保存计时器(500ms 后写入后端)
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
-// 输入框两种模式(微信):
-// - 收起:单行自动增高,Enter 发送,Ctrl+Enter 换行
-// - 展开:大 textarea(顶部可拖拽调高),Enter 换行,Ctrl+Enter 发送
-let expanded = false;
-const PLACEHOLDER_COLLAPSED = '发消息到频道... (@提及 / #频道)';
-const PLACEHOLDER_EXPANDED = 'Enter 换行,Ctrl+Enter 发送';
-/** input 模式单行高度(判定拖拽是否缩到单行 → 自动切回 input) */
-const INPUT_HEIGHT = 38;
+// iMessage 式输入:一条长输入框,Enter 发送,Cmd/Ctrl/Shift+Enter 换行。
 
 // 表情面板常用 emoji(微信风格常用集,零依赖内嵌)
 const EMOJI_PANEL: string[] = [
@@ -100,42 +93,24 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       `;
     }
   }
-  // 微信式输入框:上部 textarea 区(融入背景 + 右上角展开)+ 下部工具条
-  // (左侧图标组,右侧录音圆形 + 翠绿胶囊「发送」)。
+  // iMessage 式输入框:一条长输入框(圆角胶囊),最左侧附件按钮,无发送按钮。
+  // Enter 发送,Cmd/Ctrl/Shift+Enter 换行。
   area.innerHTML = `
     <div class="composer">
-      <div class="composer-resize" id="composer-resize" title="拖拽调整高度" aria-hidden="true"></div>
       ${replyPreview}
-      <div class="composer-main">
-        <textarea id="composer-input" placeholder="${PLACEHOLDER_COLLAPSED}" rows="1"></textarea>
-        <button type="button" class="composer-expand" id="composer-expand" aria-label="展开输入框">
-          ${iconSvg('chevrons-up-down', { width: 14, height: 14 })}
-          <span class="composer-tooltip">展开输入框,Enter 换行,Ctrl+Enter 发送</span>
-        </button>
-      </div>
-      <div class="composer-toolbar">
-        <div class="composer-tools">
-          <button type="button" class="composer-tool" id="composer-emoji" title="表情">${iconSvg('smile', { width: 18, height: 18 })}</button>
-          <button type="button" class="composer-tool" id="composer-attach" title="附件">${iconSvg('paperclip', { width: 18, height: 18 })}</button>
-          <button type="button" class="composer-tool" id="composer-more" title="更多">${iconSvg('more-horizontal', { width: 18, height: 18 })}</button>
+      <div class="composer-row">
+        <div class="composer-field">
+          <button type="button" class="composer-attach" id="composer-attach" title="添加附件" aria-label="添加附件"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+          <textarea id="composer-input" placeholder="消息" rows="1"></textarea>
         </div>
-        <div class="composer-actions">
-          <span class="composer-mic-timer" id="composer-mic-timer"></span>
-          <button type="button" class="composer-mic" id="composer-mic" title="录音">${iconSvg('mic', { width: 16, height: 16 })}</button>
-          <button type="button" class="composer-send" id="composer-send" title="发送" disabled>发送</button>
-        </div>
+        <span class="composer-mic-timer" id="composer-mic-timer"></span>
+        <button type="button" class="composer-mic" id="composer-mic" title="录音" aria-label="录音">${iconSvg('mic', { width: 18, height: 18 })}</button>
       </div>
     </div>
   `;
   const input = document.getElementById('composer-input') as HTMLTextAreaElement | null;
   if (!input) return;
   const composerEl = area.querySelector('.composer') as HTMLElement | null;
-  const sendBtn = document.getElementById('composer-send') as HTMLButtonElement | null;
-  // 发送按钮:空输入禁用,有内容点亮 (微信式,与 Enter 发送等价)
-  const updateSendState = () => {
-    if (sendBtn) sendBtn.disabled = !input.value.trim();
-  };
-  updateSendState();
   // 消息区底部留白随输入框高度变化:composer 尺寸变化 → 更新 messages 的
   // padding-bottom。用 CSS 变量 + 监听 composer 高度(ResizeObserver)驱动,
   // 展开/拖拽调高时消息区底部自动让出对应空间。
@@ -148,104 +123,10 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   const composerRO = new ResizeObserver(() => syncComposerHeight());
   if (composerEl) composerRO.observe(composerEl);
   syncComposerHeight();
-  sendBtn?.addEventListener('click', async () => {
-    if (!input.value.trim()) return;
-    await send(chatId, input, area, onSent);
-    updateSendState();
-  });
-  // 模式切换:收起 = input(单行 Enter 发送);展开 = textarea(多行 Enter 换行)。
-  // 自动切换:
-  //  - input → textarea:按下顶部 resize 条立即切换,**高度保持当前**(无缝衔接)
-  //  - textarea → input:拖到单行高度松手自动切回
-  const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
-  const setExpanded = (next: boolean, keepHeight: boolean): void => {
-    // 仅当模式真实变化才切换 + toast 提醒(避免同一模式重复弹)
-    const changed = expanded !== next;
-    expanded = next;
-    composerEl?.classList.toggle('expanded', expanded);
-    input.placeholder = expanded ? PLACEHOLDER_EXPANDED : PLACEHOLDER_COLLAPSED;
-    if (changed) {
-      // 切换模式 toast 提醒(轻量,不打断输入)
-      showToast(expanded ? '已切换:Enter 换行 · Ctrl+Enter 发送' : '已切换:Enter 发送 · Ctrl+Enter 换行');
-    }
-    if (expanded) {
-      // 进入 textarea:保持当前高度(无缝);无 inline 高度则给默认大高度
-      if (!keepHeight || !input.style.height || input.style.height === 'auto') {
-        input.style.height = Math.max(input.getBoundingClientRect().height || 38, 150) + 'px';
-      }
-    } else {
-      // 退出 textarea:恢复内容自适应(单行)
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-    }
-    input.focus();
-  };
-  // 展开按钮保留:一键在两种模式间切换(显式,非自动)
-  expandBtn?.addEventListener('click', () => {
-    setExpanded(!expanded, false);
-  });
-  // 顶部 resize 指示器:input 模式下也常显(提示可拖)。pointerdown → 立即切
-  // textarea 模式(高度不变无缝),再拖拽调高。拖回单行高度松手 → 自动切回 input。
-  const resizeHandle = document.getElementById('composer-resize') as HTMLElement | null;
-  resizeHandle?.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    // 自动切换 input → textarea:按下即切,高度保持当前(无缝衔接)
-    if (!expanded) {
-      setExpanded(true, true);
-    }
-    const startY = e.clientY;
-    const startH = input.getBoundingClientRect().height;
-    let collapsePending = false;
-    const onMove = (ev: PointerEvent): void => {
-      const delta = ev.clientY - startY; // 向上拖 = 负增量 = 增高
-      const h = Math.min(320, Math.max(38, startH - delta));
-      input.style.height = h + 'px';
-      // 拖到单行高度 → 标记待切回 input(松手时生效,实时无跳变)
-      collapsePending = h <= INPUT_HEIGHT + 8;
-      // 输入框变高 → 消息区底部让位,若在底部则同步上顶,保持最新消息可见。
-      // 直接滚到底:composer 顶部抬高多少,消息底部就补多少,消除"消息沉下去"的断档。
-      const messagesEl = document.getElementById('messages');
-      if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
-    };
-    const onUp = (): void => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      // 自动切换 textarea → input:高度缩到单行,松手无缝切回
-      if (expanded && collapsePending) {
-        setExpanded(false, false);
-      }
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-  });
-  // 表情按钮:弹出表情面板,点击插入 emoji 到光标处
-  const emojiBtn = document.getElementById('composer-emoji') as HTMLButtonElement | null;
-  emojiBtn?.addEventListener('click', () => {
-    const composer = area.querySelector('.composer');
-    if (!composer) return;
-    const existing = composer.querySelector('.composer-emoji-panel');
-    if (existing) { existing.remove(); return; }
-    const panel = document.createElement('div');
-    panel.className = 'composer-emoji-panel';
-    panel.innerHTML = EMOJI_PANEL
-      .map((e) => `<span class="composer-emoji" data-e="${e}">${e}</span>`)
-      .join('');
-    panel.addEventListener('click', (ev) => {
-      const t = (ev.target as HTMLElement).closest<HTMLElement>('.composer-emoji');
-      if (!t) return;
-      const e = t.dataset.e || '';
-      insertAtCursor(input, e);
-      input.dispatchEvent(new Event('input'));
-      input.focus();
-    });
-    composer.appendChild(panel);
-  });
   // 附件按钮:占位(后端暂无 send_file 命令)
   const attachBtn = document.getElementById('composer-attach') as HTMLButtonElement | null;
   attachBtn?.addEventListener('click', () => showToast('附件发送暂未支持'));
-  // 更多按钮:占位
-  document.getElementById('composer-more')?.addEventListener('click', () => showToast('更多功能开发中'));
-  // 录音按钮:点击开始 MediaRecorder 录音,再点停止发送 (Voice viewtype)
+  // 录音按钮:最右侧,点击开始 MediaRecorder 录音,再点停止发送 (Voice viewtype)
   initVoiceRecorder(chatId, onSent);
   // reply cancel
   const rpCancel = document.getElementById('rp-cancel');
@@ -255,12 +136,11 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       renderComposer(chatId, onSent);
     };
   }
-  // 自适应高度 + @提及/#频道检测 + 发送按钮点亮
+  // 自适应高度 + @提及/#频道检测 + 草稿保存
   input.oninput = () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     handleMentionInput(input);
-    updateSendState();
     // 草稿:输入防抖 500ms 保存(空文本=清除)
     if (draftTimer) clearTimeout(draftTimer);
     draftTimer = setTimeout(() => {
@@ -269,6 +149,8 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   };
   // keydown — 含 @提及/#频道导航(上下/Enter/Esc)和发送逻辑
   input.onkeydown = async (e) => {
+    // 中文输入法组合中:Enter 用于上屏候选字,不触发发送/换行/选建议项
+    const composing = e.isComposing || e.keyCode === 229;
     // 建议面板打开时优先处理导航
     if (mentionList) {
       if (e.key === 'ArrowDown') {
@@ -283,7 +165,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         updateMentionSelection();
         return;
       }
-      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      if (e.key === 'Enter' && !composing && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         insertSelectedMention(input);
         return;
@@ -299,23 +181,13 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         return;
       }
     }
-    // 键盘语义随模式切换(建议面板打开时 Enter 已被上方分支拦截):
-    // - 收起:Enter 发送,Ctrl/Cmd+Enter 换行
-    // - 展开:Enter 换行,Ctrl/Cmd+Enter 发送
-    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+    // iMessage 语义:Enter 发送,Cmd/Ctrl/Shift+Enter 换行
+    if (e.key === 'Enter' && !composing && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
-      if (expanded) {
-        insertNewline(input);
-      } else {
-        await send(chatId, input, area, onSent);
-      }
-    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      await send(chatId, input, area, onSent);
+    } else if (e.key === 'Enter' && !composing && (e.shiftKey || e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (expanded) {
-        await send(chatId, input, area, onSent);
-      } else {
-        insertNewline(input);
-      }
+      insertNewline(input);
     } else if (e.key === 'Escape') {
       if (area.dataset.replyTo) {
         delete area.dataset.replyTo;
@@ -330,7 +202,6 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       input.value = draft;
       input.style.height = 'auto';
       input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-      updateSendState();
     }
   } catch {}
   input.focus();

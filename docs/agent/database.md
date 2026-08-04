@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS bots (
 | `BotDto` | id, owner_account_id, bot_account_id, display_name, status, config_json(LLM 配置), created_at |
 | `LlmConfigInput` | provider, model, api_key, base_url 等 LLM 连接配置 |
 | `AccountInfoDto` | 账号切换用:账号 id / addr / 是否当前 |
+| `DeepLinkPayload` | 深链载荷:URL / 类型(登录预填 / 邀请 / QR)/ 解析结果 |
 
 约定：时间戳 i64（Unix epoch 秒）；id 在 API 边界 u32 / SQLite i64；`assignee_name`/`created_by_name` 是从核心联系人解析的、**不落库**。
 
