@@ -348,12 +348,12 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
       try {
         if (seq !== renderSeq) return;
         content.innerHTML = '';
-        if (activeTab === 'issues') await renderIssues();
-        else if (activeTab === 'pulls') await renderPulls();
-        else if (activeTab === 'commits') await renderCommits();
-        else if (activeTab === 'files') await renderFiles();
-        else if (activeTab === 'events') await renderEvents();
-        else if (activeTab === 'details') await renderDetails();
+        if (activeTab === 'issues') await renderIssues(seq);
+        else if (activeTab === 'pulls') await renderPulls(seq);
+        else if (activeTab === 'commits') await renderCommits(seq);
+        else if (activeTab === 'files') await renderFiles(seq);
+        else if (activeTab === 'events') await renderEvents(seq);
+        else if (activeTab === 'details') await renderDetails(seq);
       } catch (e) {
         if (seq !== renderSeq) return;
         content.innerHTML = '';
@@ -370,15 +370,17 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     return wrap;
   }
 
-  async function renderIssues(): Promise<void> {
+  async function renderIssues(seq: number): Promise<void> {
     const list = listContainer();
     let issues: IssueDto[] = [];
     try {
       issues = await call<IssueDto[]>('github_list_issues', { owner: repo!.owner, repo: repo!.repo, state: 'open' });
     } catch (e) {
+      if (seq !== renderSeq) return;
       list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       return;
     }
+    if (seq !== renderSeq) return;
     if (issues.length === 0) {
       list.appendChild(ui.empty('暂无 Issue'));
       return;
@@ -425,15 +427,17 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyHtml, actionsEl);
   }
 
-  async function renderPulls(): Promise<void> {
+  async function renderPulls(seq: number): Promise<void> {
     const list = listContainer();
     let pulls: PullDto[] = [];
     try {
       pulls = await call<PullDto[]>('github_list_pulls', { owner: repo!.owner, repo: repo!.repo, state: 'open' });
     } catch (e) {
+      if (seq !== renderSeq) return;
       list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       return;
     }
+    if (seq !== renderSeq) return;
     if (pulls.length === 0) {
       list.appendChild(ui.empty('暂无 Pull Request'));
       return;
@@ -447,15 +451,17 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     }
   }
 
-  async function renderCommits(): Promise<void> {
+  async function renderCommits(seq: number): Promise<void> {
     const list = listContainer();
     let commits: CommitDto[] = [];
     try {
       commits = await call<CommitDto[]>('github_list_commits', { owner: repo!.owner, repo: repo!.repo });
     } catch (e) {
+      if (seq !== renderSeq) return;
       list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       return;
     }
+    if (seq !== renderSeq) return;
     if (commits.length === 0) {
       list.appendChild(ui.empty('暂无 Commit'));
       return;
@@ -470,7 +476,8 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   }
 
   // ── 文件 tab:目录浏览 + 文件内容 ──
-  async function renderFiles(): Promise<void> {
+  async function renderFiles(seq: number): Promise<void> {
+    if (seq !== renderSeq) return;
     content.innerHTML = '';
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:12px';
@@ -478,7 +485,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
 
     const crumb = document.createElement('div');
     crumb.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--text-mute)';
-    const rootBtn = ui.button({ label: repo!.full_name, variant: 'ghost', size: 'sm', onClick: () => { filesPath = ''; void renderFiles(); } });
+    const rootBtn = ui.button({ label: repo!.full_name, variant: 'ghost', size: 'sm', onClick: () => { filesPath = ''; void renderFiles(seq); } });
     crumb.appendChild(rootBtn);
     if (filesPath) {
       crumb.appendChild(document.createTextNode('/'));
@@ -494,9 +501,11 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     try {
       items = await call<ContentDto[]>('github_get_content', { owner: repo!.owner, repo: repo!.repo, path: filesPath });
     } catch (e) {
+      if (seq !== renderSeq) return;
       list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       return;
     }
+    if (seq !== renderSeq) return;
     if (items.length === 0) {
       list.appendChild(ui.empty('空目录'));
       return;
@@ -507,7 +516,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
           title: it.name,
           subtitle: '目录',
           icon: 'package',
-          onClick: () => { filesPath = it.path; void renderFiles(); },
+          onClick: () => { filesPath = it.path; void renderFiles(seq); },
         }));
       } else {
         list.appendChild(ui.listItem({
@@ -543,15 +552,17 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyHtml, actionsEl);
   }
 
-  async function renderEvents(): Promise<void> {
+  async function renderEvents(seq: number): Promise<void> {
     const list = listContainer();
     let events: EventDto[] = [];
     try {
       events = await call<EventDto[]>('github_list_events', { owner: repo!.owner, repo: repo!.repo });
     } catch (e) {
+      if (seq !== renderSeq) return;
       list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       return;
     }
+    if (seq !== renderSeq) return;
     if (events.length === 0) {
       list.appendChild(ui.empty('暂无动态'));
       return;
@@ -565,7 +576,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     }
   }
 
-  async function renderDetails(): Promise<void> {
+  async function renderDetails(seq: number): Promise<void> {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;flex-direction:column;gap:12px;padding:12px';
     content.appendChild(wrap);
@@ -574,9 +585,11 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     try {
       d = await call<RepoDto>('github_repo', { owner: repo!.owner, repo: repo!.repo });
     } catch (e) {
+      if (seq !== renderSeq) return;
       wrap.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       return;
     }
+    if (seq !== renderSeq) return;
 
     const meta = document.createElement('div');
     meta.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center';
@@ -604,14 +617,17 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     wrap.appendChild(readmeEl);
     try {
       const root = await call<ContentDto[]>('github_get_content', { owner: repo!.owner, repo: repo!.repo, path: '' });
+      if (seq !== renderSeq) return;
       const readme = root.find((x) => x.typ === 'file' && x.name.toLowerCase().startsWith('readme'));
       if (readme) {
         const file = await call<ContentDto[]>('github_get_content', { owner: repo!.owner, repo: repo!.repo, path: readme.path }).then((a) => a[0]);
+        if (seq !== renderSeq) return;
         readmeEl.textContent = file.content ? decodeBase64(file.content) : '(无法读取)';
       } else {
         readmeEl.textContent = '(未找到 README)';
       }
     } catch (e) {
+      if (seq !== renderSeq) return;
       readmeEl.textContent = e instanceof Error ? e.message : String(e);
     }
   }
