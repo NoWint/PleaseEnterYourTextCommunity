@@ -517,19 +517,44 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .msg .msg-reaction:hover { background: var(--active); border-color: var(--text-weak); }
 .msg-reaction-count { font-size: var(--font-scale-micro); font-weight: 600; color: var(--text-mute); line-height: 1; margin-left: 1px; }
-/* 输入区:悬浮玻璃卡片(与 chat-header 同材质)。微信式两段结构:
-   上 .composer-main(融入背景的 textarea + 右上角展开)、下 .composer-toolbar
-   (左侧图标组 / 右侧录音圆形 + 翠绿「发送」胶囊)。 */
+/* 输入区:iMessage 式长输入框。一条圆角胶囊,最左侧附件按钮 + 自适应 textarea,
+   无发送按钮。Enter 发送,Cmd/Ctrl/Shift+Enter 换行。 */
 .composer {
   display: flex; flex-direction: column;
-  padding: 10px 12px;
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  gap: 6px;
+  position: relative;
+  /* 底板:全宽贴底接地,直角 */
+  padding: 8px 12px 10px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   backdrop-filter: blur(18px) saturate(150%);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.20), inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
 }
-.composer input { width: 100%; padding: var(--space-2) var(--space-3); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font-size: var(--font-scale-body); font-family: var(--font); }
+.composer-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.composer-field {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px 4px 4px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--capsule) 90%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
+}
+.composer-attach {
+  flex-shrink: 0;
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%;
+  background: transparent; color: var(--text-mute);
+  cursor: pointer;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out), transform 100ms var(--ease-out);
+}
+.composer-attach:hover { background: var(--active); color: var(--text); }
+.composer-attach:active { transform: scale(0.94); }
 
 /* 上部输入区:textarea 融入卡片背景(无独立边框),右上角展开按钮 */
 .composer-main {
@@ -620,11 +645,12 @@ html.window-frame #titlebar-tools { height: 34px; }
 .composer-emoji:hover { background: var(--active); transform: scale(1.15); }
 /* 悬浮输入区容器:贴底、左右留边,脱离文档流浮在消息区之上(与 chat-header 对称) */
 #composer-area {
-  position: absolute; bottom: 14px; left: 14px; right: 14px;
+  position: absolute; bottom: 0; left: 0; right: 0;
   z-index: 10;
 }
 
 .right-drawer {
+  position: relative;
   width: var(--drawer-w, 300px); background: var(--panel);
   display: flex; flex-direction: column; overflow: hidden; /* 出入动画期间内容按固定宽裁剪,不回流 */
 }
@@ -1013,20 +1039,20 @@ html.window-frame #titlebar-tools { height: 34px; }
   40% { opacity: 1; }
 }
 
-/* composer textarea:融入卡片背景(无独立边框),右侧留出展开按钮空间 */
+/* composer textarea:融入胶囊背景(无独立边框) */
 .composer textarea {
   flex: 1;
-  width: 100%;
+  min-width: 0;
   background: transparent;
   border: none;
   border-radius: 0;
-  padding: 8px 30px 6px 2px;
+  padding: 6px 4px;
   font-size: var(--font-scale-body);
   color: var(--text);
   font-family: var(--font);
   resize: none;
   outline: none;
-  min-height: 38px;
+  min-height: 28px;
   max-height: 120px;
   line-height: 1.5;
 }
@@ -1061,9 +1087,11 @@ html.window-frame #titlebar-tools { height: 34px; }
   flex-shrink: 0;
   width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-strong); border-radius: 50%;
+  border: none; border-radius: var(--radius-md); /* 与输入框同圆角 */
   cursor: pointer;
-  background: var(--capsule); color: var(--text-mute);
+  background: color-mix(in srgb, var(--capsule) 90%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
+  color: var(--text-mute);
   transition: transform 120ms var(--ease-out), color 120ms var(--ease-out), background 120ms var(--ease-out);
 }
 .composer-mic svg { display: block; }
