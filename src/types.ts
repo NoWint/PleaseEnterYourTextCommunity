@@ -10,7 +10,8 @@ export type PluginPermission =
   | 'ui:theme'
   | 'commands'
   | 'llm'
-  | 'network';
+  | 'network'
+  | 'tools';
 export type SpaceType = 'chat' | 'card';
 export type CurrentView = 'kanban' | 'list' | 'calendar' | 'timeline';
 export type WorkTab = 'channels' | 'activity';

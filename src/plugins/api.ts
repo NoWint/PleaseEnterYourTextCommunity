@@ -7,6 +7,37 @@ function deny(pluginName: string, perm: string): never {
   throw new Error(`[${pluginName}] 缺少权限: ${perm}（可在 设置 → 插件 中开启）`);
 }
 
+// name -> handler,分发给注册了该工具名的插件
+const pluginToolHandlers = new Map<string, (args: unknown) => Promise<string>>();
+
+let toolBridgeStarted = false;
+
+// 模块级桥:一次 listen('bot-tool-request'),按 payload.name 匹配 handler,并把结果回写后端。
+async function startToolBridge(): Promise<void> {
+  if (toolBridgeStarted) return;
+  toolBridgeStarted = true;
+  const { listen } = await import('@tauri-apps/api/event');
+  await listen('bot-tool-request', async (ev) => {
+    const p = ev.payload as { id: string; name: string; args?: unknown };
+    const handler = pluginToolHandlers.get(p.name);
+    let result: string;
+    if (!handler) {
+      result = `工具未注册: ${p.name}`;
+    } else {
+      try {
+        result = await handler(p.args);
+      } catch (e) {
+        result = `工具执行失败: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    try {
+      await call('bot_tool_result', { id: p.id, result });
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 /**
  * Build the API object handed to a plugin when it loads.
  * Each API surface is gated by the plugin's granted permissions and
@@ -63,6 +94,24 @@ export function createPluginApi(pluginName: string, unloadCallbacks: Array<() =>
         tag.remove();
         window.__peytchat_themes = (window.__peytchat_themes || []).filter((t) => t.id !== themeId);
       });
+    },
+
+    async registerTool(name, description, parameters, handler) {
+      if (!hasPermission(pluginName, 'tools')) return deny(pluginName, 'tools');
+      await startToolBridge();
+      await call('register_bot_tool', { name, description, parameters });
+      pluginToolHandlers.set(name, handler);
+      unloadCallbacks.push(() => {
+        pluginToolHandlers.delete(name);
+        void call('unregister_bot_tool', { name }).catch(() => {});
+      });
+      return;
+    },
+
+    async unregisterTool(name) {
+      if (!hasPermission(pluginName, 'tools')) return deny(pluginName, 'tools');
+      pluginToolHandlers.delete(name);
+      await call('unregister_bot_tool', { name });
     },
 
     onCommand(name, cb) {

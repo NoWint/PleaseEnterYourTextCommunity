@@ -19,6 +19,7 @@ export const PERMISSION_LABELS: Array<{ id: PluginPermission; label: string; des
   { id: 'commands', label: '注册命令', desc: '添加 /命令 到输入框' },
   { id: 'llm', label: '注册 LLM', desc: '接入 AI 模型提供方' },
   { id: 'network', label: '网络请求', desc: '访问外部网络接口' },
+  { id: 'tools', label: '注册 Bot 工具', desc: '让 Bot 能调用插件提供的工具' },
 ];
 
 function loadAll(): Record<string, PluginPermission[]> {

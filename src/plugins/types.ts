@@ -61,6 +61,8 @@ export interface PluginApi {
   addCSS(css: string): () => void;
   registerTheme(config: PluginThemeConfig): void;
   onCommand(name: string, cb: (args: string, chatId: number) => unknown): void;
+  registerTool(name: string, description: string, parameters: unknown, handler: (args: unknown) => Promise<string>): Promise<void>;
+  unregisterTool(name: string): Promise<void>;
   registerLLM(name: string, config: Record<string, unknown>): void;
   registerSetting(config: PluginSettingConfig): void;
   http: {
