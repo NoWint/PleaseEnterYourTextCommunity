@@ -1,5 +1,7 @@
 import { call } from '../api.js';
 import { ui } from '../components/ui.js';
+import { state } from '../state.js';
+import { saveState } from '../persist.js';
 
 // D1 GitHub:独立 GitHub 界面(GitHubPage)。
 // 全部走界面命令(全局 token,无则公开只读);复用 ui.ts 组件;状态页面内局部。
@@ -8,6 +10,7 @@ import { ui } from '../components/ui.js';
 //       github_search_repo/github_search_code/github_list_events/github_get_content
 
 // ── 后端 DTO(与 src-tauri/src/github/types.rs + dto.rs 对应,snake_case 响应)────
+// DTO 全量保留:仓库数据 Tab(Issues/Pulls/…)渲染由 rightDrawer 承接(Task 2 复用)。
 
 interface GithubSettingsDto { token?: string | null; }
 interface GithubRepoDto { id: number; owner: string; repo: string; full_name: string; }
@@ -56,17 +59,6 @@ interface SearchRepoDto {
 }
 interface SearchCodeDto { name: string; path: string; repo_full_name: string; html_url: string; }
 
-type GithubTab = 'issues' | 'pulls' | 'commits' | 'files' | 'events' | 'details';
-
-const GH_TABS: Array<{ id: GithubTab; label: string }> = [
-  { id: 'issues', label: 'Issues' },
-  { id: 'pulls', label: 'Pulls' },
-  { id: 'commits', label: 'Commits' },
-  { id: 'files', label: '文件' },
-  { id: 'events', label: '动态' },
-  { id: 'details', label: '详情' },
-];
-
 // 中间栏已隐藏,GitHub 完全主区化;此函数仅渲染占位(不会显示)。
 export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   panel.innerHTML = '';
@@ -77,107 +69,74 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
 
   // ── 页面内局部状态(每次进入重建) ──
   let repo: GithubRepoDto | null = null; // 当前选中仓库
-  let activeTab: GithubTab = 'issues';
-  let filesPath = ''; // 文件 tab 的当前目录
   let hasToken = false;
+  let tokenValue = ''; // 设置弹窗预填/保存用
   let boundRepos: GithubRepoDto[] = []; // 已绑定仓库缓存(reloadRepos 填充)
-  let renderSeq = 0; // 单调递增渲染世代号,丢弃过期 tab 渲染结果
+  const repoMeta = new Map<string, RepoDto | null>(); // full_name → 元数据缓存(语言/星标/描述)
 
   const root = document.createElement('div');
   root.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden';
   main.appendChild(root);
 
-  // 顶栏
+  // ── 玻璃工具条(复用 .main-header + chat-header 玻璃材质)──
   const header = document.createElement('div');
   header.className = 'main-header';
-  header.style.cssText = 'flex-shrink:0';
+  header.style.cssText = [
+    'flex-shrink:0',
+    'position:sticky;top:0;z-index:10',
+    'background:color-mix(in srgb, var(--panel) 86%, transparent)',
+    '-webkit-backdrop-filter:blur(18px) saturate(150%)',
+    'backdrop-filter:blur(18px) saturate(150%)',
+    'box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent)',
+  ].join(';');
   const titleBox = document.createElement('div');
   titleBox.innerHTML = `
     <div class="main-title">GitHub</div>
     <div class="main-subtitle">仓库浏览 · 代码搜索 · 绑定管理</div>
   `;
-  const headerBadge = ui.badge({ text: '未配置 token', variant: 'muted' });
+  const headerBadge = ui.badge({ text: '未配置 Token', variant: 'muted' });
+  const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', onClick: () => void refreshAll() });
+  const settingsBtn = ui.iconButton({ icon: 'settings', title: '设置', onClick: () => openSettings(false) });
+  const openWebBtn = ui.iconButton({ icon: 'external-link', title: '打开网页', onClick: () => void copyRepoUrl() });
+  openWebBtn.style.display = 'none'; // 仅选中仓库时显示
   const actions = document.createElement('div');
   actions.className = 'main-actions';
-  actions.appendChild(headerBadge);
-  header.appendChild(titleBox);
-  header.appendChild(actions);
+  actions.append(headerBadge, refreshBtn, settingsBtn, openWebBtn);
+  header.append(titleBox, actions);
   root.appendChild(header);
 
-  // 可滚动正文
+  // ── 仓库选择行(工具条下沿)──
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText = 'flex-shrink:0;display:flex;align-items:center;gap:8px;padding:12px 20px 0';
+  const repoLabel = document.createElement('span');
+  repoLabel.style.cssText = 'font-size:var(--font-scale-body);color:var(--text-mute);white-space:nowrap';
+  repoLabel.textContent = '仓库';
+  const repoSelect = ui.select({ options: [{ value: '', label: '未绑定仓库' }], onChange: (v) => selectRepo(v) });
+  repoSelect.style.cssText = 'flex:1;max-width:320px';
+  const toolHint = document.createElement('span');
+  toolHint.style.cssText = 'font-size:var(--font-scale-micro);color:var(--text-faint)';
+  toolHint.textContent = '选中仓库后,右侧展示仓库数据';
+  toolbar.append(repoLabel, repoSelect, toolHint);
+  root.appendChild(toolbar);
+
+  // ── 可滚动主区(flex row:左=仓库列表/引导,右=搜索)──
   const body = document.createElement('div');
-  body.style.cssText = 'flex:1;min-height:0;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:16px;max-width:1000px';
+  body.style.cssText = 'flex:1;min-height:0;overflow-y:auto;padding:16px 20px;display:flex;gap:16px;align-items:flex-start;max-width:1100px';
   root.appendChild(body);
 
-  // ── 设置区:全局 token + 已绑定仓库管理 ──
-  const settingsBody = document.createElement('div');
-  settingsBody.style.cssText = 'display:flex;flex-direction:column;gap:12px';
+  const leftCol = document.createElement('div');
+  leftCol.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:12px';
+  body.appendChild(leftCol);
 
-  const tokenInput = ui.input({ type: 'password', placeholder: 'GitHub Token(留空 = 公开只读)' });
-  const tokenActions = document.createElement('div');
-  tokenActions.style.cssText = 'display:flex;gap:8px';
-  tokenActions.appendChild(ui.button({
-    label: '保存 Token', icon: 'check', size: 'sm', variant: 'primary',
-    onClick: async () => { await saveToken(); },
-  }));
-  tokenActions.appendChild(ui.button({
-    label: '清除 Token', icon: 'trash', size: 'sm',
-    onClick: async () => { await saveToken(true); },
-  }));
-  tokenActions.appendChild(ui.button({
-    label: '刷新仓库', icon: 'refresh-cw', size: 'sm',
-    onClick: async () => { await reloadRepos(); },
-  }));
-  settingsBody.appendChild(ui.field({
-    label: '全局 GitHub Token',
-    children: tokenInput,
-    help: '无 token 时公开仓库只读;代码搜索需 token。Token 仅保存在本机数据库。',
-  }));
-  settingsBody.appendChild(tokenActions);
+  const rightCol = document.createElement('div');
+  rightCol.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:12px';
+  body.appendChild(rightCol);
 
-  // 已绑定仓库:添加行 + 列表
-  const repoInput = ui.input({ placeholder: 'owner/repo,如 octocat/Hello-World', onEnter: () => void addRepo() });
-  const addRepoBtn = ui.button({ label: '添加', icon: 'plus', size: 'sm', variant: 'primary', onClick: () => void addRepo() });
-  const addRow = document.createElement('div');
-  addRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-  addRow.appendChild(repoInput);
-  addRow.appendChild(addRepoBtn);
-  settingsBody.appendChild(ui.field({ label: '绑定仓库', children: addRow }));
-
+  // 仓库列表容器(renderBoundList 重建所在卡片)
   const repoListEl = document.createElement('div');
   repoListEl.style.cssText = 'display:flex;flex-direction:column;gap:6px';
-  settingsBody.appendChild(repoListEl);
 
-  body.appendChild(ui.card({ title: '设置', children: settingsBody }));
-
-  // ── 仓库选择 + Tab ──
-  const repoRow = document.createElement('div');
-  repoRow.style.cssText = 'display:flex;align-items:center;gap:8px';
-  const repoLabel = document.createElement('span');
-  repoLabel.style.cssText = 'font-size:13px;color:var(--text-mute);white-space:nowrap';
-  repoLabel.textContent = '仓库';
-  const repoSelect = ui.select({ options: [{ value: '', label: '未绑定仓库(+ 添加)' }], onChange: (v) => void selectRepo(v) });
-  repoSelect.style.cssText = 'flex:1;max-width:320px';
-  repoRow.appendChild(repoLabel);
-  repoRow.appendChild(repoSelect);
-  body.appendChild(repoRow);
-
-  const tabBar = ui.tabs({
-    items: GH_TABS,
-    active: activeTab,
-    onChange: (id) => {
-      activeTab = id as GithubTab;
-      renderTab();
-    },
-  });
-  tabBar.style.cssText = 'flex-shrink:0';
-  body.appendChild(tabBar);
-
-  const content = document.createElement('div');
-  content.style.cssText = 'border:1px solid var(--border);border-radius:8px;background:var(--panel);min-height:120px';
-  body.appendChild(content);
-
-  // ── 搜索区:仓库搜索 / 代码搜索 ──
+  // ── 搜索区(右列):仓库搜索 + 代码搜索 ──
   const searchBody = document.createElement('div');
   searchBody.style.cssText = 'display:flex;flex-direction:column;gap:12px';
 
@@ -185,8 +144,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   const repoSearchBtn = ui.button({ label: '搜索仓库', icon: 'search', size: 'sm', variant: 'primary', onClick: () => void doRepoSearch() });
   const repoSearchRow = document.createElement('div');
   repoSearchRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-  repoSearchRow.appendChild(repoSearchInput);
-  repoSearchRow.appendChild(repoSearchBtn);
+  repoSearchRow.append(repoSearchInput, repoSearchBtn);
   searchBody.appendChild(ui.field({ label: '仓库搜索', children: repoSearchRow }));
   const repoResults = document.createElement('div');
   repoResults.style.cssText = 'display:flex;flex-direction:column;gap:6px';
@@ -196,21 +154,20 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   const codeSearchBtn = ui.button({ label: '搜索代码', icon: 'search', size: 'sm', onClick: () => void doCodeSearch() });
   const codeSearchRow = document.createElement('div');
   codeSearchRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-  codeSearchRow.appendChild(codeSearchInput);
-  codeSearchRow.appendChild(codeSearchBtn);
+  codeSearchRow.append(codeSearchInput, codeSearchBtn);
   searchBody.appendChild(ui.field({ label: '代码搜索', children: codeSearchRow, help: '需配置 GitHub Token' }));
   const codeResults = document.createElement('div');
   codeResults.style.cssText = 'display:flex;flex-direction:column;gap:6px';
   searchBody.appendChild(codeResults);
 
-  body.appendChild(ui.card({ title: '搜索', children: searchBody }));
+  rightCol.appendChild(ui.card({ title: '搜索', children: searchBody }));
 
-  // ── 加载设置 + 绑定仓库列表 ──
+  // ── 数据加载 ──
   async function loadSettings(): Promise<void> {
     try {
       const s = await call<GithubSettingsDto>('get_github_settings');
       hasToken = !!s.token && s.token.trim() !== '';
-      tokenInput.value = s.token || '';
+      tokenValue = s.token || '';
       setTokenBadge();
     } catch { /* 忽略 */ }
   }
@@ -218,21 +175,29 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     headerBadge.className = `ui-badge${hasToken ? ' ui-badge-success' : ' ui-badge-muted'}`;
     headerBadge.textContent = hasToken ? '已配置 Token' : '未配置 Token';
   }
-  async function saveToken(clear = false): Promise<void> {
+  async function refreshAll(): Promise<void> {
+    await loadSettings();
+    await reloadRepos();
+  }
+
+  // ── Token 保存/清除 ──
+  async function saveToken(clear = false, raw = ''): Promise<void> {
     try {
-      await call('set_github_token', { token: clear ? null : (tokenInput.value.trim() || null) });
-      hasToken = !clear && tokenInput.value.trim() !== '';
-      if (clear) tokenInput.value = '';
+      await call('set_github_token', { token: clear ? null : (raw.trim() || null) });
+      hasToken = !clear && raw.trim() !== '';
+      tokenValue = clear ? '' : raw.trim();
       setTokenBadge();
       ui.toast(clear ? 'Token 已清除' : 'Token 已保存');
-      // 刷新仓库数据(可能从私有只读变为可写/私有可读)
+      // 刷新仓库数据(可能从公开只读变为可写/私有可读)
       await reloadRepos();
     } catch (e) {
       ui.toast(e instanceof Error ? e.message : String(e));
     }
   }
-  async function addRepo(): Promise<void> {
-    const val = repoInput.value.trim();
+
+  // ── 绑定仓库:添加 / 删除 ──
+  async function addRepo(input: HTMLInputElement, listEl: HTMLElement): Promise<void> {
+    const val = input.value.trim();
     const idx = val.indexOf('/');
     if (!val || idx <= 0 || idx === val.length - 1) {
       ui.toast('请输入 owner/repo,如 octocat/Hello-World');
@@ -246,416 +211,187 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     }
     try {
       await call('add_github_repo', { owner, repo: repoName });
-      repoInput.value = '';
+      input.value = '';
       ui.toast('已绑定');
       await reloadRepos();
+      await renderSettingsRepoList(listEl);
     } catch (e) {
       ui.toast(e instanceof Error ? e.message : String(e));
     }
   }
+  function removeRepo(r: GithubRepoDto, listEl: HTMLElement | null): void {
+    ui.confirm({
+      title: '删除绑定',
+      message: `解除绑定 ${r.full_name}?`,
+      confirmLabel: '删除',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await call('remove_github_repo', { id: r.id });
+          ui.toast('已解除绑定');
+          await reloadRepos();
+          if (listEl) await renderSettingsRepoList(listEl);
+        } catch (e) {
+          ui.toast(e instanceof Error ? e.message : String(e));
+        }
+      },
+    });
+  }
+
+  // ── 已绑定仓库列表(主区左列)──
   async function reloadRepos(): Promise<void> {
+    repoMeta.clear();
     let repos: GithubRepoDto[] = [];
     try {
       repos = await call<GithubRepoDto[]>('list_github_repos');
     } catch (e) {
-      repoListEl.innerHTML = '';
-      repoListEl.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+      leftCol.innerHTML = '';
+      leftCol.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
       return;
     }
     boundRepos = repos;
-    // 刷新下拉,保持当前选中
     const prevFull = repo?.full_name ?? '';
+    // 刷新下拉,保持当前选中
     repoSelect.innerHTML = '';
     if (repos.length === 0) {
-      repoSelect.appendChild(new Option('未绑定仓库(+ 添加)', ''));
+      repoSelect.appendChild(new Option('未绑定仓库', ''));
     } else {
       for (const r of repos) repoSelect.appendChild(new Option(r.full_name, r.full_name));
     }
-    // 渲染绑定列表
-    repoListEl.innerHTML = '';
-    if (repos.length === 0) {
-      repoListEl.appendChild(ui.empty('暂无绑定仓库,输入 owner/repo 添加'));
-      await applyRepo(null);
+    if (prevFull && repos.some((r) => r.full_name === prevFull)) {
+      repoSelect.value = prevFull;
+    } else if (repo) {
+      // 选中仓库已被解除绑定 → 清空选中并收起抽屉
+      repo = null;
+      state.detailPanelOpen = false;
+      state.rightDrawerOpen = false;
+      saveState();
+    }
+    await renderBoundList();
+  }
+  async function renderBoundList(): Promise<void> {
+    if (boundRepos.length === 0) {
+      leftCol.innerHTML = '';
+      leftCol.appendChild(renderEmptyGuide());
+      updateSelectionHighlight();
       return;
     }
-    for (const r of repos) {
-      repoListEl.appendChild(renderRepoRow(r));
-    }
-    // 恢复选中(若有对应项)
-    if (prevFull) repoSelect.value = prevFull;
-    const cur = repos.find((r) => r.full_name === repoSelect.value) ?? null;
-    await applyRepo(cur);
+    const rows = await Promise.all(boundRepos.map((r) => renderRepoRow(r)));
+    repoListEl.innerHTML = '';
+    for (const row of rows) repoListEl.appendChild(row);
+    leftCol.innerHTML = '';
+    leftCol.appendChild(ui.card({ title: `已绑定仓库 · ${boundRepos.length}`, children: repoListEl }));
+    updateSelectionHighlight();
   }
-  function renderRepoRow(r: GithubRepoDto): HTMLElement {
+  async function renderRepoRow(r: GithubRepoDto): Promise<HTMLElement> {
+    const meta = await fetchRepoMeta(r);
+    const subtitle = meta
+      ? `${meta.language ?? '未知语言'} · ★ ${meta.stargazers_count}${meta.description ? ' · ' + meta.description : ''}`
+      : `${r.owner} / ${r.repo}`;
+    const openBtn = ui.iconButton({
+      icon: 'external-link',
+      title: '复制链接',
+      size: 'sm',
+      onClick: () => void copyRepoUrl(r),
+    });
+    openBtn.addEventListener('click', (e) => e.stopPropagation());
     const row = ui.listItem({
       title: r.full_name,
-      subtitle: `${r.owner} / ${r.repo}`,
+      subtitle,
       icon: 'git-branch',
-      trailing: ui.iconButton({
-        icon: 'trash', title: '删除', danger: true, size: 'sm',
-        onClick: async () => {
-          ui.confirm({
-            title: '删除绑定',
-            message: `解除绑定 ${r.full_name}?`,
-            confirmLabel: '删除',
-            danger: true,
-            onConfirm: async () => {
-              try {
-                await call('remove_github_repo', { id: r.id });
-                ui.toast('已解除绑定');
-                await reloadRepos();
-              } catch (e) {
-                ui.toast(e instanceof Error ? e.message : String(e));
-              }
-            },
-          });
-        },
-      }),
+      onClick: () => selectRepo(r.full_name),
+      trailing: openBtn,
     });
-    row.style.cursor = 'default';
+    row.dataset.full = r.full_name;
     return row;
   }
-  async function selectRepo(fullName: string): Promise<void> {
-    const cur = boundRepos.find((r) => r.full_name === fullName) ?? null;
-    if (fullName && !cur) {
-      ui.toast(`仓库 ${fullName} 未绑定,请先在设置区添加`);
-      return;
+  async function fetchRepoMeta(r: GithubRepoDto): Promise<RepoDto | null> {
+    const cached = repoMeta.get(r.full_name);
+    if (cached !== undefined) return cached;
+    try {
+      const d = await call<RepoDto>('github_repo', { owner: r.owner, repo: r.repo });
+      repoMeta.set(r.full_name, d);
+      return d;
+    } catch {
+      repoMeta.set(r.full_name, null);
+      return null;
     }
-    repoSelect.value = fullName || '';
-    await applyRepo(cur);
-  }
-  async function applyRepo(next: GithubRepoDto | null): Promise<void> {
-    repo = next;
-    filesPath = '';
-    if (!repo) {
-      content.innerHTML = '';
-      renderEmptyGuide();
-      return;
-    }
-    renderTab();
   }
 
-  // ── 未绑定仓库时的引导(替代裸 empty)──
-  function renderEmptyGuide(): void {
+  // ── 未绑定引导 ──
+  function renderEmptyGuide(): HTMLElement {
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 20px;text-align:center';
+    wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px 20px;text-align:center;border:1px dashed var(--border-dashed);border-radius:var(--radius-md);background:var(--panel)';
     const title = document.createElement('div');
-    title.textContent = '还没有可浏览的仓库';
-    title.style.cssText = 'font-size:15px;font-weight:600;color:var(--text)';
+    title.textContent = '还没有绑定仓库';
+    title.style.cssText = 'font-size:var(--font-scale-title);font-weight:600;color:var(--text)';
     const steps = document.createElement('div');
-    steps.style.cssText = 'font-size:13px;color:var(--text-mute);line-height:1.8';
-    steps.innerHTML = '1. 在上方「设置」卡片输入 <code>owner/repo</code>(如 <code>octocat/Hello-World</code>)<br>2. 点击「添加」绑定<br>3. 回到仓库下拉选择它';
+    steps.style.cssText = 'font-size:var(--font-scale-body);color:var(--text-mute);line-height:1.8';
+    steps.innerHTML = '1. 点击右上角「设置」<br>2. 输入 <code>owner/repo</code>(如 <code>octocat/Hello-World</code>)添加绑定<br>3. 回到列表点击仓库浏览数据';
     const btn = ui.button({
       label: '去绑定仓库', icon: 'plus', variant: 'primary',
-      onClick: () => {
-        repoInput.focus();
-        body.scrollTo({ top: 0, behavior: 'smooth' });
-      },
+      onClick: () => openSettings(true),
     });
-    wrap.appendChild(title);
-    wrap.appendChild(steps);
-    wrap.appendChild(btn);
-    content.appendChild(wrap);
-  }
-
-  // ── Tab 渲染 ──
-  function renderTab(): void {
-    const seq = ++renderSeq;
-    content.innerHTML = '';
-    if (!repo) {
-      renderEmptyGuide();
-      return;
-    }
-    content.appendChild(ui.spinner());
-    void (async () => {
-      try {
-        if (seq !== renderSeq) return;
-        content.innerHTML = '';
-        if (activeTab === 'issues') await renderIssues(seq);
-        else if (activeTab === 'pulls') await renderPulls(seq);
-        else if (activeTab === 'commits') await renderCommits(seq);
-        else if (activeTab === 'files') await renderFiles(seq);
-        else if (activeTab === 'events') await renderEvents(seq);
-        else if (activeTab === 'details') await renderDetails(seq);
-      } catch (e) {
-        if (seq !== renderSeq) return;
-        content.innerHTML = '';
-        content.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-      }
-    })();
-  }
-
-  // 列表区:内容区内滚动容器
-  function listContainer(): HTMLElement {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:12px';
-    content.appendChild(wrap);
+    wrap.append(title, steps, btn);
     return wrap;
   }
 
-  async function renderIssues(seq: number): Promise<void> {
-    const list = listContainer();
-    let issues: IssueDto[] = [];
-    try {
-      issues = await call<IssueDto[]>('github_list_issues', { owner: repo!.owner, repo: repo!.repo, state: 'open' });
-    } catch (e) {
-      if (seq !== renderSeq) return;
-      list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+  // ── 选中仓库 → 设置 state 触发右侧抽屉(Task 2 渲染数据)──
+  function selectRepo(fullName: string): void {
+    const cur = boundRepos.find((r) => r.full_name === fullName) ?? null;
+    if (fullName && !cur) {
+      ui.toast(`仓库 ${fullName} 未绑定,请先在设置中添加`);
       return;
     }
-    if (seq !== renderSeq) return;
-    if (issues.length === 0) {
-      list.appendChild(ui.empty('暂无 Issue'));
-      return;
-    }
-    for (const it of issues) list.appendChild(renderIssueRow(it));
+    repoSelect.value = fullName || '';
+    applySelection(cur);
   }
-  function renderIssueRow(it: IssueDto): HTMLElement {
-    const row = ui.listItem({
-      title: `#${it.number} ${it.title}`,
-      subtitle: `${it.state} · ${it.user} · 更新 ${fmtDate(it.updated_at)}${it.labels.length ? ' · ' + it.labels.join(', ') : ''}`,
-      icon: 'alert-circle',
-      onClick: () => void openIssueDetail(it),
+  function applySelection(next: GithubRepoDto | null): void {
+    repo = next;
+    updateSelectionHighlight();
+    updateOpenWebBtn();
+    if (!repo) {
+      // 清理 github 残留 tab,避免泄漏到消息页(messages/groups 只认 members/pin)
+      state.detailTab = 'members';
+      state.detailPanelOpen = false;
+      state.rightDrawerOpen = false;
+      saveState();
+      void openRightDrawer();
+      return;
+    }
+    // 打开 rightDrawer 展示仓库数据;detailTab 由 Task 2 扩展类型
+    state.currentPage = 'github';
+    state.detailPanelOpen = true;
+    state.detailTab = 'github' as any; // Task 2 扩展 detailTab 类型,届时移除 as any
+    state.rightDrawerOpen = true;
+    saveState();
+    void openRightDrawer();
+  }
+  function updateSelectionHighlight(): void {
+    const full = repo?.full_name ?? '';
+    repoListEl.querySelectorAll<HTMLElement>('.ui-list-item').forEach((el) => {
+      el.classList.toggle('active', !!full && el.dataset.full === full);
     });
-    return row;
   }
-  async function openIssueDetail(it: IssueDto): Promise<void> {
-    let detail = it;
-    try {
-      detail = await call<IssueDto>('github_get_issue', { owner: repo!.owner, repo: repo!.repo, number: it.number });
-    } catch (e) {
-      ui.toast(e instanceof Error ? e.message : String(e));
-    }
-    const bodyHtml = document.createElement('div');
-    bodyHtml.style.cssText = 'display:flex;flex-direction:column;gap:10px';
-    const head = document.createElement('div');
-    head.style.cssText = 'font-size:14px;font-weight:600';
-    head.textContent = `#${detail.number} ${detail.title}`;
-    bodyHtml.appendChild(head);
-    const meta = document.createElement('div');
-    meta.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--text-mute)';
-    meta.appendChild(ui.badge({ text: detail.state, variant: detail.state === 'open' ? 'success' : 'muted' }));
-    if (detail.labels.length) meta.appendChild(ui.badge({ text: detail.labels.slice(0, 5).join(', '), variant: 'default' }));
-    bodyHtml.appendChild(meta);
-    const body = document.createElement('pre');
-    body.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;margin:0;max-height:320px;overflow-y:auto';
-    body.textContent = detail.body || '(无正文)';
-    bodyHtml.appendChild(body);
-    const dlg = ui.dialog({
-      title: 'Issue 详情',
-      actions: [],
-      size: 'lg',
-    });
-    const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
-    dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyHtml, actionsEl);
+  function updateOpenWebBtn(): void {
+    openWebBtn.style.display = repo ? '' : 'none';
   }
-
-  async function renderPulls(seq: number): Promise<void> {
-    const list = listContainer();
-    let pulls: PullDto[] = [];
+  function openRightDrawer(): void {
+    void import('../shell/rightDrawer.js').then(({ renderRightDrawer }) => renderRightDrawer());
+  }
+  async function copyRepoUrl(r?: GithubRepoDto): Promise<void> {
+    const target = r ?? repo;
+    if (!target) return;
+    const url = repoMeta.get(target.full_name)?.html_url ?? `https://github.com/${target.full_name}`;
     try {
-      pulls = await call<PullDto[]>('github_list_pulls', { owner: repo!.owner, repo: repo!.repo, state: 'open' });
-    } catch (e) {
-      if (seq !== renderSeq) return;
-      list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-      return;
-    }
-    if (seq !== renderSeq) return;
-    if (pulls.length === 0) {
-      list.appendChild(ui.empty('暂无 Pull Request'));
-      return;
-    }
-    for (const p of pulls) {
-      list.appendChild(ui.listItem({
-        title: `#${p.number} ${p.title}`,
-        subtitle: `${p.state} · ${p.user} · +${p.additions}/-${p.deletions} · 更新 ${fmtDate(p.updated_at)}`,
-        icon: 'git-branch',
-      }));
+      await navigator.clipboard.writeText(url);
+      ui.toast('已复制仓库链接');
+    } catch {
+      ui.toast('复制失败');
     }
   }
 
-  async function renderCommits(seq: number): Promise<void> {
-    const list = listContainer();
-    let commits: CommitDto[] = [];
-    try {
-      commits = await call<CommitDto[]>('github_list_commits', { owner: repo!.owner, repo: repo!.repo });
-    } catch (e) {
-      if (seq !== renderSeq) return;
-      list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-      return;
-    }
-    if (seq !== renderSeq) return;
-    if (commits.length === 0) {
-      list.appendChild(ui.empty('暂无 Commit'));
-      return;
-    }
-    for (const c of commits) {
-      list.appendChild(ui.listItem({
-        title: `${c.sha.slice(0, 7)} ${c.message}`,
-        subtitle: `${c.author ?? '未知'} · ${c.date ? fmtDate(c.date) : '未知时间'}`,
-        icon: 'clock',
-      }));
-    }
-  }
-
-  // ── 文件 tab:目录浏览 + 文件内容 ──
-  async function renderFiles(seq: number): Promise<void> {
-    if (seq !== renderSeq) return;
-    content.innerHTML = '';
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:12px';
-    content.appendChild(wrap);
-
-    const crumb = document.createElement('div');
-    crumb.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--text-mute)';
-    const rootBtn = ui.button({ label: repo!.full_name, variant: 'ghost', size: 'sm', onClick: () => { filesPath = ''; void renderFiles(seq); } });
-    crumb.appendChild(rootBtn);
-    if (filesPath) {
-      crumb.appendChild(document.createTextNode('/'));
-      crumb.appendChild(document.createTextNode(filesPath));
-    }
-    wrap.appendChild(crumb);
-
-    const list = document.createElement('div');
-    list.style.cssText = 'display:flex;flex-direction:column;gap:6px';
-    wrap.appendChild(list);
-
-    let items: ContentDto[] = [];
-    try {
-      items = await call<ContentDto[]>('github_get_content', { owner: repo!.owner, repo: repo!.repo, path: filesPath });
-    } catch (e) {
-      if (seq !== renderSeq) return;
-      list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-      return;
-    }
-    if (seq !== renderSeq) return;
-    if (items.length === 0) {
-      list.appendChild(ui.empty('空目录'));
-      return;
-    }
-    for (const it of items) {
-      if (it.typ === 'dir') {
-        list.appendChild(ui.listItem({
-          title: it.name,
-          subtitle: '目录',
-          icon: 'package',
-          onClick: () => { filesPath = it.path; void renderFiles(seq); },
-        }));
-      } else {
-        list.appendChild(ui.listItem({
-          title: it.name,
-          subtitle: `${it.size} bytes`,
-          icon: 'file-text',
-          onClick: () => void openFile(it),
-        }));
-      }
-    }
-  }
-  async function openFile(it: ContentDto): Promise<void> {
-    let item = it;
-    try {
-      item = await call<ContentDto[]>('github_get_content', { owner: repo!.owner, repo: repo!.repo, path: it.path }).then((a) => a[0]);
-    } catch (e) {
-      ui.toast(e instanceof Error ? e.message : String(e));
-      return;
-    }
-    const text = item.content ? decodeBase64(item.content) : '(无法读取内容)';
-    const bodyHtml = document.createElement('div');
-    bodyHtml.style.cssText = 'display:flex;flex-direction:column;gap:8px';
-    const head = document.createElement('div');
-    head.style.cssText = 'font-size:13px;font-weight:600;word-break:break-all';
-    head.textContent = `${repo!.full_name}/${item.path}`;
-    bodyHtml.appendChild(head);
-    const pre = document.createElement('pre');
-    pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.6;margin:0;max-height:400px;overflow-y:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace';
-    pre.textContent = text;
-    bodyHtml.appendChild(pre);
-    const dlg = ui.dialog({ title: item.name, actions: [], size: 'lg' });
-    const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
-    dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyHtml, actionsEl);
-  }
-
-  async function renderEvents(seq: number): Promise<void> {
-    const list = listContainer();
-    let events: EventDto[] = [];
-    try {
-      events = await call<EventDto[]>('github_list_events', { owner: repo!.owner, repo: repo!.repo });
-    } catch (e) {
-      if (seq !== renderSeq) return;
-      list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-      return;
-    }
-    if (seq !== renderSeq) return;
-    if (events.length === 0) {
-      list.appendChild(ui.empty('暂无动态'));
-      return;
-    }
-    for (const ev of events) {
-      list.appendChild(ui.listItem({
-        title: `${ev.typ}${ev.actor ? ' · ' + ev.actor : ''}`,
-        subtitle: `${ev.summary || '(无摘要)'} · ${fmtDate(ev.created_at)}`,
-        icon: 'clock',
-      }));
-    }
-  }
-
-  async function renderDetails(seq: number): Promise<void> {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;gap:12px;padding:12px';
-    content.appendChild(wrap);
-
-    let d: RepoDto;
-    try {
-      d = await call<RepoDto>('github_repo', { owner: repo!.owner, repo: repo!.repo });
-    } catch (e) {
-      if (seq !== renderSeq) return;
-      wrap.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-      return;
-    }
-    if (seq !== renderSeq) return;
-
-    const meta = document.createElement('div');
-    meta.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center';
-    if (d.language) meta.appendChild(ui.badge({ text: d.language, variant: 'default' }));
-    meta.appendChild(ui.badge({ text: `★ ${d.stargazers_count}`, variant: 'default' }));
-    meta.appendChild(ui.badge({ text: `fork ${d.forks_count}`, variant: 'default' }));
-    meta.appendChild(ui.badge({ text: `open issues ${d.open_issues_count}`, variant: 'default' }));
-    meta.appendChild(ui.badge({ text: `default branch ${d.default_branch}`, variant: 'muted' }));
-    wrap.appendChild(meta);
-
-    if (d.description) {
-      const desc = document.createElement('div');
-      desc.style.cssText = 'font-size:13px;color:var(--text-mute)';
-      desc.textContent = d.description;
-      wrap.appendChild(desc);
-    }
-
-    // README:目录根下找 README* 文件读取(无专门 readme 命令,复用 github_get_content)
-    const readmeTitle = document.createElement('div');
-    readmeTitle.style.cssText = 'font-size:13px;font-weight:600';
-    readmeTitle.textContent = 'README';
-    wrap.appendChild(readmeTitle);
-    const readmeEl = document.createElement('pre');
-    readmeEl.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.6;margin:0;max-height:360px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px';
-    wrap.appendChild(readmeEl);
-    try {
-      const root = await call<ContentDto[]>('github_get_content', { owner: repo!.owner, repo: repo!.repo, path: '' });
-      if (seq !== renderSeq) return;
-      const readme = root.find((x) => x.typ === 'file' && x.name.toLowerCase().startsWith('readme'));
-      if (readme) {
-        const file = await call<ContentDto[]>('github_get_content', { owner: repo!.owner, repo: repo!.repo, path: readme.path }).then((a) => a[0]);
-        if (seq !== renderSeq) return;
-        readmeEl.textContent = file.content ? decodeBase64(file.content) : '(无法读取)';
-      } else {
-        readmeEl.textContent = '(未找到 README)';
-      }
-    } catch (e) {
-      if (seq !== renderSeq) return;
-      readmeEl.textContent = e instanceof Error ? e.message : String(e);
-    }
-  }
-
-  // ── 搜索区逻辑 ──
+  // ── 搜索逻辑 ──
   async function doRepoSearch(): Promise<void> {
     const q = repoSearchInput.value.trim();
     if (!q) { ui.toast('请输入搜索关键词'); return; }
@@ -675,11 +411,12 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
       return;
     }
     for (const r of results.slice(0, 20)) {
+      const bound = boundRepos.some((b) => b.full_name === r.full_name);
       repoResults.appendChild(ui.listItem({
         title: r.full_name,
-        subtitle: `${r.language ?? '未知语言'} · ★ ${r.stargazers_count}${r.description ? ' · ' + r.description : ''}`,
+        subtitle: `${r.language ?? '未知语言'} · ★ ${r.stargazers_count}${r.description ? ' · ' + r.description : ''}${bound ? ' · 已绑定' : ''}`,
         icon: 'git-branch',
-        onClick: () => { repoSearchInput.value = r.full_name; void selectRepo(r.full_name); },
+        onClick: () => selectRepo(r.full_name),
       }));
     }
   }
@@ -687,7 +424,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     const q = codeSearchInput.value.trim();
     if (!q) { ui.toast('请输入搜索关键词'); return; }
     if (!hasToken) {
-      ui.toast('代码搜索需要 GitHub Token,请先在设置区配置');
+      ui.toast('代码搜索需要 GitHub Token,请先配置');
       return;
     }
     codeResults.innerHTML = '';
@@ -714,24 +451,92 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     }
   }
 
+  // ── 设置弹窗:token + 绑定仓库管理 ──
+  function openSettings(focusRepo: boolean): void {
+    const bodyEl = document.createElement('div');
+    bodyEl.style.cssText = 'display:flex;flex-direction:column;gap:14px';
+
+    const tokenInput = ui.input({ type: 'password', placeholder: 'GitHub Token(留空 = 公开只读)', value: tokenValue });
+    const saveBtn = ui.button({
+      label: '保存 Token', icon: 'check', size: 'sm', variant: 'primary',
+      onClick: async () => { await saveToken(false, tokenInput.value); },
+    });
+    const clearBtn = ui.button({
+      label: '清除 Token', icon: 'trash', size: 'sm',
+      onClick: async () => { await saveToken(true); tokenInput.value = ''; },
+    });
+    const tokenActions = document.createElement('div');
+    tokenActions.style.cssText = 'display:flex;gap:8px';
+    tokenActions.append(saveBtn, clearBtn);
+    bodyEl.appendChild(ui.field({
+      label: '全局 GitHub Token',
+      children: tokenInput,
+      help: '无 token 时公开仓库只读;代码搜索需 token。Token 仅保存在本机数据库。',
+    }));
+    bodyEl.appendChild(tokenActions);
+
+    const repoInput = ui.input({ placeholder: 'owner/repo,如 octocat/Hello-World', onEnter: () => void addRepo(repoInput, repoList) });
+    const addBtn = ui.button({ label: '添加', icon: 'plus', size: 'sm', variant: 'primary', onClick: () => void addRepo(repoInput, repoList) });
+    const addRow = document.createElement('div');
+    addRow.style.cssText = 'display:flex;gap:8px;align-items:center';
+    addRow.append(repoInput, addBtn);
+    bodyEl.appendChild(ui.field({ label: '绑定仓库', children: addRow }));
+
+    const repoList = document.createElement('div');
+    repoList.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+    bodyEl.appendChild(repoList);
+
+    const dlg = ui.dialog({ title: 'GitHub 设置', actions: [] });
+    const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+    dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
+
+    void renderSettingsRepoList(repoList);
+    if (focusRepo) repoInput.focus();
+  }
+  async function renderSettingsRepoList(listEl: HTMLElement): Promise<void> {
+    let repos: GithubRepoDto[] = [];
+    try {
+      repos = await call<GithubRepoDto[]>('list_github_repos');
+    } catch (e) {
+      listEl.innerHTML = '';
+      listEl.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+      return;
+    }
+    listEl.innerHTML = '';
+    if (repos.length === 0) {
+      listEl.appendChild(ui.empty('暂无绑定仓库'));
+      return;
+    }
+    for (const r of repos) {
+      listEl.appendChild(renderSettingsRepoRow(r, listEl));
+    }
+  }
+  function renderSettingsRepoRow(r: GithubRepoDto, listEl: HTMLElement): HTMLElement {
+    const row = ui.listItem({
+      title: r.full_name,
+      subtitle: `${r.owner} / ${r.repo}`,
+      icon: 'git-branch',
+      trailing: ui.iconButton({
+        icon: 'trash', title: '删除', danger: true, size: 'sm',
+        onClick: () => removeRepo(r, listEl),
+      }),
+    });
+    row.style.cursor = 'default';
+    return row;
+  }
+
   // ── 初始化 ──
   await loadSettings();
   await reloadRepos();
-}
-
-// ── 工具函数 ──
-function fmtDate(iso: string): string {
-  const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return iso;
-  return t.toLocaleDateString();
-}
-
-function decodeBase64(b64: string): string {
-  try {
-    const binary = atob(b64.replace(/\s/g, ''));
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    return new TextDecoder('utf-8').decode(bytes);
-  } catch {
-    return b64;
+  // 无选中仓库时收起右侧抽屉(避免上一页成员/置顶残留显示在 GitHub 页)
+  if (!repo) {
+    const drawerOpen = state.rightDrawerOpen || state.detailPanelOpen;
+    state.detailTab = 'members';
+    state.detailPanelOpen = false;
+    state.rightDrawerOpen = false;
+    if (drawerOpen) {
+      saveState();
+      void openRightDrawer();
+    }
   }
 }

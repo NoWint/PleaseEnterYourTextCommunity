@@ -27,6 +27,8 @@ export type IconName =
   | 'robot'
   // GitHub 入口
   | 'git-branch'
+  // GitHub 仓库打开网页
+  | 'external-link'
   // 微信式输入框展开按钮
   | 'chevrons-up-down';
 
