@@ -8,6 +8,7 @@ mod dto;
 mod envelope;
 mod error;
 mod events;
+mod github;
 mod llm;
 mod notifications;
 mod personas;
