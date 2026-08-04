@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 
 use async_trait::async_trait;
@@ -8,8 +9,10 @@ use regex::Regex;
 
 use super::{BotDriver, BotRuntime, DriverKind, IncomingMsg};
 use crate::dto::bot_activity_kind as act;
+use crate::dto::LlmConfig;
 use crate::dto::RuleConfig;
 use crate::error::AppResult;
+use crate::llm::{ChatMessage, LlmClient};
 
 /// 8ball 预设回答。
 const EIGHT_BALL_ANSWERS: [&str; 10] = [
@@ -25,16 +28,33 @@ const EIGHT_BALL_ANSWERS: [&str; 10] = [
     "🎱 让我想想",
 ];
 
-/// 规则驱动:处理指令彩蛋、进群欢迎语、关键词/正则规则与兜底文案。
-/// `seen` 记录 (bot_id, chat_id),保证每个会话的欢迎语只发一次。
+/// /summarize 默认总结条数。
+const SUMMARIZE_DEFAULT: usize = 30;
+/// /summarize 条数上限。
+const SUMMARIZE_MAX: usize = 200;
+
+/// 规则驱动:处理指令彩蛋(/summarize 除外)、进群欢迎语、关键词/正则规则与兜底文案。
+/// `seen` 记录 (bot_id, chat_id),保证每个会话的欢迎语只发一次;
+/// `llm` 供 /summarize 使用,纯规则模式(无 LLM)时保持 None。
 pub struct RuleDriver {
     seen: StdMutex<HashSet<(i64, u32)>>,
+    llm: Option<Arc<LlmClient>>,
 }
 
 impl RuleDriver {
+    /// 纯规则模式:无 LLM,/summarize 返回「LLM 未配置」。
     pub fn new() -> Self {
         Self {
             seen: StdMutex::new(HashSet::new()),
+            llm: None,
+        }
+    }
+
+    /// 注入 LLM 客户端,启用 /summarize。
+    pub fn with_llm(llm: Arc<LlmClient>) -> Self {
+        Self {
+            seen: StdMutex::new(HashSet::new()),
+            llm: Some(llm),
         }
     }
 
@@ -60,10 +80,13 @@ impl BotDriver for RuleDriver {
         bot: &BotRuntime<'_>,
         msg: &IncomingMsg<'_>,
     ) -> AppResult<Vec<String>> {
-        // 1. 指令彩蛋(不依赖 rule 配置)。
+        // 1. 指令彩蛋(不依赖 rule 配置)。/summarize 需要 LLM 与历史,单独走异步路径。
         if let Some(text) = msg.text {
             let text = text.trim();
             if text.starts_with('/') {
+                if let Some(count) = parse_summarize(text) {
+                    return self.handle_summarize(bot, msg, count).await;
+                }
                 let bot_name = bot
                     .dc
                     .get_config(Config::Displayname)
@@ -141,6 +164,79 @@ impl BotDriver for RuleDriver {
     }
 }
 
+// ── /summarize 开发者指令 ────────────────────────────────────────────────
+
+impl RuleDriver {
+    /// 处理 /summarize:拉取最近 count 条历史,走 LLM 生成结构化总结,按句边界拆分返回。
+    /// LLM 未注入或 bot 配置不完整时返回「LLM 未配置,无法总结」;调用失败返回「总结失败: {e}」。
+    async fn handle_summarize(
+        &self,
+        bot: &BotRuntime<'_>,
+        msg: &IncomingMsg<'_>,
+        count: usize,
+    ) -> AppResult<Vec<String>> {
+        let Some(cfg) = summarize_cfg(self.llm.as_ref(), bot.config.llm.as_ref()) else {
+            return Ok(vec!["LLM 未配置,无法总结".into()]);
+        };
+        let history = crate::drivers::llm::build_history_n(bot.dc, msg.chat_id, count).await?;
+        if history.is_empty() {
+            return Ok(vec!["暂无可总结的消息".into()]);
+        }
+        let mut messages = Vec::with_capacity(history.len() + 1);
+        messages.push(ChatMessage {
+            role: "system".into(),
+            content: "你是一个技术讨论总结助手,请用简洁的结构化要点总结以下对话:".into(),
+            ..Default::default()
+        });
+        messages.extend(history);
+        let summary = match self.llm.as_ref().unwrap().complete(cfg, messages).await {
+            Ok(s) => s,
+            Err(e) => return Ok(vec![format!("总结失败: {e}")]),
+        };
+        bot.activity
+            .record(
+                bot.bot_id,
+                act::RULE_REPLY,
+                Some(msg.chat_id.to_u32()),
+                Some(msg.msg_id.to_u32()),
+                "指令: /summarize",
+                None,
+            )
+            .await;
+        Ok(crate::drivers::llm::split_reply(&summary))
+    }
+}
+
+/// /summarize 可用的 LLM 配置:需驱动已注入 LlmClient 且 bot 配置完整;否则 None。
+fn summarize_cfg<'a>(
+    self_llm: Option<&Arc<LlmClient>>,
+    cfg: Option<&'a LlmConfig>,
+) -> Option<&'a LlmConfig> {
+    self_llm?;
+    let c = cfg?;
+    if c.is_complete() {
+        Some(c)
+    } else {
+        None
+    }
+}
+
+/// 解析 /summarize 指令:命中返回总结条数(默认 30,非法参数取默认,上限 200),否则 None。
+pub fn parse_summarize(text: &str) -> Option<usize> {
+    let t = text.trim();
+    let mut parts = t.splitn(2, char::is_whitespace);
+    if parts.next()? != "/summarize" {
+        return None;
+    }
+    let n = parts
+        .next()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|&n| n >= 1)
+        .map(|n| n.min(SUMMARIZE_MAX))
+        .unwrap_or(SUMMARIZE_DEFAULT);
+    Some(n)
+}
+
 /// 彩蛋指令:命中返回回复文本,否则 None。未知指令返回 None(交由规则/兜底处理)。
 pub fn handle_command(text: &str, bot_name: &str, bot_addr: &str) -> Option<String> {
     let t = text.trim();
@@ -175,7 +271,7 @@ pub fn handle_command(text: &str, bot_name: &str, bot_addr: &str) -> Option<Stri
             Some(EIGHT_BALL_ANSWERS[idx].to_string())
         }
         "/whoami" => Some(format!("我是 {bot_name}({bot_addr})")),
-        "/help" => Some("可用指令: /roll /dice /coin /8ball /whoami".into()),
+        "/help" => Some("可用指令: /roll /dice /coin /8ball /whoami /summarize".into()),
         _ => None,
     }
 }
@@ -287,6 +383,7 @@ mod tests {
         assert!(r.contains("/coin"));
         assert!(r.contains("/8ball"));
         assert!(r.contains("/whoami"));
+        assert!(r.contains("/summarize"));
     }
 
     #[test]
@@ -392,5 +489,114 @@ mod tests {
         let d = RuleDriver::new();
         assert_eq!(d.welcome_for(1, 2, None), None);
         assert_eq!(d.welcome_for(1, 2, Some("欢迎")), None);
+    }
+
+    #[test]
+    fn parse_summarize_default_is_30() {
+        assert_eq!(parse_summarize("/summarize"), Some(30));
+        assert_eq!(parse_summarize("/summarize  "), Some(30));
+        assert_eq!(parse_summarize("/summarize abc"), Some(30));
+        assert_eq!(parse_summarize("/summarize 0"), Some(30));
+        assert_eq!(parse_summarize("/summarize -3"), Some(30));
+        assert_eq!(parse_summarize("/summarize 3.5"), Some(30));
+    }
+
+    #[test]
+    fn parse_summarize_explicit_count() {
+        assert_eq!(parse_summarize("/summarize 50"), Some(50));
+        assert_eq!(parse_summarize("/summarize 1"), Some(1));
+        assert_eq!(parse_summarize("/summarize 200"), Some(200));
+    }
+
+    #[test]
+    fn parse_summarize_capped_at_200() {
+        assert_eq!(parse_summarize("/summarize 201"), Some(200));
+        assert_eq!(parse_summarize("/summarize 9999"), Some(200));
+    }
+
+    #[test]
+    fn parse_summarize_only_matches_command() {
+        assert_eq!(parse_summarize("/dice"), None);
+        assert_eq!(parse_summarize("/help"), None);
+        assert_eq!(parse_summarize("/summarizer"), None);
+        assert_eq!(parse_summarize("/summarize-extra"), None);
+        assert_eq!(parse_summarize("summarize"), None);
+        assert_eq!(parse_summarize(""), None);
+    }
+
+    fn llm_config(complete: bool) -> LlmConfig {
+        let mut c = LlmConfig {
+            system_prompt: None,
+            base_url: Some("https://api.openai.com/v1".into()),
+            api_key: Some("test-key".into()),
+            model: Some("gpt-4o-mini".into()),
+            provider: Some("openai".into()),
+            temperature: 0.7,
+            max_tokens: None,
+            top_p: None,
+            timeout_secs: 120,
+            max_retries: 2,
+        };
+        if !complete {
+            c.api_key = None;
+        }
+        c
+    }
+
+    #[test]
+    fn summarize_cfg_requires_injected_llm_and_complete_config() {
+        let llm = Arc::new(LlmClient::new());
+        let complete = llm_config(true);
+        let incomplete = llm_config(false);
+
+        assert!(summarize_cfg(Some(&llm), Some(&complete)).is_some());
+        assert!(summarize_cfg(None, Some(&complete)).is_none());
+        assert!(summarize_cfg(Some(&llm), None).is_none());
+        assert!(summarize_cfg(Some(&llm), Some(&incomplete)).is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn summarize_without_llm_returns_not_configured() {
+        use deltachat::accounts::Accounts;
+        use deltachat::chat::ChatId;
+        use deltachat::message::{MsgId, Viewtype};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut accounts = Accounts::new(tmp.path().join("accounts"), true)
+            .await
+            .unwrap();
+        let account_id = accounts.add_account().await.unwrap();
+        let ctx = accounts.get_account(account_id).unwrap();
+
+        let db = Arc::new(
+            crate::db::Db::new(tmp.path().join("test.db"))
+                .await
+                .unwrap(),
+        );
+        db.migrate().await.unwrap();
+        let activity = crate::activity::ActivityLog::new(db.clone());
+        let config = crate::dto::BotConfig::default();
+        let data_dir = tmp.path().to_path_buf();
+
+        let runtime = BotRuntime {
+            bot_id: 1,
+            account_id,
+            dc: &ctx,
+            config: &config,
+            db: &db,
+            activity: &activity,
+            data_dir: &data_dir,
+        };
+        let incoming = IncomingMsg {
+            chat_id: ChatId::new(42),
+            msg_id: MsgId::new(7),
+            from_addr: "dev@x.io",
+            text: Some("/summarize"),
+            viewtype: Viewtype::Text,
+        };
+
+        let driver = RuleDriver::new();
+        let replies = driver.on_message(&runtime, &incoming).await.unwrap();
+        assert_eq!(replies, vec!["LLM 未配置,无法总结".to_string()]);
     }
 }

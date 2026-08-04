@@ -142,7 +142,9 @@ pub fn run() {
                 crate::llm::LlmClient::new(),
                 tool_registry,
             )));
-            registry.register(Arc::new(crate::drivers::rule::RuleDriver::new()));
+            registry.register(Arc::new(crate::drivers::rule::RuleDriver::with_llm(
+                Arc::new(crate::llm::LlmClient::new()),
+            )));
             registry.register(Arc::new(crate::drivers::schedule::ScheduleDriver));
             // 挂载事件调度器(常驻后台)
             tauri::async_runtime::spawn(crate::runtime::spawn(

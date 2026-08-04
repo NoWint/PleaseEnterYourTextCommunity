@@ -201,19 +201,26 @@ fn build_chat_context_block(lines: Vec<String>) -> String {
 
 /// 构建最近 20 条聊天历史,每条渲染为「name: text」的 user 消息。
 pub async fn build_history(ctx: &Context, chat_id: ChatId) -> AppResult<Vec<ChatMessage>> {
+    build_history_n(ctx, chat_id, 20).await
+}
+
+/// 构建最近 count 条聊天历史(不足则全取),每条渲染为「name: text」的 user 消息。
+pub async fn build_history_n(
+    ctx: &Context,
+    chat_id: ChatId,
+    count: usize,
+) -> AppResult<Vec<ChatMessage>> {
     let items = chat::get_chat_msgs(ctx, chat_id)
         .await
         .map_err(|e| AppError::Core(format!("get_chat_msgs: {e}")))?;
-    let mut last: Vec<MsgId> = items
+    let msg_ids: Vec<MsgId> = items
         .into_iter()
         .filter_map(|it| match it {
             ChatItem::Message { msg_id } => Some(msg_id),
             _ => None,
         })
-        .rev()
-        .take(20)
         .collect();
-    last.reverse();
+    let last = last_n(msg_ids, count);
 
     let mut history = Vec::with_capacity(last.len());
     for mid in last {
@@ -235,6 +242,13 @@ pub async fn build_history(ctx: &Context, chat_id: ChatId) -> AppResult<Vec<Chat
         });
     }
     Ok(history)
+}
+
+/// 取数组末尾 count 条(保持原顺序);不足或为 0 时返回空/全取。
+fn last_n<T>(items: Vec<T>, count: usize) -> Vec<T> {
+    let mut last: Vec<T> = items.into_iter().rev().take(count).collect();
+    last.reverse();
+    last
 }
 
 /// 取消息发送者展示名,为空时退回邮箱地址。
@@ -334,6 +348,15 @@ mod tests {
 
     use crate::tools::bridge::ToolBridge;
     use crate::tools::ToolRegistry;
+
+    #[test]
+    fn test_last_n_takes_count_from_end() {
+        let v = vec![1, 2, 3, 4, 5];
+        assert_eq!(last_n(v.clone(), 2), vec![4, 5]);
+        assert_eq!(last_n(v.clone(), 0), Vec::<i32>::new());
+        assert_eq!(last_n(v.clone(), 10), vec![1, 2, 3, 4, 5]);
+        assert_eq!(last_n(Vec::<i32>::new(), 3), Vec::<i32>::new());
+    }
 
     #[test]
     fn test_render_viewtype_label() {
