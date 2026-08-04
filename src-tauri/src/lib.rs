@@ -10,6 +10,7 @@ mod error;
 mod events;
 mod llm;
 mod notifications;
+mod personas;
 mod plugins;
 mod runtime;
 mod state;
@@ -280,6 +281,9 @@ pub fn run() {
             commands::get_bot_llm,
             commands::get_bot_config,
             commands::update_bot_config,
+            commands::list_bot_personas,
+            commands::apply_bot_persona,
+            commands::get_bot_stats,
             commands::bot_get_chatlist,
             commands::bot_get_chat_msgs,
             commands::bot_send_text,

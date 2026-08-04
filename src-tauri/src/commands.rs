@@ -13,9 +13,10 @@ use deltachat::securejoin;
 use tauri::State;
 
 use crate::dto::{
-    ActivityDto, AdvancedLogin, BotDto, BotToolDto, CardDto, ChannelDto, ChatDto, ChatInfoDto,
-    ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PeytStudioDto, PinDto,
-    ProfileDto, RawMsgDto, ReactionDto, RoleDto, ScheduleDto, SearchResultDto, WorkspaceDto,
+    ActivityDto, AdvancedLogin, BotDto, BotStatsDto, BotToolDto, CardDto, ChannelDto, ChatDto,
+    ChatInfoDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PersonaDto,
+    PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, RoleDto, ScheduleDto, SearchResultDto,
+    WorkspaceDto,
 };
 use crate::drivers::schedule::next_cron;
 use crate::error::{AppError, AppResult};
@@ -3272,6 +3273,54 @@ pub async fn update_bot_config(
     let owner_id = current_owner_id(&state)?;
     state.bots.save_config(owner_id, bot_id, &config).await?;
     state.bots.dto(owner_id, bot_id).await
+}
+
+/// 列出全部人设模板(id/name/description;不含 system_prompt)。
+#[tauri::command]
+pub async fn list_bot_personas() -> AppResult<Vec<PersonaDto>> {
+    Ok(crate::personas::PERSONAS
+        .iter()
+        .map(|p| PersonaDto {
+            id: p.id.into(),
+            name: p.name.into(),
+            description: p.description.into(),
+        })
+        .collect())
+}
+
+/// 给当前用户的某个 bot 套用指定人设（写 persona_id + 覆盖 system_prompt）。
+#[tauri::command]
+pub async fn apply_bot_persona(
+    state: State<'_, AppState>,
+    bot_id: i64,
+    persona_id: String,
+) -> AppResult<BotDto> {
+    let owner_id = current_owner_id(&state)?;
+    let persona = crate::personas::find_persona(&persona_id)
+        .ok_or_else(|| AppError::Core(format!("未知人设: {persona_id}")))?;
+    let mut config = state.bots.get_config(owner_id, bot_id).await?.unwrap_or_default();
+    config.persona = Some(persona_id);
+    let mut llm = config.llm.take().unwrap_or_else(|| {
+        crate::dto::LlmConfig::from(crate::dto::LlmConfigInput {
+            system_prompt: None,
+            base_url: None,
+            api_key: None,
+            model: None,
+            provider: None,
+        })
+    });
+    llm.system_prompt = Some(persona.system_prompt.to_string());
+    config.llm = Some(llm);
+    state.bots.save_config(owner_id, bot_id, &config).await?;
+    state.bots.dto(owner_id, bot_id).await
+}
+
+/// 统计当前用户某个 bot 的活动（按 kind 聚合）。
+#[tauri::command]
+pub async fn get_bot_stats(state: State<'_, AppState>, bot_id: i64) -> AppResult<BotStatsDto> {
+    let owner_id = current_owner_id(&state)?;
+    state.bots.get_config(owner_id, bot_id).await?; // owner 校验
+    state.db.get_bot_stats(bot_id).await
 }
 
 /// 获取当前用户某个 bot 账号的聊天列表。

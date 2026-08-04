@@ -6,7 +6,7 @@ use rusqlite::params;
 use rusqlite::OptionalExtension;
 use tokio::sync::Mutex;
 
-use crate::dto::{ActivityDto, ChannelDto, InboxEventDto, PinDto, RoleDto, WorkspaceDto};
+use crate::dto::{ActivityDto, BotStatsDto, ChannelDto, InboxEventDto, PinDto, RoleDto, WorkspaceDto};
 use crate::error::{AppError, AppResult};
 
 // bots 表行结构，供 Bot 服务模块使用
@@ -1191,6 +1191,41 @@ impl Db {
         .await?
     }
 
+    /// 按 kind 聚合某个 bot 的活动统计（单条 SQL）。
+    pub async fn get_bot_stats(&self, bot_id: i64) -> AppResult<BotStatsDto> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<BotStatsDto> {
+            let c = conn.blocking_lock();
+            let row = c.query_row(
+                "SELECT COUNT(*),
+                   COALESCE(SUM(CASE WHEN kind='reply_sent' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='rule_reply' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='schedule_sent' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='tool_called' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='llm_error' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN kind='reply_rate_limited' THEN 1 ELSE 0 END), 0),
+                   MAX(created_at), MIN(created_at)
+                 FROM bot_activities WHERE bot_id=?1",
+                params![bot_id],
+                |r| {
+                    Ok(BotStatsDto {
+                        total_activities: r.get(0)?,
+                        reply_sent: r.get(1)?,
+                        rule_reply: r.get(2)?,
+                        schedule_sent: r.get(3)?,
+                        tool_called: r.get(4)?,
+                        llm_error: r.get(5)?,
+                        rate_limited: r.get(6)?,
+                        last_activity_at: r.get(7)?,
+                        first_seen_at: r.get(8)?,
+                    })
+                },
+            )?;
+            Ok(row)
+        })
+        .await?
+    }
+
     // ── Bot 定时消息 ──────────────────────────────────────────────────────
 
     pub async fn insert_bot_schedule(
@@ -1650,6 +1685,64 @@ mod tests {
         let limited = db.list_bot_activities(5, 2).await.unwrap();
         assert_eq!(limited.len(), 2);
         assert!(db.list_bot_activities(99, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bot_stats() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        // 空 bot → 全 0,时间戳为 None
+        let empty = db.get_bot_stats(1).await.unwrap();
+        assert_eq!(empty.total_activities, 0);
+        assert_eq!(empty.reply_sent, 0);
+        assert_eq!(empty.rule_reply, 0);
+        assert_eq!(empty.schedule_sent, 0);
+        assert_eq!(empty.tool_called, 0);
+        assert_eq!(empty.llm_error, 0);
+        assert_eq!(empty.rate_limited, 0);
+        assert_eq!(empty.last_activity_at, None);
+        assert_eq!(empty.first_seen_at, None);
+
+        // 插入不同 kind 的活动,统计正确
+        let now = chrono::Utc::now().timestamp();
+        let bot_id = 9;
+        let t1 = now - 100;
+        let t2 = now;
+        let conn = db.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO bot_activities (bot_id, kind, chat_id, msg_id, summary, detail_json, created_at) VALUES (?1, ?2, NULL, NULL, 's', NULL, ?3)",
+                params![bot_id, "reply_sent", t1],
+            )?;
+            Ok(())
+        }).await.unwrap();
+        db.insert_bot_activity(bot_id, "reply_sent", None, None, "回复", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "rule_reply", None, None, "规则回复", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "rule_reply", None, None, "规则回复2", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "schedule_sent", None, None, "定时", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "tool_called", None, None, "工具", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "llm_error", None, None, "失败", None).await.unwrap();
+        db.insert_bot_activity(bot_id, "reply_rate_limited", None, None, "限流", None).await.unwrap();
+        // 不属于统计的 kind 只算进 total
+        db.insert_bot_activity(bot_id, "no_config", None, None, "无配置", None).await.unwrap();
+        // 别的 bot 不影响本 bot 统计
+        db.insert_bot_activity(99, "reply_sent", None, None, "other", None).await.unwrap();
+
+        let s = db.get_bot_stats(bot_id).await.unwrap();
+        assert_eq!(s.total_activities, 9);
+        assert_eq!(s.reply_sent, 2);
+        assert_eq!(s.rule_reply, 2);
+        assert_eq!(s.schedule_sent, 1);
+        assert_eq!(s.tool_called, 1);
+        assert_eq!(s.llm_error, 1);
+        assert_eq!(s.rate_limited, 1);
+        // created_at 为 Utc::now().timestamp(),必大于 t1
+        assert!(s.last_activity_at.is_some());
+        assert!(s.first_seen_at.is_some());
+        assert_eq!(s.first_seen_at, Some(t1));
     }
 
     #[tokio::test(flavor = "multi_thread")]

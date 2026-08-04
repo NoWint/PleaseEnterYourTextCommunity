@@ -288,6 +288,28 @@ pub struct LlmConfigInput {
     pub provider: Option<String>,
 }
 
+/// 人设模板 DTO(不含 system_prompt,避免泄露内部 prompt)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaDto {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
+/// Bot 活动统计 DTO(按 bot_activities.kind 聚合)。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BotStatsDto {
+    pub total_activities: i64,
+    pub reply_sent: i64,
+    pub rule_reply: i64,
+    pub schedule_sent: i64,
+    pub tool_called: i64,
+    pub llm_error: i64,
+    pub rate_limited: i64,
+    pub last_activity_at: Option<i64>,
+    pub first_seen_at: Option<i64>,
+}
+
 /// 活动类型常量(见 bot_activities.kind)。
 pub mod bot_activity_kind {
     pub const REPLY_SENT: &str = "reply_sent";
