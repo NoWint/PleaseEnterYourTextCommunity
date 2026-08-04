@@ -13,8 +13,11 @@ use deltachat::chat::ChatId;
 use deltachat::context::Context;
 
 use crate::db::Db;
+use crate::db::PluginToolRow;
 use crate::error::{AppError, AppResult};
 use crate::tools::bridge::ToolBridge;
+pub use bridge::ToolBridge;
+pub use plugin::PluginTool;
 
 #[async_trait]
 pub trait Tool: Send + Sync {
@@ -38,6 +41,7 @@ pub struct ToolContext<'a> {
 
 pub struct ToolRegistry {
     tools: Vec<Arc<dyn Tool>>,
+    plugins: Vec<Arc<dyn Tool>>,
     pub bridge: Arc<ToolBridge>,
 }
 
@@ -45,6 +49,7 @@ impl ToolRegistry {
     pub fn new(bridge: Arc<ToolBridge>) -> Self {
         Self {
             tools: Vec::new(),
+            plugins: Vec::new(),
             bridge,
         }
     }
@@ -53,14 +58,32 @@ impl ToolRegistry {
         self.tools.push(t);
     }
 
+    /// 用 db 中的插件工具全量替换当前插件工具集合。
+    pub fn reload_plugin_tools(&mut self, rows: &[PluginToolRow]) {
+        self.plugins = rows
+            .iter()
+            .map(|r| {
+                std::sync::Arc::new(crate::tools::plugin::PluginTool::from_row(
+                    r,
+                    self.bridge.clone(),
+                ))
+            })
+            .collect();
+    }
+
     pub fn names(&self) -> Vec<&str> {
-        self.tools.iter().map(|t| t.name()).collect()
+        self.tools
+            .iter()
+            .map(|t| t.name())
+            .chain(self.plugins.iter().map(|t| t.name()))
+            .collect()
     }
 
     /// enabled = None → 仅 is_safe() 的默认工具集;Some(names) → 恰好这些出现在注册表中的工具
     pub fn defs_for(&self, enabled: Option<&[String]>) -> Vec<serde_json::Value> {
         self.tools
             .iter()
+            .chain(self.plugins.iter())
             .filter(|t| match enabled {
                 None => t.is_safe(),
                 Some(names) => names.iter().any(|n| n == t.name()),
@@ -84,6 +107,7 @@ impl ToolRegistry {
         let tool = self
             .tools
             .iter()
+            .chain(self.plugins.iter())
             .find(|t| t.name() == name)
             .ok_or_else(|| AppError::Core(format!("未知工具: {name}")))?;
         let args: serde_json::Value = serde_json::from_str(arguments)
@@ -92,7 +116,10 @@ impl ToolRegistry {
     }
 
     pub fn has(&self, name: &str) -> bool {
-        self.tools.iter().any(|t| t.name() == name)
+        self.tools
+            .iter()
+            .chain(self.plugins.iter())
+            .any(|t| t.name() == name)
     }
 }
 
@@ -249,6 +276,62 @@ mod tests {
     fn test_bridge_resolve_unknown_id() {
         let bridge = ToolBridge::new();
         assert!(!bridge.resolve("no-such-id", "x".to_string()));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_reload_plugin_tools() {
+        let owned = TestCtx::new().await;
+        let ctx = owned.tool_ctx();
+
+        let captured: Arc<StdMutex<Vec<serde_json::Value>>> = Arc::new(StdMutex::new(Vec::new()));
+        let bridge = Arc::new(ToolBridge::new().with_emitter({
+            let captured = captured.clone();
+            move |v: serde_json::Value| {
+                captured.lock().unwrap().push(v);
+            }
+        }));
+        let mut reg = ToolRegistry::new(bridge.clone());
+
+        let row = PluginToolRow {
+            name: "pt".to_string(),
+            description: "plugin tool".to_string(),
+            parameters: r#"{"type":"object"}"#.to_string(),
+            created_at: 0,
+        };
+        reg.reload_plugin_tools(&[row]);
+
+        assert!(reg.has("pt"));
+
+        let defs = reg.defs_for(Some(&["pt".to_string()]));
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0]["name"], "pt");
+        assert_eq!(defs[0]["parameters"], serde_json::json!({"type": "object"}));
+
+        let bridge2 = bridge.clone();
+        let captured2 = captured.clone();
+        let resolver = tokio::spawn(async move {
+            let id = loop {
+                let first = captured2.lock().unwrap().first().cloned();
+                if let Some(v) = first {
+                    break v["id"].as_str().unwrap().to_string();
+                }
+                tokio::task::yield_now().await;
+            };
+            bridge2.resolve(&id, "桥接结果".to_string());
+        });
+        let out = reg.execute("pt", r#"{"q": 1}"#, &ctx).await.unwrap();
+        assert_eq!(out, "桥接结果");
+        resolver.await.unwrap();
+
+        let emitted = captured.lock().unwrap().first().unwrap().clone();
+        assert_eq!(emitted["kind"], "tool_request");
+        assert_eq!(emitted["name"], "pt");
+        assert_eq!(emitted["args"]["q"], 1);
+
+        reg.reload_plugin_tools(&[]);
+        assert!(!reg.has("pt"));
+        let err = reg.execute("pt", "{}", &ctx).await.unwrap_err();
+        assert!(err.to_string().contains("未知工具"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
