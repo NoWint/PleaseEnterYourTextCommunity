@@ -8,6 +8,7 @@ import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
 import { sendInviteLink } from '../components/shareLink.js';
 import { normalizeUrlForQr } from '../utils/deepLink.js';
+import { getSummaryPrefs, saveSummaryPrefs, loadSummaryPrefs, type SummaryPrefs } from '../utils/summaryPrefs.js';
 import type { SettingsSection, SelfProfile } from '../types.js';
 // qrcode 包无自带类型声明,也无 @types/qrcode,用 @ts-expect-error 跳过类型检查
 // @ts-expect-error
@@ -23,6 +24,9 @@ const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = 
   { id: 'intelligence', icon: 'sparkles', label: '智能' },
   { id: 'about', icon: 'info', label: '关于' },
 ];
+
+// 智能页下载进度监听(模块级,重渲染前先解绑,避免累积)
+let dlUnlisten: (() => void) | null = null;
 
 export async function renderSettingsNav(panel: HTMLElement): Promise<void> {
   panel.innerHTML = `<div class="nav-header"><div class="nav-title">设置</div></div>`;
@@ -524,23 +528,16 @@ function renderAbout(main: HTMLElement): void {
 // ── 智能 ──────────────────────────────────────────────
 // 主题总结引擎:模式(off/词频/LLM) + 来源(本地/API) + 模型下载面板(选档后点下载)。
 // 偏好持久化在后端 SQL(summary_settings 表),经 summaryPrefs 读写。
-import { getSummaryPrefs, saveSummaryPrefs, loadSummaryPrefs, type SummaryPrefs } from '../utils/summaryPrefs.js';
 async function renderIntelligence(main: HTMLElement): Promise<void> {
   main.innerHTML = '';
-  await loadSummaryPrefs(); // 拉后端偏好(一次,内存缓存)
+  dlUnlisten?.(); // 先解绑旧监听,避免重渲染累积
+  dlUnlisten = null;
+  await loadSummaryPrefs(); // 拉后端偏好 + 下载状态(一次 summary_get_state)
   const prefs = getSummaryPrefs();
+  const { engineDownloaded, modelDownloaded } = prefs;
   const section = document.createElement('div');
   section.className = 'settings-section';
   section.innerHTML = '<h2>智能</h2>';
-
-  // 引擎/模型下载状态 + 后端偏好(合并一次 summary_get_state)
-  let engineDownloaded = false;
-  let modelDownloaded = false;
-  try {
-    const s = await call<{ engineDownloaded: boolean; modelDownloaded: boolean }>('summary_get_state');
-    engineDownloaded = s.engineDownloaded;
-    modelDownloaded = s.modelDownloaded;
-  } catch { /* 未接 Tauri 时默认 false */ }
 
   // 模式
   const modeSeg = ui.segmented({
@@ -552,7 +549,8 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
     value: prefs.mode,
     onChange: (v) => {
       prefs.mode = v as SummaryPrefs['mode'];
-      void saveSummaryPrefs(prefs);
+      // 模式切换后重渲染,让 LLM 相关的来源/下载面板即时出现
+      void saveSummaryPrefs(prefs).then(() => renderIntelligence(main));
     },
   });
   section.appendChild(ui.field({ label: '总结引擎', children: modeSeg }));
@@ -567,7 +565,8 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
       value: prefs.source,
       onChange: (v) => {
         prefs.source = v as SummaryPrefs['source'];
-        void saveSummaryPrefs(prefs);
+        // 来源切换后重渲染,让本地下载面板即时出现/消失
+        void saveSummaryPrefs(prefs).then(() => renderIntelligence(main));
       },
     });
     section.appendChild(ui.field({ label: 'LLM 来源', children: srcSeg }));
@@ -576,7 +575,7 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
     const nInput = ui.input({ value: String(prefs.contextN), type: 'number' });
     nInput.addEventListener('change', () => {
       const n = Number(nInput.value);
-      if (!Number.isNaN(n)) { prefs.contextN = Math.min(200, Math.max(10, n)); void saveSummaryPrefs(prefs); }
+      if (!Number.isNaN(n)) { prefs.contextN = Math.min(200, Math.max(10, n)); nInput.value = String(prefs.contextN); void saveSummaryPrefs(prefs); }
     });
     section.appendChild(ui.field({ label: '上下文条数(注入最近 N 条)', children: nInput, help: '10-200,默认 50。字数硬上限 4000 自动截断。' }));
   }
@@ -602,10 +601,8 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
       variant: modelDownloaded ? 'ghost' : 'primary',
       disabled: modelDownloaded,
       onClick: async () => {
-        // ui.segmented 是 button.ui-segment[data-value], 非 radio
-        const size = sizeSeg.querySelector('.ui-segment.active')?.getAttribute('data-value') === '1.5b' ? '1.5b' : '0.5b';
         try {
-          await call('summary_download', { what: 'model', size });
+          await call('summary_download', { what: 'model', size: prefs.modelSize });
         } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
       },
     });
@@ -618,26 +615,34 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
     section.appendChild(bar);
 
     const { listen } = await import('@tauri-apps/api/event');
-    void listen('download-progress', (ev) => {
-      const p = ev.payload as { what: string; status: string; bytes?: number; total?: number; rate?: number };
-      if (p.what === 'model' || p.what === 'engine') {
-        if (p.status === 'downloading' && p.total) {
-          const pct = Math.round(((p.bytes ?? 0) / p.total) * 100);
-          bar.textContent = `${p.what === 'engine' ? '引擎' : '模型'} ${pct}% · ${fmtBytes(p.bytes ?? 0)}/${fmtBytes(p.total)} · ${fmtBytes(p.rate ?? 0)}/s`;
-        } else if (p.status === 'done') {
-          bar.textContent = '下载完成';
-          ui.toast(`${p.what} 下载完成`);
-        }
+    const un = await listen('download-progress', (ev) => {
+      const p = ev.payload as { what?: string; status: string; bytes?: number; total?: number; rate?: number; message?: string };
+      if (p.status === 'error') {
+        // 后端错误事件无 what 字段;下载失败必须反馈
+        bar.textContent = `下载失败:${p.message ?? '未知错误'}`;
+        ui.toast(`下载失败:${p.message ?? '未知错误'}`);
+        return;
+      }
+      if (p.what !== 'model' && p.what !== 'engine') return;
+      if (p.status === 'downloading' && p.total) {
+        const pct = Math.round(((p.bytes ?? 0) / p.total) * 100);
+        bar.textContent = `${p.what === 'engine' ? '引擎' : '模型'} ${pct}% · ${fmtBytes(p.bytes ?? 0)}/${fmtBytes(p.total)} · ${fmtBytes(p.rate ?? 0)}/s`;
+      } else if (p.status === 'done') {
+        bar.textContent = '下载完成';
+        ui.toast(`${p.what === 'engine' ? '引擎' : '模型'} 下载完成`);
+        // 重新拉取下载状态,按钮变「已下载」
+        void renderIntelligence(main);
       }
     });
+    dlUnlisten = un;
   }
 
   main.appendChild(section);
 }
 
 function fmtBytes(n: number): string {
-  if (n > 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
-  if (n > 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  if (n > 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${n} B`;
 }

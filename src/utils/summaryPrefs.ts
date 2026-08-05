@@ -10,30 +10,34 @@ export interface SummaryPrefs {
 }
 export const DEFAULT_PREFS: SummaryPrefs = { mode: 'wordfreq', source: 'local', modelSize: '0.5b', contextN: 50 };
 
-let cache: SummaryPrefs | null = null;
+// 下载状态(引擎/模型是否已就绪)与偏好一起缓存,避免重复 summary_get_state。
+type SummaryCache = SummaryPrefs & { engineDownloaded: boolean; modelDownloaded: boolean };
+let cache: SummaryCache | null = null;
 
-/** 从后端拉一次全量偏好(启动/设置页打开时调用;失败用默认值)。 */
-export async function loadSummaryPrefs(): Promise<SummaryPrefs> {
+/** 从后端拉一次全量偏好 + 下载状态(启动/设置页打开时调用;失败用默认值)。 */
+export async function loadSummaryPrefs(): Promise<SummaryCache> {
   try {
-    const s = await call<{ mode: string; source: string; modelSize: string; contextN: number }>('summary_get_state');
+    const s = await call<{ mode: string; source: string; modelSize: string; contextN: number; engineDownloaded: boolean; modelDownloaded: boolean }>('summary_get_state');
     cache = {
       mode: s.mode as SummaryPrefs['mode'],
       source: s.source as SummaryPrefs['source'],
       modelSize: s.modelSize as SummaryPrefs['modelSize'],
       contextN: Math.min(200, Math.max(10, s.contextN)),
+      engineDownloaded: s.engineDownloaded,
+      modelDownloaded: s.modelDownloaded,
     };
-  } catch { cache = { ...DEFAULT_PREFS }; }
+  } catch { cache = { ...DEFAULT_PREFS, engineDownloaded: false, modelDownloaded: false }; }
   return cache;
 }
 
 /** 同步读内存缓存(气泡刷新等高频路径,不每次 IPC)。未加载则用默认值。 */
-export function getSummaryPrefs(): SummaryPrefs {
-  return cache ?? { ...DEFAULT_PREFS };
+export function getSummaryPrefs(): SummaryCache {
+  return cache ?? { ...DEFAULT_PREFS, engineDownloaded: false, modelDownloaded: false };
 }
 
-/** 保存偏好(内存 + 后端 SQL 增量写)。 */
+/** 保存偏好(内存 + 后端 SQL 增量写;已缓存的下载状态保持不变)。 */
 export async function saveSummaryPrefs(p: SummaryPrefs): Promise<void> {
-  cache = { ...p };
+  cache = { ...DEFAULT_PREFS, ...p, engineDownloaded: cache?.engineDownloaded ?? false, modelDownloaded: cache?.modelDownloaded ?? false };
   try {
     await call('summary_save_prefs', {
       mode: p.mode, source: p.source, modelSize: p.modelSize, contextN: p.contextN,
