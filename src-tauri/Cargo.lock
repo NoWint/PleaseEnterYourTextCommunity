@@ -5682,6 +5682,7 @@ dependencies = [
  "chrono",
  "deltachat",
  "env_logger",
+ "futures-util",
  "log",
  "lopdf-parang",
  "rand 0.8.7",

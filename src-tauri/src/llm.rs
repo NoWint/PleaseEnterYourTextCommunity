@@ -551,6 +551,77 @@ impl LlmClient {
             .await
             .map_err(|e| AppError::Network(e.to_string()))
     }
+
+    /// OpenAI 兼容流式补全(本地 llama-server 与 API 共用)。on_delta 回调每个增量块。
+    /// 仅支持 OpenAI 兼容协议(base_url + api_key + model);Anthropic/Gemini 不走此路径。
+    pub async fn complete_stream_openai(
+        &self,
+        cfg: &LlmConfig,
+        messages: Vec<ChatMessage>,
+        mut on_delta: impl FnMut(String) -> AppResult<()> + Send,
+    ) -> AppResult<String> {
+        let key = cfg.api_key.as_deref().unwrap_or("");
+        if key.is_empty() {
+            return Err(AppError::Core("llm missing api_key".into()));
+        }
+        let base = cfg.base_url.as_deref().unwrap_or("").trim_end_matches('/');
+        if base.is_empty() {
+            return Err(AppError::Core("llm missing base_url".into()));
+        }
+        let url = format!("{base}/chat/completions");
+        // ChatMessage 未实现 Serialize,复用 openai_message 转 JSON(与非流式路径同构)
+        let body = {
+            let mut b = serde_json::json!({
+                "model": cfg.model.as_deref().unwrap_or(""),
+                "messages": messages.iter().map(openai_message).collect::<Vec<_>>(),
+                "stream": true,
+            });
+            b["temperature"] = serde_json::json!(cfg.temperature); // f64, 非 Option
+            if let Some(mt) = cfg.max_tokens { b["max_tokens"] = serde_json::json!(mt); }
+            b
+        };
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AppError::Core(format!("llm stream: {e}")))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            // 余额/配额识别:402 一律;429/400 时查 body 特征
+            let is_quota = status == reqwest::StatusCode::PAYMENT_REQUIRED
+                || (status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                    || status == reqwest::StatusCode::BAD_REQUEST)
+                    && ["quota", "insufficient", "billing", "credit"]
+                        .iter()
+                        .any(|k| text.to_lowercase().contains(*k));
+            let code = if is_quota { "api_quota" } else if status.as_u16() == 401 || status.as_u16() == 403 { "api_auth" } else if status.as_u16() == 429 { "api_rate_limit" } else { "api_network" };
+            return Err(AppError::Core(format!("llm stream {code}: {status} {text}")));
+        }
+        let mut full = String::new();
+        let mut bytes = resp.bytes_stream();
+        let mut buf: Vec<u8> = Vec::new();
+        use futures_util::StreamExt;
+        while let Some(chunk) = bytes.next().await {
+            let chunk = chunk.map_err(|e| AppError::Core(format!("llm stream read: {e}")))?;
+            buf.extend_from_slice(&chunk);
+            while let Some(ev) = crate::summary::sse::extract_sse_text(&mut buf) {
+                for line in ev.lines() {
+                    if let Some(d) = crate::summary::sse::parse_sse_line(line) {
+                        if d.done { return Ok(full); }
+                        if !d.text.is_empty() {
+                            full.push_str(&d.text);
+                            on_delta(d.text)?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(full)
+    }
 }
 
 impl Default for LlmClient {
