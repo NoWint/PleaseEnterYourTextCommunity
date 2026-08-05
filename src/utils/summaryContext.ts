@@ -42,7 +42,7 @@ export function formatTs(ts: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** 窗口行格式化(带绝对时间),累计超 CONTEXT_CHAR_LIMIT 截断;单条超限截文本而非丢弃。 */
+/** 窗口行格式化(带绝对时间),累计超 CONTEXT_CHAR_LIMIT 截断;单条超限仅真正超长时截断,短消息整条丢弃。 */
 export function formatWindowLines(win: WindowMsg[]): string {
   const lines: string[] = [];
   let used = 0;
@@ -54,11 +54,12 @@ export function formatWindowLines(win: WindowMsg[]): string {
       used += lineLen;
       continue;
     }
-    // 单条超预算:截断文本保住该消息(多为最新一条),不整个丢弃
+    // 剩余预算不足。注意:进入此分支即保证 w.text.length > avail,故不能以 avail>0 为截断条件
+    // (那会让普通短消息被截成误导性的近空 stub)。仅当消息自身长度 ≥ 整个窗口上限(真正超长)
+    // 才截断保留,普通消息整条丢弃(旧消息,安全)。
     const avail = CONTEXT_CHAR_LIMIT - used - prefix.length - 2; // -1 换行 -1 省略号
-    if (avail > 0) {
+    if (avail > 0 && w.text.length >= CONTEXT_CHAR_LIMIT) {
       lines.push(prefix + w.text.slice(0, avail) + '…');
-      used = CONTEXT_CHAR_LIMIT;
     }
     break;
   }
