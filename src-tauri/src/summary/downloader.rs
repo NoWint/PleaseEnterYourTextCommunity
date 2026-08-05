@@ -10,6 +10,10 @@ use crate::error::{AppError, AppResult};
 pub enum ModelSize { B05, B15 }
 
 impl ModelSize {
+    /// "0.5b"/"1.5b" → 枚举;未知字符串兜底 0.5b。
+    pub fn from_str_size(s: &str) -> Self {
+        if s == "1.5b" { ModelSize::B15 } else { ModelSize::B05 }
+    }
     pub fn file_name(&self) -> &'static str {
         match self {
             ModelSize::B05 => "qwen2.5-0.5b-q4km.gguf",
@@ -58,12 +62,12 @@ impl Downloader {
         return ("llama-b10276-bin-ubuntu-arm64.tar.gz", "llama-server");
     }
 
-    /// 下载并落地,返回最终可执行/模型文件路径。
+    /// 下载并落地,返回 (最终可执行/模型文件路径, sha256)。
     ///
     /// 说明:v1 采用"重新下载"策略(断点续传暂不实现)——中断后删除 .part 重新开始,
     /// 不实现 HTTP Range 分段续传;.part 命名保证最终文件不会出现半写状态,
     /// 前端亦无"继续"按钮,不存在 UI 契约不一致。
-    pub async fn download(&self, what: DownloadWhat) -> AppResult<PathBuf> {
+    pub async fn download(&self, what: DownloadWhat) -> AppResult<(PathBuf, String)> {
         std::fs::create_dir_all(&self.models_dir)?;
         let (url, final_name) = match what {
             DownloadWhat::Engine => {
@@ -105,7 +109,7 @@ impl Downloader {
         let _ = self.app.emit("download-progress", &serde_json::json!({
             "what": what_label(what), "status": "done", "sha256": sha,
         }));
-        Ok(landed)
+        Ok((landed, sha))
     }
 
     async fn stream_to_file(&self, url: &str, tmp: &Path, label: &str) -> AppResult<()> {
@@ -218,6 +222,16 @@ impl Downloader {
     }
     pub fn model_path(&self, size: ModelSize) -> PathBuf {
         self.models_dir.join(size.file_name())
+    }
+
+    /// 复制下载器实例(spawn 任务里 move 用;AppHandle/Client/PathBuf 均可 clone)。
+    pub fn clone_dl(&self) -> Self {
+        Self {
+            http: self.http.clone(),
+            models_dir: self.models_dir.clone(),
+            app: self.app.clone(),
+            engine_tag: self.engine_tag.clone(),
+        }
     }
 }
 

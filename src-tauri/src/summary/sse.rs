@@ -8,8 +8,8 @@ pub struct SseDelta {
 
 pub fn parse_sse_line(line: &str) -> Option<SseDelta> {
     let line = line.trim();
-    if !line.starts_with("data:") { return None; }
-    let data = line["data:".len()..].trim();
+    let Some(data) = line.strip_prefix("data:") else { return None; };
+    let data = data.trim();
     if data == "[DONE]" { return Some(SseDelta { text: String::new(), done: true }); }
     let v: serde_json::Value = serde_json::from_str(data).ok()?;
     let delta = v
@@ -23,6 +23,7 @@ pub fn parse_sse_line(line: &str) -> Option<SseDelta> {
 }
 
 /// 从字节流分帧出 SSE 事件文本。返回 String(已完成的一段 data)。
+/// 仅按 \n\n 分帧(OpenAI 与 llama-server 均用 \n\n)。CRLF(\r\n\r\n)服务器不会命中 → 静默丢流;如需支持 CRLF 需在此归一化。
 pub fn extract_sse_text(buf: &mut Vec<u8>) -> Option<String> {
     // 按 \n\n 切事件;消费已完整的事件返回,残留留在 buf
     let pos = buf.windows(2).position(|w| w == b"\n\n")?;

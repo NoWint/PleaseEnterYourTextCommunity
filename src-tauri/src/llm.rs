@@ -555,6 +555,7 @@ impl LlmClient {
 
     /// OpenAI 兼容流式补全(本地 llama-server 与 API 共用)。on_delta 回调每个增量块。
     /// 仅支持 OpenAI 兼容协议(base_url + api_key + model);Anthropic/Gemini 不走此路径。
+    /// 注意:本方法刻意不设整请求 .timeout()(流中间停摆由调用方的 tokio::time::timeout 兜底)。
     pub async fn complete_stream_openai(
         &self,
         cfg: &LlmConfig,
