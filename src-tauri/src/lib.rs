@@ -10,6 +10,8 @@ mod envelope;
 mod error;
 mod events;
 mod github;
+pub mod intelligence;
+pub mod knowledge;
 mod llm;
 mod notifications;
 mod personas;
