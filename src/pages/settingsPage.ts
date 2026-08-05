@@ -20,6 +20,7 @@ const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = 
   { id: 'notifications', icon: 'bell', label: '通知' },
   { id: 'plugins', icon: 'layout-grid', label: '插件' },
   { id: 'github', icon: 'git-branch', label: 'GitHub' },
+  { id: 'intelligence', icon: 'sparkles', label: '智能' },
   { id: 'about', icon: 'info', label: '关于' },
 ];
 
@@ -53,6 +54,7 @@ export async function renderSettingsMain(main: HTMLElement): Promise<void> {
     case 'notifications': await renderNotifications(main); break;
     case 'plugins': await renderPlugins(main); break;
     case 'github': await renderGithub(main); break;
+    case 'intelligence': await renderIntelligence(main); break;
     case 'about': renderAbout(main); break;
   }
 }
@@ -517,4 +519,125 @@ function renderAbout(main: HTMLElement): void {
   section.appendChild(zone);
 
   main.appendChild(section);
+}
+
+// ── 智能 ──────────────────────────────────────────────
+// 主题总结引擎:模式(off/词频/LLM) + 来源(本地/API) + 模型下载面板(选档后点下载)。
+// 偏好持久化在后端 SQL(summary_settings 表),经 summaryPrefs 读写。
+import { getSummaryPrefs, saveSummaryPrefs, loadSummaryPrefs, type SummaryPrefs } from '../utils/summaryPrefs.js';
+async function renderIntelligence(main: HTMLElement): Promise<void> {
+  main.innerHTML = '';
+  await loadSummaryPrefs(); // 拉后端偏好(一次,内存缓存)
+  const prefs = getSummaryPrefs();
+  const section = document.createElement('div');
+  section.className = 'settings-section';
+  section.innerHTML = '<h2>智能</h2>';
+
+  // 引擎/模型下载状态 + 后端偏好(合并一次 summary_get_state)
+  let engineDownloaded = false;
+  let modelDownloaded = false;
+  try {
+    const s = await call<{ engineDownloaded: boolean; modelDownloaded: boolean }>('summary_get_state');
+    engineDownloaded = s.engineDownloaded;
+    modelDownloaded = s.modelDownloaded;
+  } catch { /* 未接 Tauri 时默认 false */ }
+
+  // 模式
+  const modeSeg = ui.segmented({
+    items: [
+      { value: 'off', label: '关闭' },
+      { value: 'wordfreq', label: '词频' },
+      { value: 'llm', label: 'LLM' },
+    ],
+    value: prefs.mode,
+    onChange: (v) => {
+      prefs.mode = v as SummaryPrefs['mode'];
+      void saveSummaryPrefs(prefs);
+    },
+  });
+  section.appendChild(ui.field({ label: '总结引擎', children: modeSeg }));
+
+  // 来源(LLM 模式下)
+  if (prefs.mode === 'llm') {
+    const srcSeg = ui.segmented({
+      items: [
+        { value: 'local', label: '本地模型' },
+        { value: 'api', label: 'API' },
+      ],
+      value: prefs.source,
+      onChange: (v) => {
+        prefs.source = v as SummaryPrefs['source'];
+        void saveSummaryPrefs(prefs);
+      },
+    });
+    section.appendChild(ui.field({ label: 'LLM 来源', children: srcSeg }));
+
+    // 上下文条数
+    const nInput = ui.input({ value: String(prefs.contextN), type: 'number' });
+    nInput.addEventListener('change', () => {
+      const n = Number(nInput.value);
+      if (!Number.isNaN(n)) { prefs.contextN = Math.min(200, Math.max(10, n)); void saveSummaryPrefs(prefs); }
+    });
+    section.appendChild(ui.field({ label: '上下文条数(注入最近 N 条)', children: nInput, help: '10-200,默认 50。字数硬上限 4000 自动截断。' }));
+  }
+
+  // 本地模型下载面板(来源=local)
+  if (prefs.mode === 'llm' && prefs.source === 'local') {
+    const sizeSeg = ui.segmented({
+      items: [
+        { value: '0.5b', label: '0.5B (~0.4GB)' },
+        { value: '1.5b', label: '1.5B (~1GB)' },
+      ],
+      value: prefs.modelSize,
+      onChange: (v) => {
+        prefs.modelSize = v as SummaryPrefs['modelSize'];
+        void saveSummaryPrefs(prefs);
+      },
+    });
+    section.appendChild(ui.field({ label: '模型档位', children: sizeSeg }));
+
+    const dl = ui.button({
+      label: modelDownloaded ? '已下载' : '下载',
+      icon: 'download',
+      variant: modelDownloaded ? 'ghost' : 'primary',
+      disabled: modelDownloaded,
+      onClick: async () => {
+        // ui.segmented 是 button.ui-segment[data-value], 非 radio
+        const size = sizeSeg.querySelector('.ui-segment.active')?.getAttribute('data-value') === '1.5b' ? '1.5b' : '0.5b';
+        try {
+          await call('summary_download', { what: 'model', size });
+        } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+      },
+    });
+    section.appendChild(ui.field({ label: '模型下载', children: dl }));
+
+    // 进度条(监听 download-progress)
+    const bar = document.createElement('div');
+    bar.className = 'settings-toggle-hint';
+    bar.textContent = modelDownloaded ? '引擎与模型已就绪' : (engineDownloaded ? '引擎就绪,等待下载模型' : '点击下载引擎与模型');
+    section.appendChild(bar);
+
+    const { listen } = await import('@tauri-apps/api/event');
+    void listen('download-progress', (ev) => {
+      const p = ev.payload as { what: string; status: string; bytes?: number; total?: number; rate?: number };
+      if (p.what === 'model' || p.what === 'engine') {
+        if (p.status === 'downloading' && p.total) {
+          const pct = Math.round(((p.bytes ?? 0) / p.total) * 100);
+          bar.textContent = `${p.what === 'engine' ? '引擎' : '模型'} ${pct}% · ${fmtBytes(p.bytes ?? 0)}/${fmtBytes(p.total)} · ${fmtBytes(p.rate ?? 0)}/s`;
+        } else if (p.status === 'done') {
+          bar.textContent = '下载完成';
+          ui.toast(`${p.what} 下载完成`);
+        }
+      }
+    });
+  }
+
+  main.appendChild(section);
+}
+
+function fmtBytes(n: number): string {
+  if (n > 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  if (n > 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n > 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${n} B`;
 }

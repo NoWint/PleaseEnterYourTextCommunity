@@ -31,6 +31,8 @@ export type IconName =
   | 'git-branch'
   // GitHub 仓库打开网页
   | 'external-link'
+  // 智能:设置页「智能」section
+  | 'sparkles'
   // 微信式输入框展开按钮
   | 'chevrons-up-down';
 
