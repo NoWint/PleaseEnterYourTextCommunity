@@ -320,6 +320,12 @@ pub fn parse_tree(v: &serde_json::Value) -> Vec<TreeEntryDto> {
         .unwrap_or_default()
 }
 
+/// git 树响应是否被截断(`truncated: true`,对象超 ~100k)。
+#[allow(dead_code)] // Task 3/4 接入后移除
+pub fn parse_tree_truncated(v: &serde_json::Value) -> bool {
+    v.get("truncated").and_then(|t| t.as_bool()).unwrap_or(false)
+}
+
 fn parse_search_repo_item(v: &serde_json::Value) -> SearchRepoDto {
     SearchRepoDto {
         full_name: str_field(v, "full_name"),
@@ -629,6 +635,14 @@ mod tests {
         assert_eq!(parse_tree(&json!({})).len(), 0);
         assert_eq!(parse_tree(&json!({ "tree": [] })).len(), 0);
         assert_eq!(parse_tree(&json!({ "tree": [null, 1] })).len(), 0);
+    }
+
+    #[test]
+    fn test_parse_tree_truncated_flag() {
+        assert!(parse_tree_truncated(&json!({ "truncated": true, "tree": [] })));
+        assert!(!parse_tree_truncated(&json!({ "truncated": false, "tree": [] })));
+        assert!(!parse_tree_truncated(&json!({ "tree": [] })));
+        assert!(!parse_tree_truncated(&json!({})));
     }
 
     #[test]

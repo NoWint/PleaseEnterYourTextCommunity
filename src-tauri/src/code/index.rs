@@ -11,8 +11,9 @@ use crate::error::{AppError, AppResult};
 // 本模块经 source::CodeSource 使用;Task 3/4 接入前在非 test build 中属死代码,逐项豁免。
 #[allow(dead_code)]
 const IGNORED_DIRS: [&str; 3] = [".git", "node_modules", "target"];
+// 与 local::find_files 深度保持一致,避免索引缓存命中/回退结果集在不同缓存状态下不一致。
 #[allow(dead_code)]
-const MAX_SCAN_DEPTH: usize = 8;
+const MAX_SCAN_DEPTH: usize = super::local::MAX_FIND_DEPTH;
 #[allow(dead_code)]
 const MAX_SCAN_ENTRIES: usize = 20_000;
 

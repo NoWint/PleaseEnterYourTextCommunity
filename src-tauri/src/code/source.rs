@@ -12,7 +12,8 @@ use crate::error::{AppError, AppResult};
 use crate::github::api::{url_get_content, url_git_trees, url_repo};
 use crate::github::client::{GithubAuth, GithubClient};
 use crate::github::types::{
-    parse_content, parse_content_list, parse_repo, parse_tree, ContentDto, TreeEntryDto,
+    parse_content, parse_content_list, parse_repo, parse_tree, parse_tree_truncated, ContentDto,
+    TreeEntryDto,
 };
 
 use super::index::IndexCache;
@@ -98,12 +99,7 @@ impl CodeSource {
             } => local::read_file(root, rel, *sandbox_mode).await,
             CodeSource::Github { owner, repo } => {
                 let raw = client.get_json(auth, &url_get_content(owner, repo, rel)).await?;
-                let dto = parse_content(&raw);
-                if dto.typ == "dir" {
-                    return Err(AppError::Core(format!("不是文件: {rel}")));
-                }
-                let bytes = decode_content_base64(&dto)?;
-                Ok(format_bytes(&bytes))
+                parse_file_content(&raw, rel)
             }
         }
     }
@@ -175,7 +171,7 @@ impl CodeSource {
             CodeSource::Github { owner, repo } => {
                 let branch = github_default_branch(client, auth, owner, repo).await?;
                 let raw = client.get_json(auth, &url_git_trees(owner, repo, &branch)).await?;
-                Ok(tree_to_file_entries(&parse_tree(&raw), name))
+                tree_entries_or_truncated(&raw, name)
             }
         }
     }
@@ -190,6 +186,20 @@ fn parse_content_to_entries(raw: &Value, prefix: &str) -> AppResult<Vec<CodeEntr
         return Err(AppError::Core(format!("不是目录: {prefix}")));
     }
     Ok(parse_content_list(raw).iter().map(content_to_entry).collect())
+}
+
+/// contents API 响应 → 文件文本:目录路径返回数组 JSON(或对象无 content),
+/// 此时非文件 → Err("不是文件: {rel}"),对齐 Local 分支语义。
+#[allow(dead_code)]
+fn parse_file_content(raw: &Value, rel: &str) -> AppResult<String> {
+    if raw.is_array() {
+        return Err(AppError::Core(format!("不是文件: {rel}")));
+    }
+    let dto = parse_content(raw);
+    if dto.typ == "dir" || dto.content.is_none() {
+        return Err(AppError::Core(format!("不是文件: {rel}")));
+    }
+    Ok(format_bytes(&decode_content_base64(&dto)?))
 }
 
 /// ContentDto → CodeEntry(type == "dir" 视为目录)。
@@ -253,6 +263,17 @@ fn format_bytes(bytes: &[u8]) -> String {
     } else {
         String::from_utf8_lossy(bytes).into_owned()
     }
+}
+
+/// git trees 响应 → 过滤后的文件条目;tree 截断(`truncated: true`)时报错,避免静默返回不完整结果。
+#[allow(dead_code)]
+fn tree_entries_or_truncated(raw: &Value, name: &str) -> AppResult<Vec<CodeEntry>> {
+    if parse_tree_truncated(raw) {
+        return Err(AppError::Core(format!(
+            "Git 树过大被截断(truncated),find_files 结果不完整:{name}"
+        )));
+    }
+    Ok(tree_to_file_entries(&parse_tree(raw), name))
 }
 
 /// 确定默认分支:仓库详情 default_branch;缺失则试 main → master。
@@ -441,6 +462,34 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_file_content_directory_array_is_not_file() {
+        // 目录路径:Github contents API 返回数组 JSON → 视为非文件报错(与 local read_file 一致)。
+        let raw = json!([
+            { "name": "src", "path": "src", "type": "dir", "size": 0 },
+            { "name": "main.rs", "path": "src/main.rs", "type": "file", "size": 42 }
+        ]);
+        let err = parse_file_content(&raw, "src").unwrap_err();
+        assert!(err.to_string().contains("不是文件"));
+    }
+
+    #[test]
+    fn test_parse_file_content_object_dir_or_no_content_is_not_file() {
+        // 单对象但 type=dir → 不是文件
+        let dir = json!({ "name": "src", "path": "src", "type": "dir", "size": 0 });
+        assert!(parse_file_content(&dir, "src").is_err());
+
+        // 对象且 content 缺失 → 不是文件(与 Local 分支一致,避免静默返回空串)
+        let no_content = json!({ "name": "a.rs", "path": "a.rs", "type": "file", "size": 4 });
+        assert!(parse_file_content(&no_content, "a.rs").is_err());
+    }
+
+    #[test]
+    fn test_parse_file_content_file_decodes() {
+        let raw = json!({ "name": "hello.txt", "path": "hello.txt", "type": "file", "size": 5, "content": "aGVsbG8=" });
+        assert_eq!(parse_file_content(&raw, "hello.txt").unwrap(), "hello");
+    }
+
+    #[test]
     fn test_decode_content_base64_and_format() {
         let dto = ContentDto {
             name: "a.rs".into(),
@@ -501,6 +550,29 @@ mod tests {
 
         // 目录条目(type=tree)不参与匹配
         assert!(tree_to_file_entries(&tree, "src").is_empty());
+    }
+
+    #[test]
+    fn test_tree_entries_or_truncated_errors_on_truncated_tree() {
+        let raw = json!({
+            "sha": "abc",
+            "truncated": true,
+            "tree": [
+                { "path": "src/main.rs", "type": "blob", "size": 12 }
+            ]
+        });
+        let err = tree_entries_or_truncated(&raw, "main").unwrap_err();
+        assert!(err.to_string().contains("截断"));
+
+        let ok = json!({
+            "truncated": false,
+            "tree": [
+                { "path": "src/main.rs", "type": "blob", "size": 12 }
+            ]
+        });
+        let entries = tree_entries_or_truncated(&ok, "main").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "src/main.rs");
     }
 
     #[test]

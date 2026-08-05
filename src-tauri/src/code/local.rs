@@ -204,11 +204,13 @@ pub async fn read_file(root: &Path, rel: &str, mode: SandboxMode) -> AppResult<S
 }
 
 /// 按文件名包含匹配(忽略大小写),递归;忽略 .git/node_modules/target;限 20。
+/// 结果按 path 排序(与 index 缓存命中路径的扫描结果排序一致,避免缓存冷/热结果集不一致)。
 #[allow(dead_code)]
 pub async fn find_files(root: &Path, name: &str, mode: SandboxMode) -> AppResult<Vec<LocalEntry>> {
     let needle = name.to_lowercase();
     let mut out = Vec::new();
     walk(root, &needle, mode, "", 0, &mut out).await?;
+    out.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(out)
 }
 
