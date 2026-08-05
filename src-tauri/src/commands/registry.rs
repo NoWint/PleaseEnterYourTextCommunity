@@ -24,6 +24,8 @@ use crate::dto::ProjectContext;
 use crate::error::AppResult;
 
 /// 手写 BoxFuture 别名(futures crate 非直接依赖,见模块头注释)。
+/// 供 syscmd.rs 回调类型使用;装配前无 lib 代码引用,先允许 dead_code。
+#[allow(dead_code)]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// 命令可用的执行路径。
@@ -31,7 +33,8 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub enum CommandScope {
     /// 仅 Bot 驱动路径可执行。
     Bot,
-    /// 仅用户/系统路径可执行。
+    /// 仅用户/系统路径可执行(当前无内置命令使用,预留)。
+    #[allow(dead_code)]
     User,
     /// 两侧均可执行。
     Both,
@@ -42,7 +45,8 @@ pub enum CommandScope {
 pub enum CommandKind {
     /// 由 Bot 驱动收到消息触发。
     Bot,
-    /// 由用户/系统侧(syscmd)触发。
+    /// 由用户/系统侧(syscmd)触发;装配前仅测试构造。
+    #[allow(dead_code)]
     System,
 }
 
@@ -57,10 +61,14 @@ pub struct CommandInvocation {
 /// 在任务给定字段(kind/chat_id/msg_id/args/raw)基础上补充。
 pub struct CommandCtx<'a> {
     pub name: String,
+    /// 供 syscmd 的 scope 校验与 handler 使用;当前骨架 handler 未读取,先允许 dead_code。
+    #[allow(dead_code)]
     pub kind: CommandKind,
     pub chat_id: u32,
     pub msg_id: u32,
     pub args: Vec<String>,
+    /// 原始命令文本,供 handler 需要完整输入时读取;当前未读取,先允许 dead_code。
+    #[allow(dead_code)]
     pub raw: &'a str,
 }
 
@@ -75,6 +83,8 @@ pub trait CommandHandler: Send + Sync {
 pub struct CommandSpec {
     pub name: &'static str,
     pub scope: CommandScope,
+    /// 供后续 /help 命令列表展示;当前无 lib 代码读取,先允许 dead_code。
+    #[allow(dead_code)]
     pub description: &'static str,
     pub handler: Arc<dyn CommandHandler>,
 }
@@ -131,6 +141,8 @@ impl CommandRegistry {
     }
 
     /// scope 与执行上下文匹配检查:不可用返回拒绝提示文本,可用返回 None。
+    /// 唯一调用方是 syscmd.rs(装配前死代码),先允许 dead_code。
+    #[allow(dead_code)]
     pub fn scope_reject(spec: &CommandSpec, kind: CommandKind) -> Option<&'static str> {
         match (spec.scope, kind) {
             (CommandScope::Bot, CommandKind::System) => Some("该命令仅 Bot 可用"),

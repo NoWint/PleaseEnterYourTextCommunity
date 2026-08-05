@@ -9,6 +9,10 @@
 //!   BoxFuture 用 registry.rs 提供的 std 手写别名。
 //! - `has_running_bot` 同理注入(db.chat_has_running_bot 尚不存在,避免直接依赖
 //!   db.rs;集成者接 db 查询)。
+//!
+//! 整模块待集成者在 lib.rs 装配(构造 SystemCommandProcessor 并注入回调)前
+//! 无 lib 调用点,故允许 dead_code。
+#![allow(dead_code)]
 
 use std::sync::Arc;
 

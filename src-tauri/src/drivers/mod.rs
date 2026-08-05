@@ -23,6 +23,8 @@ pub enum DriverKind {
     Rule,
     Schedule,
     /// 系统/用户侧命令处理器(syscmd.rs):自发送回复,不依赖 BotRuntime。
+    /// 待集成者在 lib.rs 装配 SystemCommandProcessor 后才被构造。
+    #[allow(dead_code)]
     System,
 }
 
