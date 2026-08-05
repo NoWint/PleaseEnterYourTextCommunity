@@ -1180,13 +1180,13 @@ html.window-frame #titlebar-tools { height: 34px; }
   top: 48px;
   left: 50%;
   transform: translateX(-50%);
-  background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%);
-  color: var(--text);
+  background: var(--surface-layer-02);
+  box-shadow: inset 0 0 0 0.5px var(--border-strong), var(--elevation-floating);
+  color: var(--text-base);
   padding: var(--space-2) var(--space-4);
   /* 字号随设置页字号体系(基础档 13px → 大档更高),而非次级小号 */
   font-size: var(--font-scale-body);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
   opacity: 0;
   transform: translateX(-50%) translateY(-8px);
   transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
@@ -1385,10 +1385,9 @@ html.window-frame #titlebar-tools { height: 34px; }
 .msg-reaction-picker {
   position: absolute;
   display: flex;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
+  background: var(--surface-layer-02);
+  box-shadow: inset 0 0 0 0.5px var(--border-strong), var(--elevation-floating);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
   padding: 4px;
   gap: 6px;
   z-index: 10;
@@ -1445,10 +1444,9 @@ html.window-frame #titlebar-tools { height: 34px; }
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 2px;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
+  background: var(--surface-layer-02);
+  box-shadow: inset 0 0 0 0.5px var(--border-strong), var(--elevation-floating);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
   padding: var(--space-2);
   z-index: 20;
   animation: pop-in 210ms var(--ease-out);
@@ -2961,22 +2959,23 @@ body {
 /* === SP5 Task 6: 看板视图 === */
 .main-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 14px 20px; flex-shrink: 0; background: var(--panel);
+  padding: 14px 20px; flex-shrink: 0; background: transparent;
+  box-shadow: inset 0 -0.5px 0 var(--border-base);
 }
-.main-title { font-size: var(--font-scale-title); font-weight: 600; color: var(--text); letter-spacing: -0.3px; line-height: 1.3; }
-.main-subtitle { font-size: var(--font-scale-secondary); color: var(--text-mute); margin-top: 2px; }
+.main-title { font-size: var(--font-scale-title); font-weight: var(--weight-medium); color: var(--text-base); letter-spacing: -0.3px; line-height: 1.3; }
+.main-subtitle { font-size: var(--font-scale-secondary); color: var(--text-muted); margin-top: 2px; }
 .main-actions { display: flex; align-items: center; gap: 10px; }
 .view-toggle {
   display: flex; gap: 2px; padding: 3px;
-  background: var(--capsule); border-radius: 999px;
+  background: var(--overlay-hover); border-radius: var(--radius-md);
 }
 .view-btn {
-  padding: 5px 12px; background: transparent; color: var(--text-mute);
+  padding: 5px 12px; background: transparent; color: var(--text-muted);
   font-size: var(--font-scale-body); font-family: inherit; cursor: pointer; border: none;
-  font-weight: 500; border-radius: var(--radius-sm); transition: background var(--anim-duration) var(--anim-ease), color var(--anim-duration) var(--anim-ease);
+  font-weight: var(--weight-medium); border-radius: var(--radius-sm); transition: background var(--anim-duration) var(--anim-ease), color var(--anim-duration) var(--anim-ease);
 }
-.view-btn:hover { color: var(--text); }
-.view-btn.active { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow-sm); }
+.view-btn:hover { color: var(--text-base); background: var(--overlay-hover); }
+.view-btn.active { background: var(--surface-layer-02); color: var(--text-base); box-shadow: var(--elevation-raised); }
 
 .main-body { flex: 1; overflow: hidden; display: flex; }
 .kanban { display: flex; flex: 1; gap: 10px; background: var(--surface-base); height: 100%; padding: 10px; }
@@ -3154,7 +3153,7 @@ body {
 .msg-action-btn {
   background: none;
   border: none;
-  color: var(--text-mute);
+  color: var(--icon-muted);
   cursor: pointer;
   padding: 4px;
   display: flex;
@@ -3165,8 +3164,8 @@ body {
   transition: background 100ms, color 100ms;
 }
 .msg-action-btn:hover {
-  background: var(--surface-hover);
-  color: var(--text);
+  background: var(--overlay-hover);
+  color: var(--text-base);
 }
 .msg-action-btn:active { transform: scale(0.9); }
 
@@ -4013,18 +4012,18 @@ body {
 
 /* SP6: Nav 面板 Tab 切换 (协作页 频道/活动) */
 .nav-tabs {
-  display: flex; gap: 2px; padding: 6px 8px; margin: 0 8px;
-  background: var(--capsule); border-radius: 999px;
+  display: flex; gap: 2px; padding: 3px; margin: 0 8px;
+  background: var(--overlay-hover); border-radius: var(--radius-md);
 }
 .nav-tab {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
   padding: 5px 8px; background: none; border: none; cursor: pointer;
-  color: var(--text-mute); font-size: var(--font-scale-body); font-weight: 500;
-  border-radius: 999px; transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+  color: var(--text-muted); font-size: var(--font-scale-body); font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm); transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
   font-family: var(--font);
 }
-.nav-tab:hover { color: var(--text); }
-.nav-tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.nav-tab:hover { color: var(--text-base); background: var(--overlay-hover); }
+.nav-tab.active { background: var(--surface-layer-02); color: var(--text-base); box-shadow: var(--elevation-raised); }
 .nav-tab:active { transform: scale(0.96); }
 
 /* SP6: Nav header 操作区 (inbox 全部已读按钮) */
