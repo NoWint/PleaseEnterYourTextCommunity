@@ -53,6 +53,11 @@ export async function renderRail(): Promise<void> {
     ${iconSvg('git-branch', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
+  // 智能中心入口 — 位于 GitHub 下方
+  const intelligenceIconHtml = `<div class="rail-icon ${state.currentPage === 'intelligence' ? 'active' : ''}" data-page="intelligence" role="button" tabindex="0" aria-label="智能" title="智能">
+    ${iconSvg('sparkles', { width: 24, height: 24, strokeWidth: 1.5 })}
+  </div>`;
+
   const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" role="button" tabindex="0" aria-label="${t('nav.settings')}" title="${t('nav.settings')}">
     ${iconSvg('settings', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
@@ -66,6 +71,7 @@ export async function renderRail(): Promise<void> {
     <div class="rail-separator"></div>
     <div class="rail-flex"></div>
     ${githubIconHtml}
+    ${intelligenceIconHtml}
     ${settingsIconHtml}
     <div class="rail-avatar" id="rail-avatar" role="button" tabindex="0" aria-label="${t('nav.userMenu')}">${avatarHtml}</div>
   `;
