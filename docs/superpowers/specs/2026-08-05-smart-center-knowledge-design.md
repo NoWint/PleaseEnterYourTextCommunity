@@ -182,12 +182,13 @@ CREATE TABLE IF NOT EXISTS knowledge_config (
   daily_time      TEXT NOT NULL DEFAULT '00:00',
   window_count    INTEGER NOT NULL DEFAULT 100,
   auto_store      INTEGER NOT NULL DEFAULT 1,
+  daily_run_date  TEXT,                    -- 当日已执行标记 'YYYY-MM-DD'(NULL=当日未跑)
   updated_at      INTEGER NOT NULL
 );
 ```
 
 Db:`get_knowledge_config(chat_id)` / `set_knowledge_config(chat_id, ...)`。
-调度:复用现有 tick/调度机制扫描启用项到点触发(实施时接现有 Scheduler,每 chat 每日一次)。
+调度:在现有 Bot tick 循环(运行时 tick,已存在)中**并行挂一个独立的每日扫描器**(与 Bot 无关):每 tick 检查启用项是否到点(当前 HH:MM 已过且当日未执行——用 `knowledge_config.daily_run_date` 记当日已跑,避免重复),到点触发总结入库。与 Bot 调度完全解耦,无 Bot 会话同样生效。
 
 ### 5.4 /ask 问答(AskEngine)
 
