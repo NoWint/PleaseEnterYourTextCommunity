@@ -85,6 +85,20 @@ let sidebarRefresher: (() => void) | null = null;
 let ghFilesPath = '';
 let ghFilesRepoKey = '';
 
+// 标签栏指示线(GitHub 式橙色下划线):仅一个主区实例,页面重入时覆盖指针。
+// 指示线用 active 项相对 .gh-tabbar 的 offsetLeft/offsetWidth 定位,CSS 过渡滑动(§4 行为而非固定动画)。
+let ghTabTarget: { bar: HTMLElement; thumb: HTMLElement } | null = null;
+function positionTabThumb(): void {
+  const t = ghTabTarget;
+  if (!t) return;
+  const active = t.bar.querySelector<HTMLElement>('.gh-tab.active');
+  if (!active) return;
+  t.thumb.style.width = `${active.offsetWidth}px`;
+  t.thumb.style.transform = `translateX(${active.offsetLeft}px)`;
+}
+// 单例 resize 监听:窗口尺寸变化后指示线跟随(避免每次进入页面重复注册)
+window.addEventListener('resize', positionTabThumb);
+
 // ── 共享数据操作(纯逻辑,不持有 DOM;视图刷新交给回调) ─────────────────────────
 async function ghLoadSettings(): Promise<void> {
   try {
@@ -359,12 +373,26 @@ async function doRepoSearch(queryEl: HTMLInputElement, resultsEl: HTMLElement): 
   }
   for (const r of results.slice(0, 20)) {
     const bound = ghRepos.some((b) => b.full_name === r.full_name);
-    resultsEl.appendChild(ui.listItem({
-      title: r.full_name,
-      subtitle: `${r.language ?? '未知语言'} · ★ ${r.stargazers_count}${r.description ? ' · ' + r.description : ''}${bound ? ' · 已绑定' : ''}`,
-      icon: 'git-branch',
-      onClick: () => ghSelectRepo(r.full_name),
-    }));
+    const parts: string[] = [];
+    if (r.description) parts.push(escapeHtml(r.description));
+    parts.push(`${langDotHtml(r.language)} ${escapeHtml(r.language ?? '未知语言')}`);
+    if (bound) parts.push('<span class="gh-bound-tag">已绑定</span>');
+    const row = document.createElement('div');
+    row.className = 'ui-list-item gh-repo-row';
+    const tile = document.createElement('span');
+    tile.className = 'gh-repo-icon';
+    tile.innerHTML = iconSvg('package', { width: 15, height: 15 });
+    row.appendChild(tile);
+    const meta = document.createElement('div');
+    meta.className = 'ui-list-meta';
+    meta.innerHTML = `<div class="ui-list-title">${escapeHtml(r.full_name)}</div><div class="ui-list-sub">${parts.join(' · ')}</div>`;
+    row.appendChild(meta);
+    const starsEl = document.createElement('span');
+    starsEl.className = 'gh-repo-stars';
+    starsEl.innerHTML = `★ ${r.stargazers_count}`;
+    row.appendChild(starsEl);
+    row.addEventListener('click', () => ghSelectRepo(r.full_name));
+    resultsEl.appendChild(row);
   }
 }
 
@@ -421,39 +449,51 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   tree.className = 'nav-list';
   panel.appendChild(tree);
 
-  // footer:搜索入口(仓库搜索/代码搜索,可折叠)
-  const footer = document.createElement('div');
-  footer.style.cssText = 'flex-shrink:0;border-top:1px solid var(--border);padding:8px 12px 10px;display:flex;flex-direction:column;gap:8px';
-  const searchToggle = ui.button({ icon: 'search', size: 'sm', variant: 'ghost', onClick: toggleSearch });
-  const searchLabel = document.createElement('span');
-  searchLabel.textContent = '搜索';
-  searchToggle.appendChild(searchLabel);
-  footer.appendChild(searchToggle);
-  const searchPanel = document.createElement('div');
-  searchPanel.className = 'gh-search-panel';
-  const repoSearchInput = ui.input({ placeholder: '搜索仓库,如 peytchat', onEnter: () => void doRepoSearch(repoSearchInput, repoResults) });
-  const repoSearchBtn = ui.iconButton({ icon: 'search', title: '搜索仓库', size: 'sm', onClick: () => void doRepoSearch(repoSearchInput, repoResults) });
-  const repoRow = document.createElement('div');
-  repoRow.style.cssText = 'display:flex;gap:6px;align-items:center';
-  repoRow.append(repoSearchInput, repoSearchBtn);
-  const repoResults = document.createElement('div');
-  repoResults.style.cssText = 'display:flex;flex-direction:column;gap:4px';
-  const codeSearchInput = ui.input({ placeholder: '搜索代码,如 fn main', onEnter: () => void doCodeSearch(codeSearchInput, codeResults) });
-  const codeSearchBtn = ui.iconButton({ icon: 'search', title: '搜索代码', size: 'sm', onClick: () => void doCodeSearch(codeSearchInput, codeResults) });
-  const codeRow = document.createElement('div');
-  codeRow.style.cssText = 'display:flex;gap:6px;align-items:center';
-  codeRow.append(codeSearchInput, codeSearchBtn);
-  const codeResults = document.createElement('div');
-  codeResults.style.cssText = 'display:flex;flex-direction:column;gap:4px';
-  searchPanel.append(repoRow, repoResults, codeRow, codeResults);
-  footer.appendChild(searchPanel);
-  panel.appendChild(footer);
+  // 搜索(常驻顶部,GitHub 式):复用 ui.search 圆角字段 + 仓库/代码模式切换,
+  // 结果渲染进仓库树区,清空输入即恢复仓库树。
+  const searchBox = document.createElement('div');
+  searchBox.className = 'gh-search';
+  const searchMode = document.createElement('div');
+  searchMode.className = 'gh-search-mode';
+  const modeRepo = document.createElement('button');
+  modeRepo.type = 'button';
+  modeRepo.className = 'gh-search-mode-btn active';
+  modeRepo.textContent = '仓库';
+  const modeCode = document.createElement('button');
+  modeCode.type = 'button';
+  modeCode.className = 'gh-search-mode-btn';
+  modeCode.textContent = '代码';
+  searchMode.append(modeRepo, modeCode);
+  const searchField = ui.search({ placeholder: '搜索仓库,如 peytchat' });
+  const searchInput = searchField.querySelector('input')!;
+  searchBox.append(searchMode, searchField);
+  panel.appendChild(searchBox);
+  panel.insertBefore(searchBox, tree);
 
-  function toggleSearch(): void {
-    const show = searchPanel.classList.toggle('open');
-    searchLabel.textContent = show ? '收起' : '搜索';
-    if (show) repoSearchInput.focus();
-  }
+  let ghSearchMode: 'repo' | 'code' = 'repo';
+  const restoreTree = (): void => { void renderTree(); };
+  modeRepo.addEventListener('click', () => {
+    ghSearchMode = 'repo';
+    modeRepo.classList.add('active');
+    modeCode.classList.remove('active');
+    searchInput.placeholder = '搜索仓库,如 peytchat';
+    restoreTree();
+  });
+  modeCode.addEventListener('click', () => {
+    ghSearchMode = 'code';
+    modeCode.classList.add('active');
+    modeRepo.classList.remove('active');
+    searchInput.placeholder = '搜索代码,如 fn main';
+    restoreTree();
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    if (ghSearchMode === 'repo') void doRepoSearch(searchInput, tree);
+    else void doCodeSearch(searchInput, tree);
+  });
+  searchInput.addEventListener('input', () => {
+    if (!searchInput.value.trim()) restoreTree();
+  });
 
   // 仓库树渲染
   async function renderTree(): Promise<void> {
@@ -466,30 +506,50 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   }
   async function renderRepoRow(r: GithubRepoDto): Promise<HTMLElement> {
     const meta = await ghFetchRepoMeta(r);
-    const subtitle = meta
-      ? `${meta.language ?? '未知语言'} · ★ ${meta.stargazers_count}${meta.description ? ' · ' + meta.description : ''}`
-      : `${r.owner} / ${r.repo}`;
-    const row = ui.listItem({
-      title: r.full_name,
-      subtitle,
-      icon: 'git-branch',
-      onClick: () => ghSelectRepo(r.full_name),
-    });
+    // GitHub 式:图标瓦片 + 蓝色仓库名 + 描述/语言副行 + 右侧星标
+    const lang = meta?.language ?? null;
+    const subParts: string[] = [];
+    if (meta) {
+      if (meta.description) subParts.push(escapeHtml(meta.description));
+      subParts.push(`${langDotHtml(lang)} ${escapeHtml(lang ?? '未知语言')}`);
+    } else {
+      subParts.push(escapeHtml(`${r.owner} / ${r.repo}`));
+    }
+    const row = document.createElement('div');
+    row.className = 'ui-list-item gh-repo-row';
+    const tile = document.createElement('span');
+    tile.className = 'gh-repo-icon';
+    tile.innerHTML = iconSvg('package', { width: 15, height: 15 });
+    row.appendChild(tile);
+    const meta2 = document.createElement('div');
+    meta2.className = 'ui-list-meta';
+    meta2.innerHTML = `<div class="ui-list-title">${escapeHtml(r.full_name)}</div><div class="ui-list-sub">${subParts.join(' · ')}</div>`;
+    row.appendChild(meta2);
+    if (meta) {
+      const starsEl = document.createElement('span');
+      starsEl.className = 'gh-repo-stars';
+      starsEl.innerHTML = `★ ${meta.stargazers_count}`;
+      row.appendChild(starsEl);
+    }
+    row.addEventListener('click', () => ghSelectRepo(r.full_name));
     row.dataset.full = r.full_name;
     row.classList.toggle('active', !!ghSelected && ghSelected.full_name === r.full_name);
     return row;
   }
   function renderEmptyGuide(): HTMLElement {
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'padding:24px 16px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center';
+    wrap.className = 'gh-empty';
+    const iconWrap = document.createElement('div');
+    iconWrap.className = 'gh-empty-icon';
+    iconWrap.innerHTML = iconSvg('git-branch', { width: 20, height: 20 });
     const title = document.createElement('div');
+    title.className = 'gh-empty-title';
     title.textContent = '还没有绑定仓库';
-    title.style.cssText = 'font-size:var(--font-scale-body);font-weight:600;color:var(--text)';
     const desc = document.createElement('div');
-    desc.style.cssText = 'font-size:var(--font-scale-micro);color:var(--text-faint);line-height:1.7';
+    desc.className = 'gh-empty-desc';
     desc.textContent = '点击右上角「设置」添加 owner/repo 即可浏览数据';
     const btn = ui.button({ label: '去绑定', icon: 'plus', size: 'sm', variant: 'primary', onClick: () => openSettings(true) });
-    wrap.append(title, desc, btn);
+    wrap.append(iconWrap, title, desc, btn);
     return wrap;
   }
 
@@ -508,9 +568,10 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   root.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden';
   main.appendChild(root);
 
-  // 玻璃工具条(复用 .main-header + chat-header 玻璃材质):当前仓库名 + Token badge + 打开网页/刷新
+  // 玻璃工具条(与标签栏同一条玻璃材质,视觉上为一个 header 单元):
+  // 上排 = 仓库名 + Token badge + 打开网页/刷新;下排 = 苹果滑动胶囊分段标签栏
   const header = document.createElement('div');
-  header.className = 'main-header';
+  header.className = 'gh-header';
   header.style.cssText = [
     'flex-shrink:0',
     'position:sticky;top:0;z-index:10',
@@ -519,6 +580,8 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     'backdrop-filter:blur(18px) saturate(150%)',
     'box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent)',
   ].join(';');
+  const toolbar = document.createElement('div');
+  toolbar.className = 'gh-header-toolbar';
   const titleBox = document.createElement('div');
   // Token 徽章:点击打开设置(Apple §16 状态即入口 —— 状态可见且可操作)
   const headerBadge = document.createElement('button');
@@ -531,10 +594,10 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   const actions = document.createElement('div');
   actions.className = 'main-actions';
   actions.append(headerBadge, refreshBtn, openWebBtn);
-  header.append(titleBox, actions);
-  root.appendChild(header);
+  toolbar.append(titleBox, actions);
+  header.appendChild(toolbar);
 
-  // 编辑区 Tab 条(VSCode 式:紧凑堆叠,active 下划线高亮)
+  // 标签栏(GitHub 仓库导航式):图标 + 文字,活动项橙色下划线,细线滑动(200ms 临界阻尼)
   const GH_TABS: Array<{ id: GithubTab; label: string; icon: IconName }> = [
     { id: 'issues', label: 'Issues', icon: 'alert-circle' },
     { id: 'pulls', label: 'Pulls', icon: 'git-branch' },
@@ -543,13 +606,18 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     { id: 'events', label: '动态', icon: 'timeline' },
     { id: 'details', label: '详情', icon: 'info' },
   ];
-  const tabsEl = document.createElement('div');
-  tabsEl.className = 'gh-editor-tabs';
+  const tabsRow = document.createElement('div');
+  tabsRow.className = 'gh-tabs-row';
+  const tabBar = document.createElement('div');
+  tabBar.className = 'gh-tabbar';
+  const tabThumb = document.createElement('div');
+  tabThumb.className = 'gh-tab-indicator';
+  tabBar.appendChild(tabThumb);
   const tabEls = GH_TABS.map((t) => {
     const b = document.createElement('button');
-    b.className = 'gh-editor-tab';
+    b.type = 'button';
+    b.className = 'gh-tab';
     b.dataset.tab = t.id;
-    b.title = t.label;
     b.innerHTML = `${iconSvg(t.icon, { width: 14, height: 14 })}<span>${t.label}</span>`;
     b.addEventListener('click', () => {
       if (!ghSelected) return;
@@ -560,8 +628,11 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     });
     return b;
   });
-  for (const t of tabEls) tabsEl.appendChild(t);
-  root.appendChild(tabsEl);
+  for (const t of tabEls) tabBar.appendChild(t);
+  tabsRow.appendChild(tabBar);
+  header.appendChild(tabsRow);
+  ghTabTarget = { bar: tabBar, thumb: tabThumb };
+  root.appendChild(header);
 
   // 内容区(数据由 Task B 渲染;本任务为占位 spinner)
   const content = document.createElement('div');
@@ -570,6 +641,8 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
 
   function syncTabActive(): void {
     for (const b of tabEls) b.classList.toggle('active', b.dataset.tab === state.githubTab);
+    // 布局稳定后再定位指示线(rAF 兜底,避免首帧 0 宽/未布局)
+    requestAnimationFrame(positionTabThumb);
   }
   function setRepoTitle(fullName: string | null): void {
     titleBox.innerHTML = '';
@@ -593,6 +666,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
       return;
     }
     const wrap = document.createElement('div');
+    wrap.className = 'gh-content-enter'; // 每次 tab/仓库切换的轻淡入入场(§4 行为而非固定动画)
     wrap.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
     content.appendChild(wrap);
     wrap.appendChild(ui.spinner());
@@ -613,7 +687,9 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   // 主区回调注册:仓库/设置变化同步 + 侧边栏选中仓库联动
   mainRepoSync = (): void => {
     headerBadge.className = `ui-badge gh-token-badge${ghHasToken ? ' ui-badge-success' : ' ui-badge-muted'}`;
-    headerBadge.textContent = ghHasToken ? '已配置 Token' : '未配置 Token';
+    headerBadge.innerHTML = ghHasToken
+      ? '<span class="gh-badge-dot"></span>已配置 Token'
+      : '未配置 Token';
     openWebBtn.style.display = ghSelected ? '' : 'none';
     setRepoTitle(ghSelected?.full_name ?? null);
     syncTabActive();
@@ -661,18 +737,21 @@ async function renderGhIssues(body: HTMLElement, repo: GithubRepoRef): Promise<v
     body.appendChild(ui.empty('暂无 Issue'));
     return;
   }
-  issues.forEach((it, i) => {
-    if (i > 0) body.appendChild(document.createElement('div')).className = 'rd-gh-sep';
+  issues.forEach((it) => {
     const row = document.createElement('div');
     row.className = 'rd-gh-row';
-    const labels = it.labels.length
-      ? `<span class="ui-badge">${escapeHtml(it.labels.slice(0, 3).join(', '))}</span>` : '';
+    const isOpen = it.state === 'open';
+    const labels = it.labels.slice(0, 3).map((l) => `<span class="gh-label">${escapeHtml(l)}</span>`).join('');
+    const iconCls = isOpen ? 'gh-issue-open' : 'gh-issue-closed';
     row.innerHTML = `
-      <div class="rd-gh-title">
-        <span class="rd-gh-title-text">#${it.number} ${escapeHtml(it.title)}</span>
-        ${stateBadge(it.state)}${labels}
+      <span class="gh-status-icon ${iconCls}">${iconSvg('alert-circle', { width: 15, height: 15 })}</span>
+      <div class="rd-gh-main">
+        <div class="rd-gh-title">
+          <span class="rd-gh-title-text">${escapeHtml(it.title)}</span>
+          ${labels ? ' ' + labels : ''}
+        </div>
+        <div class="rd-gh-sub">#${it.number} · ${escapeHtml(it.user)} · ${relativeTime(it.updated_at)}</div>
       </div>
-      <div class="rd-gh-sub">${escapeHtml(it.user)} · 更新于 ${fmtDate(it.updated_at)}</div>
     `;
     row.addEventListener('click', () => void openGhIssue(it, repo));
     body.appendChild(row);
@@ -688,13 +767,18 @@ async function openGhIssue(it: IssueDto, repo: GithubRepoRef): Promise<void> {
   const bodyEl = document.createElement('div');
   bodyEl.style.cssText = 'display:flex;flex-direction:column;gap:10px';
   const head = document.createElement('div');
-  head.style.cssText = 'font-size:var(--font-scale-title);font-weight:600';
-  head.textContent = `#${detail.number} ${detail.title}`;
+  head.style.cssText = 'font-size:var(--font-scale-title);font-weight:600;display:flex;align-items:center;gap:8px;min-width:0';
+  const headText = document.createElement('span');
+  headText.style.cssText = 'word-break:break-word';
+  headText.textContent = `#${detail.number} ${detail.title}`;
+  head.appendChild(headText);
   bodyEl.appendChild(head);
   const meta = document.createElement('div');
-  meta.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:var(--font-scale-secondary);color:var(--text-mute)';
-  meta.appendChild(ui.badge({ text: detail.state, variant: detail.state === 'open' ? 'success' : 'muted' }));
-  if (detail.labels.length) meta.appendChild(ui.badge({ text: detail.labels.slice(0, 5).join(', '), variant: 'default' }));
+  meta.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:var(--font-scale-secondary);color:var(--text-mute)';
+  meta.insertAdjacentHTML('beforeend', stateBadge(detail.state));
+  if (detail.labels.length) {
+    meta.insertAdjacentHTML('beforeend', detail.labels.slice(0, 5).map((l) => `<span class="rd-gh-pill rd-gh-pill-label">${escapeHtml(l)}</span>`).join(''));
+  }
   bodyEl.appendChild(meta);
   const pre = document.createElement('pre');
   pre.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:var(--font-scale-body);line-height:1.6;margin:0;max-height:320px;overflow-y:auto;font-family:var(--font-mono)';
@@ -720,19 +804,19 @@ async function renderGhPulls(body: HTMLElement, repo: GithubRepoRef): Promise<vo
     body.appendChild(ui.empty('暂无 Pull Request'));
     return;
   }
-  pulls.forEach((p, i) => {
-    if (i > 0) body.appendChild(document.createElement('div')).className = 'rd-gh-sep';
+  pulls.forEach((p) => {
     const row = document.createElement('div');
     row.className = 'rd-gh-row';
-    const merged = p.merged_at ? '已合并' : p.state;
+    const iconCls = p.merged_at ? 'gh-pr-merged' : (p.state === 'open' ? 'gh-pr-open' : 'gh-pr-closed');
     row.innerHTML = `
-      <div class="rd-gh-title">
-        <span class="rd-gh-title-text">#${p.number} ${escapeHtml(p.title)}</span>
-        ${stateBadge(merged)}
-      </div>
-      <div class="rd-gh-sub">
-        <span class="rd-gh-pos">+${p.additions}</span> <span class="rd-gh-neg">-${p.deletions}</span>
-        · ${escapeHtml(p.user)} · 更新于 ${fmtDate(p.updated_at)}
+      <span class="gh-status-icon ${iconCls}">${iconSvg('git-branch', { width: 15, height: 15 })}</span>
+      <div class="rd-gh-main">
+        <div class="rd-gh-title">
+          <span class="rd-gh-title-text">${escapeHtml(p.title)}</span>
+        </div>
+        <div class="rd-gh-sub">
+          #${p.number} · <span class="rd-gh-pos">+${p.additions}</span><span class="rd-gh-neg">−${p.deletions}</span> · ${escapeHtml(p.user)} · ${relativeTime(p.updated_at)}
+        </div>
       </div>
     `;
     row.addEventListener('click', () => void openGhPull(p));
@@ -748,9 +832,9 @@ async function openGhPull(p: PullDto): Promise<void> {
   bodyEl.appendChild(head);
   const meta = document.createElement('div');
   meta.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:var(--font-scale-secondary);color:var(--text-mute)';
-  meta.appendChild(ui.badge({ text: p.merged_at ? 'merged' : p.state, variant: p.merged_at ? 'muted' : (p.state === 'open' ? 'success' : 'muted') }));
-  meta.appendChild(ui.badge({ text: `+${p.additions}`, variant: 'success' }));
-  meta.appendChild(ui.badge({ text: `-${p.deletions}`, variant: 'danger' }));
+  meta.insertAdjacentHTML('beforeend', stateBadge(p.merged_at ? 'merged' : p.state));
+  meta.insertAdjacentHTML('beforeend', `<span class="rd-gh-pill rd-gh-pill-pos">+${p.additions}</span>`);
+  meta.insertAdjacentHTML('beforeend', `<span class="rd-gh-pill rd-gh-pill-neg">−${p.deletions}</span>`);
   bodyEl.appendChild(meta);
   const info = document.createElement('div');
   info.style.cssText = 'font-size:var(--font-scale-secondary);color:var(--text-mute)';
@@ -776,16 +860,17 @@ async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<
     body.appendChild(ui.empty('暂无 Commit'));
     return;
   }
-  commits.forEach((c, i) => {
-    if (i > 0) body.appendChild(document.createElement('div')).className = 'rd-gh-sep';
+  commits.forEach((c) => {
     const row = document.createElement('div');
     row.className = 'rd-gh-row';
     row.innerHTML = `
-      <div class="rd-gh-title">
-        <span class="rd-gh-mono">${escapeHtml(c.sha.slice(0, 7))}</span>
-        <span class="rd-gh-title-text">${escapeHtml((c.message || '').split('\n')[0])}</span>
+      <span class="rd-gh-commitdot"></span>
+      <div class="rd-gh-main">
+        <div class="rd-gh-title">
+          <span class="rd-gh-title-text">${escapeHtml((c.message || '').split('\n')[0])}</span>
+        </div>
+        <div class="rd-gh-sub"><span class="rd-gh-mono">${escapeHtml(c.sha.slice(0, 7))}</span> · ${escapeHtml(c.author ?? '未知')} · ${c.date ? relativeTime(c.date) : '未知时间'}</div>
       </div>
-      <div class="rd-gh-sub">${escapeHtml(c.author ?? '未知')} · ${c.date ? fmtDate(c.date) : '未知时间'}</div>
     `;
     body.appendChild(row);
   });
@@ -821,7 +906,10 @@ async function renderGhFiles(body: HTMLElement, repo: GithubRepoRef): Promise<vo
   if (ghFilesPath) {
     const segs = ghFilesPath.split('/');
     segs.forEach((seg, idx) => {
-      crumb.appendChild(document.createTextNode('/'));
+      const chev = document.createElement('span');
+      chev.className = 'gh-crumb-sep';
+      chev.innerHTML = iconSvg('chevron-right', { width: 12, height: 12 });
+      crumb.appendChild(chev);
       const b = ui.button({ label: seg, variant: 'ghost', size: 'sm', onClick: () => { ghFilesPath = segs.slice(0, idx + 1).join('/'); void renderGhFiles(body, repo); } });
       crumb.appendChild(b);
     });
@@ -834,12 +922,14 @@ async function renderGhFiles(body: HTMLElement, repo: GithubRepoRef): Promise<vo
 
   // 上一级目录入口(不在根目录时)
   if (ghFilesPath) {
-    list.appendChild(ui.listItem({
+    const upRow = ui.listItem({
       title: '..',
       subtitle: '上一级',
       icon: 'arrow-up',
       onClick: () => { ghFilesPath = ghFilesPath.split('/').slice(0, -1).join('/'); void renderGhFiles(body, repo); },
-    }));
+    });
+    upRow.classList.add('gh-file-row');
+    list.appendChild(upRow);
   }
 
   let items: ContentDto[];
@@ -855,19 +945,23 @@ async function renderGhFiles(body: HTMLElement, repo: GithubRepoRef): Promise<vo
   }
   for (const it of items) {
     if (it.typ === 'dir') {
-      list.appendChild(ui.listItem({
+      const row = ui.listItem({
         title: it.name,
         subtitle: '目录',
         icon: 'package',
         onClick: () => { ghFilesPath = it.path; void renderGhFiles(body, repo); },
-      }));
+      });
+      row.classList.add('gh-file-row');
+      list.appendChild(row);
     } else {
-      list.appendChild(ui.listItem({
+      const row = ui.listItem({
         title: it.name,
-        subtitle: `${it.size} B`,
-        icon: 'file-text',
+        subtitle: fmtSize(it.size),
+        icon: fileIcon(it.name),
         onClick: () => void openGhFile(it, repo),
-      }));
+      });
+      row.classList.add('gh-file-row');
+      list.appendChild(row);
     }
   }
 }
@@ -910,16 +1004,19 @@ async function renderGhEvents(body: HTMLElement, repo: GithubRepoRef): Promise<v
     body.appendChild(ui.empty('暂无动态'));
     return;
   }
-  events.forEach((ev, i) => {
-    if (i > 0) body.appendChild(document.createElement('div')).className = 'rd-gh-sep';
+  events.forEach((ev) => {
     const row = document.createElement('div');
-    row.className = 'rd-gh-row';
+    row.className = 'rd-gh-row rd-gh-timeline';
     row.innerHTML = `
-      <div class="rd-gh-title">
-        ${iconSvg(eventIcon(ev.typ), { width: 14, height: 14, class: 'rd-gh-event-icon' })}
-        <span class="rd-gh-title-text">${escapeHtml(ev.summary || ev.typ)}</span>
+      <div class="rd-gh-tl-rail">
+        <span class="rd-gh-tl-dot">${iconSvg(eventIcon(ev.typ), { width: 13, height: 13 })}</span>
       </div>
-      <div class="rd-gh-sub">${escapeHtml(ev.typ)}${ev.actor ? ' · ' + escapeHtml(ev.actor) : ''} · ${relativeTime(ev.created_at)}</div>
+      <div class="rd-gh-main">
+        <div class="rd-gh-title">
+          <span class="rd-gh-title-text">${escapeHtml(ev.summary || ev.typ)}</span>
+        </div>
+        <div class="rd-gh-sub">${escapeHtml(ev.typ)}${ev.actor ? ' · ' + escapeHtml(ev.actor) : ''} · ${relativeTime(ev.created_at)}</div>
+      </div>
     `;
     body.appendChild(row);
   });
@@ -937,37 +1034,52 @@ async function renderGhDetails(body: HTMLElement, repo: GithubRepoRef): Promise<
   }
   body.innerHTML = '';
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;flex-direction:column;gap:12px;padding:12px';
+  wrap.className = 'gh-detail';
   body.appendChild(wrap);
 
-  const title = document.createElement('div');
-  title.style.cssText = 'font-size:var(--font-scale-title);font-weight:600;word-break:break-all';
+  // Hero:仓库全名 + 语言 pill + 描述
+  const hero = document.createElement('div');
+  hero.className = 'gh-detail-hero';
+  const titleRow = document.createElement('div');
+  titleRow.className = 'gh-detail-title';
+  const title = document.createElement('span');
+  title.className = 'gh-detail-name';
   title.textContent = d.full_name;
-  wrap.appendChild(title);
-
+  titleRow.appendChild(title);
+  if (d.language) {
+    titleRow.insertAdjacentHTML('beforeend', `<span class="rd-gh-pill rd-gh-pill-label">${langDotHtml(d.language)}${escapeHtml(d.language)}</span>`);
+  }
+  hero.appendChild(titleRow);
   if (d.description) {
     const desc = document.createElement('div');
-    desc.style.cssText = 'font-size:var(--font-scale-body);color:var(--text-mute);line-height:1.6';
+    desc.className = 'gh-detail-desc';
     desc.textContent = d.description;
-    wrap.appendChild(desc);
+    hero.appendChild(desc);
   }
+  wrap.appendChild(hero);
 
+  // 元信息行(GitHub 式):★ 星标 · forks · issues · 默认分支
   const meta = document.createElement('div');
-  meta.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center';
-  if (d.language) meta.appendChild(ui.badge({ text: d.language, variant: 'default' }));
-  meta.appendChild(ui.badge({ text: `★ ${d.stargazers_count}`, variant: 'default' }));
-  meta.appendChild(ui.badge({ text: `fork ${d.forks_count}`, variant: 'default' }));
-  meta.appendChild(ui.badge({ text: `open issues ${d.open_issues_count}`, variant: 'default' }));
-  meta.appendChild(ui.badge({ text: `default branch ${d.default_branch}`, variant: 'muted' }));
+  meta.className = 'gh-detail-meta';
+  meta.innerHTML = `
+    <span class="gh-meta-item">${iconSvg('star', { width: 14, height: 14 })}<b>${d.stargazers_count}</b></span>
+    <span class="gh-meta-item">${iconSvg('git-branch', { width: 14, height: 14 })}<b>${d.forks_count}</b></span>
+    <span class="gh-meta-item">${iconSvg('alert-circle', { width: 14, height: 14 })}<b>${d.open_issues_count}</b></span>
+    <span class="gh-meta-item">${iconSvg('git-branch', { width: 14, height: 14 })}<span class="gh-meta-branch">${escapeHtml(d.default_branch)}</span></span>
+  `;
   wrap.appendChild(meta);
 
-  const readmeTitle = document.createElement('div');
-  readmeTitle.style.cssText = 'font-size:var(--font-scale-body);font-weight:600;color:var(--text-mute)';
-  readmeTitle.textContent = 'README';
-  wrap.appendChild(readmeTitle);
+  // README 卡(带头部标题,主体滚动)
+  const readmeCard = document.createElement('div');
+  readmeCard.className = 'gh-readme-card';
+  const readmeHead = document.createElement('div');
+  readmeHead.className = 'gh-readme-head';
+  readmeHead.textContent = 'README';
+  readmeCard.appendChild(readmeHead);
   const readmeEl = document.createElement('pre');
-  readmeEl.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:var(--font-scale-secondary);line-height:1.6;margin:0;max-height:320px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--font-mono)';
-  wrap.appendChild(readmeEl);
+  readmeEl.className = 'gh-readme-body';
+  readmeCard.appendChild(readmeEl);
+  wrap.appendChild(readmeCard);
   try {
     const root = await call<ContentDto[]>('github_get_content', { owner: repo.owner, repo: repo.repo, path: '' });
     const readme = root.find((x) => x.typ === 'file' && x.name.toLowerCase().startsWith('readme'));
@@ -983,9 +1095,39 @@ async function renderGhDetails(body: HTMLElement, repo: GithubRepoRef): Promise<
 }
 
 // ── GitHub 工具函数(自 rightDrawer 迁入)────────────────────────────────
+// 语言色点:GitHub 原生色板映射,未知语言回退灰(仓库树 + 详情卡共用)
+const LANG_COLORS: Record<string, string> = {
+  Rust: '#dea584', TypeScript: '#3178c6', JavaScript: '#f1e05a', Python: '#3572A5',
+  Go: '#00ADD8', Java: '#b07219', C: '#555555', 'C++': '#f34b7d', 'C#': '#178600',
+  CSS: '#663399', HTML: '#e34c26', Shell: '#89e051', Swift: '#F05138', Kotlin: '#A97BFF',
+  Vue: '#41b883', Ruby: '#701516', Dart: '#00B4AB', PHP: '#4F5D95', Lua: '#000080',
+  Zig: '#ec915c', Elixir: '#6e4a7e', Haskell: '#5e5086', R: '#198CE7', Scala: '#c22d40',
+};
+function langColor(lang: string | null | undefined): string {
+  return (lang && LANG_COLORS[lang]) || '#6e7681';
+}
+function langDotHtml(lang: string | null | undefined): string {
+  return `<span class="gh-lang-dot" style="background:${langColor(lang)}"></span>`;
+}
 function stateBadge(state: string): string {
-  const variant = state === 'open' ? 'success' : 'muted';
-  return `<span class="ui-badge ui-badge-${variant}">${escapeHtml(state)}</span>`;
+  const cls = state === 'open' ? 'open' : (state === 'merged' || state === '已合并' ? 'merged' : 'closed');
+  return `<span class="rd-gh-pill rd-gh-pill-${cls}">${escapeHtml(state)}</span>`;
+}
+function fmtSize(n: number): string {
+  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+  return `${n} B`;
+}
+function fileIcon(name: string): IconName {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  if (['ts', 'tsx', 'js', 'jsx', 'rs', 'py', 'go', 'java', 'c', 'cpp', 'h', 'rb', 'php', 'sh', 'css', 'html', 'vue', 'swift', 'kt'].includes(ext)) return 'file-code';
+  if (['json', 'yaml', 'yml', 'toml'].includes(ext)) return 'file-json';
+  if (['md', 'txt', 'log'].includes(ext)) return 'file-text';
+  if (['zip', 'tar', 'gz', '7z'].includes(ext)) return 'file-zip';
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext)) return 'image';
+  if (['pdf'].includes(ext)) return 'file-pdf';
+  if (['csv', 'xlsx', 'xls'].includes(ext)) return 'file-excel';
+  return 'file-text';
 }
 function eventIcon(typ: string): IconName {
   const map: Record<string, IconName> = {

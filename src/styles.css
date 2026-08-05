@@ -34,6 +34,14 @@
   /* 自己的消息气泡:各主题独立预设 */
   --bubble-self: #1e5c4b;        /* WhatsApp 式深绿,融入纯黑 */
   --bubble-self-text: #e5e5e5;
+  /* GitHub 风格色板(GitHub 窗口专用):仓库名/标签/状态色 */
+  --gh-accent: #58a6ff;          /* 仓库名/链接(蓝) */
+  --gh-orange: #f78166;          /* 活动标签下划线 */
+  --gh-green: #3fb950;           /* open / 新增 */
+  --gh-purple: #bc8cff;          /* closed / merged */
+  --gh-red: #f85149;             /* PR closed / 删除 */
+  --gh-label-bg: rgba(110, 118, 129, 0.16);
+  --gh-label-border: rgba(110, 118, 129, 0.4);
 
   /* 字体尺度 token — 苹果式层级:大标题负 tracking,正文 0,小字正 tracking */
   /* 2026-08 缩小两号:正文 13px,secondary 11px,micro 10px */
@@ -2035,15 +2043,17 @@ html.window-frame #titlebar-tools { height: 34px; }
   .ui-overlay, .ui-dialog, .ui-menu, .ui-badge,
   .composer-mic.recording, .composer-mic-timer.recording::before,
   .rr-popup, .rr-popup.pop-out, .rail-badge,
-  .chat-header .ch-head, .chat-header .ch-topic-chip, .chat-header .ch-online-block {
+  .chat-header .ch-head, .chat-header .ch-topic-chip, .chat-header .ch-online-block,
+  .gh-content-enter {
     animation: none !important;
   }
   .avatar, .icon-btn svg, .msg-action-btn svg, .plugin-icon-btn svg,
   .plugin-zip-btn svg, .rail-icon svg, .tab, .nav-tab, .plugin-tab,
   .view-btn, .rail-icon, .settings-nav-item,
-  .gh-token-badge, .gh-search-panel, .gh-guide-open,
+  .gh-token-badge, .gh-guide-open,
   .cc-btn, .cc-chat-row, .msg-attachment.vcard, .cc-share-row, .ch-ctl-btn,
-  .ch-online-block, .topic-bubble, .ch-head-clickable {
+  .ch-online-block, .topic-bubble, .ch-head-clickable,
+  .gh-tab, .gh-tab-indicator, .rd-gh-row {
     transition: none !important;
   }
 }
@@ -2090,35 +2100,183 @@ html.window-frame #titlebar-tools { height: 34px; }
 .rd-tabs-gh { overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; flex-wrap: nowrap; }
 .rd-tabs-gh::-webkit-scrollbar { display: none; }
 
-/* Task A: GitHub 编辑区 VSCode 式 Tab 条(顶部,紧凑堆叠,active 下划线高亮) */
-.gh-editor-tabs {
-  flex-shrink: 0; display: flex; align-items: stretch;
-  border-bottom: 1px solid var(--border); background: var(--panel);
+/* GitHub 编辑区:玻璃 header(工具条行 + GitHub 仓库导航式标签栏,同一块玻璃材质) */
+.gh-header { flex-shrink: 0; position: sticky; top: 0; z-index: 10; }
+.gh-header-toolbar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px 4px;
+}
+.gh-tabs-row {
+  display: flex; padding: 0 8px;
   overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
 }
-.gh-editor-tabs::-webkit-scrollbar { display: none; }
-.gh-editor-tab {
-  display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; flex-shrink: 0;
-  background: transparent; border: none; border-bottom: 2px solid transparent;
-  color: var(--text-faint); font-size: var(--font-scale-body); font-family: inherit;
-  cursor: pointer; white-space: nowrap;
+.gh-tabs-row::-webkit-scrollbar { display: none; }
+
+/* GitHub 仓库导航式标签栏:图标 + 文字,活动项橙色下划线,细线滑动(200ms 临界阻尼) */
+.gh-tabbar {
+  position: relative; display: inline-flex; align-items: center; gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.gh-tab {
+  position: relative; z-index: 1;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px 8px; border: none; background: none; cursor: pointer;
+  color: var(--text-faint); font-size: var(--font-scale-body); font-weight: 500;
+  font-family: inherit; white-space: nowrap; border-radius: 6px 6px 0 0;
   transition: color 120ms var(--ease-out), background 120ms var(--ease-out);
 }
-.gh-editor-tab svg { display: block; flex-shrink: 0; }
-.gh-editor-tab:hover { color: var(--text-mute); background: var(--capsule); }
-.gh-editor-tab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--text); background: var(--active); }
-.rd-gh-row { padding: 8px 16px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; transition: background var(--anim-duration) var(--anim-ease), transform 100ms var(--ease-out); }
+.gh-tab svg { display: block; flex-shrink: 0; }
+.gh-tab:hover { color: var(--text); background: color-mix(in srgb, var(--capsule) 60%, transparent); }
+.gh-tab.active { color: var(--text); font-weight: 600; }
+.gh-tab:focus-visible { outline: 2px solid var(--gh-accent); outline-offset: -2px; }
+.gh-tab-indicator {
+  position: absolute; bottom: -1px; left: 0; height: 2px; border-radius: 2px;
+  background: var(--gh-orange);
+  transition: transform 200ms var(--ease-out), width 200ms var(--ease-out);
+  will-change: transform, width;
+}
+
+/* 内容切换轻入场(非手势的离散切换用短淡入) */
+.gh-content-enter { animation: gh-content-in 180ms var(--ease-out) both; }
+@keyframes gh-content-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* GitHub 数据行:状态图标列 + 标题/meta 两行,圆角 hover + 按下回缩 */
+.rd-gh-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 120ms var(--ease-out), transform 100ms var(--ease-out);
+}
 .rd-gh-row:hover { background: var(--capsule); }
-.rd-gh-row:active { background: var(--border); transform: scale(0.99); }
-.rd-gh-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.rd-gh-title-text { font-size: var(--font-scale-body); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rd-gh-title .ui-badge { flex-shrink: 0; }
-.rd-gh-event-icon { flex-shrink: 0; color: var(--text-weak); }
-.rd-gh-sub { font-size: var(--font-scale-secondary); color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-gh-row:active { background: var(--active); transform: scale(0.99); }
+.rd-gh-main { flex: 1; min-width: 0; }
+.rd-gh-title { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.rd-gh-title-text { font-size: var(--font-scale-body); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex-shrink: 1; }
+.rd-gh-sub { font-size: var(--font-scale-secondary); color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
 .rd-gh-mono { font-family: var(--font-mono); color: var(--text-mute); flex-shrink: 0; }
-.rd-gh-pos { color: var(--success); }
-.rd-gh-neg { color: var(--danger); }
-.rd-gh-sep { height: 1px; background: color-mix(in srgb, var(--border) 55%, transparent); }
+.rd-gh-pos { color: var(--gh-green); font-family: var(--font-mono); font-weight: 600; }
+.rd-gh-neg { color: var(--gh-red); font-family: var(--font-mono); font-weight: 600; }
+
+/* 状态图标列(Issue/PR):GitHub 三态色 — open 绿 / closed·merged 紫 / PR closed 红 */
+.gh-status-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; }
+.gh-status-icon svg { display: block; }
+.gh-issue-open, .gh-pr-open { color: var(--gh-green); }
+.gh-issue-closed { color: var(--gh-purple); }
+.gh-pr-merged { color: var(--gh-purple); }
+.gh-pr-closed { color: var(--gh-red); }
+
+/* 提交圆点(Commits) */
+.rd-gh-commitdot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; background: var(--text-weak); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-weak) 20%, transparent); }
+
+/* GitHub 式标签 chip */
+.gh-label {
+  display: inline-block; padding: 0 8px; border-radius: 999px;
+  font-size: var(--font-scale-micro); font-weight: 500; line-height: 18px;
+  background: var(--gh-label-bg); color: var(--text-mute); border: 1px solid var(--gh-label-border);
+}
+
+/* 详情弹窗 / 语言 pill:GitHub 实心状态徽章(Open 绿 / Closed·Merged 紫) */
+.rd-gh-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 10px; border-radius: 999px;
+  font-size: var(--font-scale-micro); font-weight: 600; flex-shrink: 0;
+}
+.rd-gh-pill-open { background: var(--gh-green); color: #000; }
+.rd-gh-pill-closed { background: var(--gh-purple); color: #000; }
+.rd-gh-pill-merged { background: var(--gh-purple); color: #000; }
+.rd-gh-pill-label { background: var(--gh-label-bg); color: var(--text-mute); border: 1px solid var(--gh-label-border); }
+.rd-gh-pill-pos { background: var(--gh-label-bg); color: var(--gh-green); }
+.rd-gh-pill-neg { background: var(--gh-label-bg); color: var(--gh-red); }
+.rd-gh-pill .gh-lang-dot { width: 7px; height: 7px; }
+
+/* 动态时间线:圆点图标列 + 连接竖线(最后一行断线) */
+.rd-gh-timeline { position: relative; }
+.rd-gh-tl-rail { position: relative; flex-shrink: 0; width: 24px; align-self: stretch; display: flex; justify-content: center; }
+.rd-gh-tl-dot {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; margin-top: 6px;
+  background: var(--capsule); color: var(--text-mute);
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 55%, transparent);
+}
+.rd-gh-tl-dot svg { display: block; }
+.rd-gh-tl-rail::after {
+  content: ''; position: absolute; left: 50%; top: 34px; bottom: -6px;
+  width: 2px; transform: translateX(-50%);
+  background: color-mix(in srgb, var(--border-strong) 45%, transparent);
+}
+.rd-gh-timeline:last-child .rd-gh-tl-rail::after { display: none; }
+
+/* 侧边栏搜索(GitHub 式):ui-search 圆角字段 + 仓库/代码模式切换 */
+.gh-search { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 6px; flex-shrink: 0; }
+.gh-search-mode { display: inline-flex; gap: 2px; padding: 2px; align-self: flex-start; background: var(--capsule); border-radius: 999px; }
+.gh-search-mode-btn {
+  padding: 2px 10px; border: none; border-radius: 999px;
+  background: transparent; color: var(--text-mute);
+  font-size: var(--font-scale-micro); font-weight: 500; font-family: inherit; cursor: pointer;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.gh-search-mode-btn:hover { color: var(--text); }
+.gh-search-mode-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+
+/* 仓库树行(GitHub 式):图标瓦片 + 蓝色仓库名 + 右侧星标 */
+.gh-repo-row { border-radius: var(--radius-sm); margin: 0 6px; gap: 10px; }
+.gh-repo-icon {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  background: var(--capsule); color: var(--text-mute);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.gh-repo-row .ui-list-title { color: var(--gh-accent); font-weight: 500; }
+.gh-repo-row.active .ui-list-title { font-weight: 600; }
+.gh-repo-row:hover .gh-repo-icon { color: var(--text); }
+.gh-repo-row.active { background: var(--active); }
+.gh-repo-row.active .gh-repo-icon { background: color-mix(in srgb, var(--gh-accent) 18%, transparent); color: var(--gh-accent); }
+.gh-repo-stars { flex-shrink: 0; font-size: var(--font-scale-micro); color: var(--text-weak); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.gh-lang-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: 1px; flex-shrink: 0; }
+.gh-bound-tag {
+  display: inline-block; padding: 0 6px; border-radius: 999px;
+  font-size: var(--font-scale-micro); font-weight: 600;
+  background: var(--gh-label-bg); color: var(--gh-green); border: 1px solid var(--gh-label-border);
+}
+
+/* 空状态引导:柔光圆图标 + 标题 + 描述 + 主按钮 */
+.gh-empty { padding: 28px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.gh-empty-icon {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--capsule); color: var(--text-mute);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 2px;
+}
+.gh-empty-title { font-size: var(--font-scale-body); font-weight: 600; color: var(--text); }
+.gh-empty-desc { font-size: var(--font-scale-micro); color: var(--text-faint); line-height: 1.7; max-width: 200px; }
+
+/* 文件 tab:面包屑 chevron 分隔 + 行圆角 */
+.gh-crumb-sep { display: inline-flex; align-items: center; color: var(--text-faint); flex-shrink: 0; }
+.gh-file-row { border-radius: var(--radius-sm); margin: 0 4px; }
+
+/* Token 徽章状态点(已配置 = 绿底 + 白点) */
+.gh-badge-dot {
+  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85); margin-right: 5px; vertical-align: 1px;
+}
+
+/* 详情:Hero + 元信息行 + README 卡 */
+.gh-detail { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+.gh-detail-hero { display: flex; flex-direction: column; gap: 6px; }
+.gh-detail-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gh-detail-name { font-size: var(--font-scale-page); font-weight: 600; letter-spacing: -0.3px; color: var(--text); word-break: break-all; }
+.gh-detail-desc { font-size: var(--font-scale-body); color: var(--text-mute); line-height: 1.6; }
+.gh-detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+.gh-meta-item { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-scale-secondary); color: var(--text-mute); }
+.gh-meta-item svg { display: block; color: var(--text-weak); }
+.gh-meta-item b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.gh-meta-branch { font-family: var(--font-mono); color: var(--text); }
+.gh-readme-card { border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border); background: var(--panel); }
+.gh-readme-head { padding: 8px 12px; font-size: var(--font-scale-secondary); font-weight: 600; color: var(--text-mute); background: var(--capsule); }
+.gh-readme-body { white-space: pre-wrap; word-break: break-word; font-size: var(--font-scale-secondary); line-height: 1.6; margin: 0; max-height: 320px; overflow-y: auto; padding: 12px; font-family: var(--font-mono); }
 
 /* Token 徽章可点击(Apple §16 状态即入口):点击打开设置;按下即时回缩(§1) */
 .gh-token-badge {
@@ -2128,14 +2286,6 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .gh-token-badge:hover { filter: brightness(1.12); }
 .gh-token-badge:active { transform: scale(0.94); }
-
-/* 搜索面板平滑展开/收起(§7 对称 + §4 行为而非固定动画):max-height 0→260 + 淡入 */
-.gh-search-panel {
-  display: flex; flex-direction: column; gap: 10px;
-  max-height: 0; opacity: 0; overflow-y: hidden;
-  transition: max-height 240ms var(--ease-out), opacity 200ms var(--ease-out);
-}
-.gh-search-panel.open { max-height: 260px; opacity: 1; overflow-y: auto; }
 
 /* Token 获取教程:可展开说明卡(§6 常见路径前置,细节一级隐藏) */
 .gh-token-guide {
