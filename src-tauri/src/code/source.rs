@@ -19,7 +19,7 @@ use crate::github::types::{
 use super::local::{self, LocalEntry, SandboxMode};
 
 /// 统一代码条目(与语言无关的目录/文件描述)。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct CodeEntry {
     pub path: String,
     pub name: String,
@@ -74,6 +74,37 @@ impl CodeSource {
             }
         }
         None
+    }
+
+    /// 命令层/界面层用:显式 local_path 或 owner/repo 构造。
+    /// local_path 非空且为目录 → Local(Any 模式);已给但不存在 → Err;owner+repo → Github;皆无 → Err。
+    pub fn from_parts(
+        local_path: Option<String>,
+        owner: Option<String>,
+        repo: Option<String>,
+    ) -> AppResult<CodeSource> {
+        if let Some(local) = local_path {
+            if local.trim().is_empty() {
+                return Err(AppError::Core("缺少仓库参数:需提供 local_path 或 owner/repo".into()));
+            }
+            let p = Path::new(&local);
+            if !p.is_dir() {
+                return Err(AppError::Core(format!("本地路径不存在: {local}")));
+            }
+            return Ok(CodeSource::Local {
+                root: p.to_path_buf(),
+                sandbox_mode: SandboxMode::Any,
+            });
+        }
+        if let (Some(o), Some(r)) = (owner, repo) {
+            if !o.trim().is_empty() && !r.trim().is_empty() {
+                return Ok(CodeSource::Github {
+                    owner: o.trim().to_string(),
+                    repo: r.trim().to_string(),
+                });
+            }
+        }
+        Err(AppError::Core("缺少仓库参数:需提供 local_path 或 owner/repo".into()))
     }
 
     /// 读文件(本地沙箱 / GitHub contents API);≤64KB 超限截断同 local。
@@ -587,5 +618,79 @@ mod tests {
         let found = rt.block_on(source.find_files(&client, &auth, "main")).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].path, "src/main.rs");
+    }
+
+    #[test]
+    fn test_from_parts_local_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let source = CodeSource::from_parts(
+            Some(root.to_string_lossy().into_owned()),
+            None,
+            None,
+        )
+        .unwrap();
+        match source {
+            CodeSource::Local {
+                root: r,
+                sandbox_mode,
+            } => {
+                assert!(r.is_dir());
+                assert_eq!(sandbox_mode, SandboxMode::Any);
+            }
+            other => panic!("expected Local, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_from_parts_local_missing_dir_errors() {
+        let err = CodeSource::from_parts(Some("/nonexistent/definitely-missing".into()), None, None)
+            .unwrap_err();
+        assert!(err.to_string().contains("不存在"), "{err}");
+    }
+
+    #[test]
+    fn test_from_parts_github() {
+        let source =
+            CodeSource::from_parts(None, Some("owner".into()), Some("repo".into())).unwrap();
+        match source {
+            CodeSource::Github { owner, repo } => {
+                assert_eq!(owner, "owner");
+                assert_eq!(repo, "repo");
+            }
+            other => panic!("expected Github, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_from_parts_none_errors() {
+        for (local, owner, repo) in [
+            (None, None, None),
+            (Some("".into()), None, None),
+            (None, Some("owner".into()), None),
+            (None, None, Some("repo".into())),
+            (Some("  ".into()), Some("o".into()), Some("r".into())),
+        ] {
+            assert!(
+                CodeSource::from_parts(local, owner, repo).is_err(),
+                "应拒绝缺参组合"
+            );
+        }
+    }
+
+    #[test]
+    fn test_code_entry_serializes_shape() {
+        let entry = CodeEntry {
+            path: "src/main.rs".into(),
+            name: "main.rs".into(),
+            is_dir: false,
+            size: 12,
+        };
+        let v = serde_json::to_value(&entry).unwrap();
+        assert_eq!(
+            v,
+            json!({ "path": "src/main.rs", "name": "main.rs", "is_dir": false, "size": 12 })
+        );
     }
 }

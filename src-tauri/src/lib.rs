@@ -387,6 +387,9 @@ pub fn run() {
             commands::github_search_code,
             commands::github_list_events,
             commands::github_get_content,
+            // D2 项目浏览:命令层
+            commands::project_list_tree,
+            commands::project_read_file,
             // 原生系统通知(user-notify)
             notifications::show_notification,
             notifications::get_notification_permission,

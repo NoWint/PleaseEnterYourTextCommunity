@@ -33,12 +33,14 @@ use crate::github::api::{
     url_list_pulls, url_repo, url_search_code, url_search_repo,
 };
 use crate::github::client::GithubAuth;
+use crate::github::client::GithubClient;
 use crate::github::types::{
     parse_commit_list, parse_content, parse_content_list, parse_event_list, parse_issue,
     parse_issue_list, parse_pull_list, parse_repo, parse_search_code, parse_search_repo,
     CommitDto, ContentDto, EventDto, IssueDto, PullDto, RepoDto, SearchCodeDto, SearchRepoDto,
 };
 use crate::tools::github::filter_out_pull_requests;
+use crate::code::{CodeEntry, CodeSource};
 
 /// SP5 Task 11: 区分"字段缺失"(None, 不更新) / "字段为 null"(Some(None), 清空) /
 /// "字段有值"(Some(Some(v)), 更新)。
@@ -4158,6 +4160,62 @@ pub async fn github_get_content(
     }
 }
 
+// ---- D2 项目浏览命令 ----
+
+/// 列出项目目录(单层;显式 local_path 或 owner/repo 构造 CodeSource,不依赖 Bot)。
+#[tauri::command]
+pub async fn project_list_tree(
+    state: State<'_, AppState>,
+    local_path: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+    prefix: Option<String>,
+) -> AppResult<Vec<CodeEntry>> {
+    project_list_tree_impl(&state.db, &state.github, local_path, owner, repo, prefix).await
+}
+
+/// 可测核心:解析 CodeSource → list_tree(Local 直读 / Github contents API)。
+pub async fn project_list_tree_impl(
+    db: &Arc<Db>,
+    github: &GithubClient,
+    local_path: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+    prefix: Option<String>,
+) -> AppResult<Vec<CodeEntry>> {
+    let source = CodeSource::from_parts(local_path, owner, repo)?;
+    let auth = github_auth(db).await?;
+    source
+        .list_tree(github, &auth, prefix.as_deref().unwrap_or(""))
+        .await
+}
+
+/// 读取项目文件(≤64KB;显式 local_path 或 owner/repo,不依赖 Bot)。
+#[tauri::command]
+pub async fn project_read_file(
+    state: State<'_, AppState>,
+    local_path: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+    path: String,
+) -> AppResult<String> {
+    project_read_file_impl(&state.db, &state.github, local_path, owner, repo, path).await
+}
+
+/// 可测核心:解析 CodeSource → read_file(Local 沙箱直读 / Github base64 解码)。
+pub async fn project_read_file_impl(
+    db: &Arc<Db>,
+    github: &GithubClient,
+    local_path: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+    path: String,
+) -> AppResult<String> {
+    let source = CodeSource::from_parts(local_path, owner, repo)?;
+    let auth = github_auth(db).await?;
+    source.read_file(github, &auth, &path).await
+}
+
 #[cfg(test)]
 mod github_tests {
     use super::*;
@@ -4304,5 +4362,77 @@ mod github_tests {
         let dtos = map_repo_rows(rows);
         assert_eq!(dtos[0].id, 7);
         assert_eq!(dtos[0].full_name, "a/b");
+    }
+
+    // ---- D2 项目浏览命令(本地端到端,不触发网络)----
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_project_commands_local_end_to_end() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("README.md"), "# hi").unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let local = root.to_string_lossy().into_owned();
+
+        // 无 token 的 db + 共享 client(Local 分支不触发网络)
+        let td = test_db().await;
+        let github = GithubClient::new();
+
+        let entries = project_list_tree_impl(
+            &td.db,
+            &github,
+            Some(local.clone()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"src"), "根应含 src:{names:?}");
+        assert!(names.contains(&"README.md"), "根应含 README.md:{names:?}");
+
+        let src = project_list_tree_impl(
+            &td.db,
+            &github,
+            Some(local.clone()),
+            None,
+            None,
+            Some("src".into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(src.len(), 1);
+        assert_eq!(src[0].name, "main.rs");
+        assert!(!src[0].is_dir);
+
+        let content = project_read_file_impl(
+            &td.db,
+            &github,
+            Some(local.clone()),
+            None,
+            None,
+            "src/main.rs".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(content, "fn main() {}\n");
+
+        let err =
+            project_read_file_impl(&td.db, &github, None, None, None, "x".into()).await.unwrap_err();
+        assert!(err.to_string().contains("缺少仓库参数"), "{err}");
+
+        let err = project_read_file_impl(
+            &td.db,
+            &github,
+            Some("/nonexistent/definitely-missing".into()),
+            None,
+            None,
+            "x".into(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("不存在"), "{err}");
     }
 }
