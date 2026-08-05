@@ -1,4 +1,5 @@
 import { call, transformBlobURL } from '../api.js';
+import { listen } from '@tauri-apps/api/event';
 import { state } from '../state.js';
 import { renderMessage, bindMessageActions, clearReactionsCache, clearPinnedCache, updatePinnedCache, setReadCounts, type GroupRole } from './message.js';
 import { resolveMessageText } from '../utils/envelope.js';
@@ -9,7 +10,9 @@ import { escapeHtml } from '../components/escape.js';
 import { colorHex } from '../components/avatar.js';
 import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
 import { initSegmenter, computeTopics, type TopicCluster } from '../utils/wordAnalysis.js';
+import { getSummaryPrefs } from '../utils/summaryPrefs.js';
 import { iconSvg } from '../components/icon.js';
+import { initSummaryBubble, scheduleSummary, renderBubbleHtml, bindBubbleClick, setFallbackClusters, applySummaryEvent } from '../components/summaryBubble.js';
 import { openEncryptionPopup } from '../components/encryptionPopup.js';
 import { openOnlinePopup } from '../components/onlinePopup.js';
 import { isOnline, lastSeenText } from '../utils/online.js';
@@ -88,6 +91,10 @@ export async function renderChatView(chatId: number): Promise<void> {
   state.currentChatId = chatId;
   (state as LegacyState).homeMode = false;
   main.dataset.renderedChatId = String(chatId);
+  // 主题气泡状态机:每次打开会话挂接当前 chatId(幂等,首次载入 cache 恢复 done)
+  initSummaryBubble(chatId, resolveMessageText);
+  // summary-event 全局监听只挂一次(streaming/done/error → 更新气泡 DOM)
+  bindSummaryEvents();
   // 加载态
   main.innerHTML = '';
   const wrap = document.createElement('div');
@@ -697,6 +704,7 @@ let topicTimer: ReturnType<typeof setTimeout> | null = null;
 let topicWords: TopicCluster[] = [];
 
 // 防抖 300ms: 切换会话/新消息触发, 避免频繁重算。懒加载分词, 失败静默。
+// LLM 模式走 summary 队列(气泡状态机流式/失败降级);词频/off 走原 computeTopics。
 function scheduleTopicRefresh(): void {
   if (topicTimer) clearTimeout(topicTimer);
   topicTimer = setTimeout(async () => {
@@ -709,17 +717,46 @@ function scheduleTopicRefresh(): void {
       document.querySelector('[data-topic-chip="1"]')?.remove();
       return;
     }
-    const clusters = computeTopics(state.messages, resolveMessageText, 4);
-    console.log('[topic] clusters:', clusters.map((c) => `${c.words.join(' ')}:${c.score.toFixed(2)}`).join(', '));
-    topicWords = clusters;
+    const prefs = getSummaryPrefs();
     const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
     if (!chip) return;
+    if (prefs.mode === 'llm') {
+      // LLM 模式:先算词频簇作降级兜底,再交给气泡状态机(流式追加/失败降级)
+      setFallbackClusters(computeTopics(state.messages, resolveMessageText, 4));
+      const st = await scheduleSummary(state.messages, resolveMessageText, prefs.contextN);
+      if (st) {
+        chip.innerHTML = renderBubbleHtml(st);
+        bindBubbleClick(chip);
+      }
+      return;
+    }
+    // 词频/off:原 computeTopics
+    const clusters = computeTopics(state.messages, resolveMessageText, 4);
+    topicWords = clusters;
     chip.innerHTML = renderTopicBubbleHtml(clusters);
     chip.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
       openWordAnalysisPopup(e.currentTarget as HTMLElement, topicWords);
     });
   }, 300);
+}
+
+// 全局 summary-event 监听:streaming/done/error → 更新气泡 DOM。
+// 只挂一次(会话切换/重渲染不重复 listen),由 renderChatView 打开会话时调用。
+let summaryEventBound = false;
+function bindSummaryEvents(): void {
+  if (summaryEventBound) return;
+  summaryEventBound = true;
+  void listen('summary-event', (ev) => {
+    const p = ev.payload as { chatId: number; lane: string; status: string; delta?: string; result?: string; error?: { code: string } };
+    const st = applySummaryEvent(p);
+    if (!st) return;
+    const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
+    if (chip) {
+      chip.innerHTML = renderBubbleHtml(st);
+      bindBubbleClick(chip);
+    }
+  });
 }
 
 // 头部按钮组点击绑定:搜索/相册/「更多」+ ch-head 点击弹群信息。

@@ -4353,3 +4353,20 @@ body {
   display: inline-flex; transition: color 120ms var(--ease-out), background 120ms var(--ease-out);
 }
 .vg-remove:hover { color: var(--danger); background: var(--danger-bg); }
+
+/* 主题气泡呼吸灯:summarizing 状态阴影脉动 */
+.topic-bubble.breathing {
+  animation: bubble-breathe 1.6s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45);
+}
+@keyframes bubble-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }
+  50% { box-shadow: 0 0 12px 4px rgba(52, 199, 89, 0.25); }
+}
+/* 标签引用 chip */
+.mention-chip {
+  display: inline-block; padding: 1px 6px; margin: 0 2px;
+  border-radius: 6px; background: rgba(52, 199, 89, 0.12); color: var(--text);
+  font-size: 12px; cursor: pointer; text-decoration: none;
+}
+.mention-chip:hover { background: rgba(52, 199, 89, 0.22); }
