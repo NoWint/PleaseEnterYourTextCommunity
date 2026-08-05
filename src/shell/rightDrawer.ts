@@ -87,22 +87,16 @@ export function renderRightDrawer(): void {
   const collapsed = !state.rightDrawerOpen || !state.detailPanelOpen;
   drawer.classList.toggle('collapsed', collapsed);
   if (!state.detailPanelOpen) {
-    showExpandButton();
     unbindOutsideDismiss();
     return;
   }
   bindOutsideDismiss();
-
-  // detail panel 展开时清理残留的 expand 按钮,并去掉消息区让位类
-  document.querySelectorAll('#chat-main .detail-expand').forEach((el) => el.remove());
-  document.getElementById('chat-main')?.classList.remove('detail-collapsed');
 
   const tab = state.detailTab;
   const tabsHtml = `
     <span class="rd-tab ${tab === 'members' ? 'active' : ''}" data-tab="members">${iconSvg('users', { width: 14, height: 14 })}<span>成员</span></span>
     <span class="rd-tab ${tab === 'media' ? 'active' : ''}" data-tab="media">${iconSvg('image', { width: 14, height: 14 })}<span>媒体消息</span></span>
     <span class="rd-tab ${tab === 'archive' ? 'active' : ''}" data-tab="archive">${iconSvg('pin', { width: 14, height: 14 })}<span>存档消息</span></span>
-    <span class="rd-collapse" title="折叠">${iconSvg('chevron-right', { width: 16, height: 16 })}</span>
   `;
   drawer.innerHTML = `<div class="rd-tabs">${tabsHtml}</div><div id="rd-body" style="flex:1;overflow-y:auto"></div>`;
 
@@ -112,11 +106,6 @@ export function renderRightDrawer(): void {
       saveState();
       renderRightDrawer();
     });
-  });
-  drawer.querySelector<HTMLElement>('.rd-collapse')?.addEventListener('click', () => {
-    state.detailPanelOpen = false;
-    saveState();
-    renderRightDrawer();
   });
   void renderRdBody();
 }
@@ -140,10 +129,8 @@ function bindOutsideDismiss(): void {
     const target = e.target as Node;
     // 点击侧栏内部 → 不关 (成员/置顶内容可交互)
     if (drawer.contains(target)) return;
-    // 点击头部触发按钮 (members/pin) → 不关,交给按钮自身 toggle 逻辑
-    if ((e.target as HTMLElement).closest?.('.chat-header-btn[data-action]')) return;
-    // 点击折叠/展开按钮 → 不关
-    if ((e.target as HTMLElement).closest?.('.rd-collapse, .detail-expand')) return;
+    // 点击头部触发按钮 (members/pin / 「更多」) → 不关,交给按钮自身 toggle 逻辑
+    if ((e.target as HTMLElement).closest?.('.chat-header-btn[data-action], .ch-ctl-btn[data-ctl="more"]')) return;
     state.detailPanelOpen = false;
     saveState();
     renderRightDrawer();
@@ -156,26 +143,6 @@ function unbindOutsideDismiss(): void {
     document.removeEventListener('click', outsideClickHandler, true);
     outsideClickHandler = null;
   }
-}
-
-// detail panel 折叠时在 chat-main 右侧显示展开按钮
-function showExpandButton(): void {
-  const main = document.getElementById('chat-main');
-  if (!main) return;
-  if (main.querySelector('.detail-expand')) return;
-  // 标记:自己发的消息(右对齐)向右让出展开按钮区域
-  main.classList.add('detail-collapsed');
-  const btn = document.createElement('div');
-  btn.className = 'detail-expand';
-  btn.innerHTML = iconSvg('chevron-left', { width: 16, height: 16 });
-  btn.title = '展开详情面板';
-  btn.addEventListener('click', () => {
-    state.detailPanelOpen = true;
-    saveState();
-    renderRightDrawer();
-    btn.remove();
-  });
-  main.appendChild(btn);
 }
 
 async function renderRdBody(): Promise<void> {

@@ -144,20 +144,18 @@ export async function renderChatView(chatId: number): Promise<void> {
       : '';
     // 在线状态气泡:置于 ch-head 右侧,icon + 简要文字(群聊「N 人在线」/ 单聊「在线|最后活跃」)。
     const onlineBlock = buildOnlineBlockHtml(chatInfo, headerIsGroup);
-    // 右上角按钮组(恢复原 commit 的按钮,按现样式圆形气泡;跳过安全验证):
-    // 会话内搜索 / 媒体相册 / 成员 / 置顶 / 群信息(仅群聊)/ 加密锁
+    // 右上角按钮组:会话内搜索 / 媒体相册 / 加密锁 / 「更多」(最右侧,打开侧栏)。
+    // 群信息改由点击 ch-head 弹出;成员/置顶并入右侧栏。
     const ctrlButtons = `
       <button class="ch-ctl-btn" data-ctl="search" title="会话内搜索" aria-label="搜索">${iconSvg('search', { width: 16, height: 16 })}</button>
       <button class="ch-ctl-btn" data-ctl="gallery" title="媒体相册" aria-label="媒体相册">${iconSvg('image', { width: 16, height: 16 })}</button>
-      ${headerIsGroup ? `<button class="ch-ctl-btn" data-ctl="group" title="群信息" aria-label="群信息">${iconSvg('info', { width: 16, height: 16 })}</button>` : ''}
-      <button class="ch-ctl-btn" data-ctl="members" title="成员" aria-label="成员">${iconSvg('users', { width: 16, height: 16 })}</button>
-      <button class="ch-ctl-btn" data-ctl="pin" title="置顶" aria-label="置顶">${iconSvg('pin', { width: 16, height: 16 })}</button>
       ${lockBtn}
+      <button class="ch-ctl-btn" data-ctl="more" title="更多" aria-label="更多">${iconSvg('more-horizontal', { width: 16, height: 16 })}</button>
     `;
     main.innerHTML = `
       <div class="messages" id="messages">
         <div class="chat-header" data-header="1">
-          <div class="ch-head">
+          <div class="ch-head${headerIsGroup ? ' ch-head-clickable' : ''}">
             <div class="ch-head-row">
               ${headerAvatarHtml}
               <span class="ch-title">${escapeHtml(headerName || channelName(chatId))}</span>
@@ -724,8 +722,8 @@ function scheduleTopicRefresh(): void {
   }, 300);
 }
 
-// 头部右上角按钮组点击绑定:搜索/相册/成员/置顶/群信息。
-// 成员/置顶走 rightDrawer 的 detail tab toggle(与原 commit 一致)。
+// 头部按钮组点击绑定:搜索/相册/「更多」+ ch-head 点击弹群信息。
+// 「更多」打开 rightDrawer(展开 members tab);ch-head 点击弹群信息 popup(群聊)。
 function bindHeaderControls(main: HTMLElement, chatId: number): void {
   main.querySelector<HTMLElement>('[data-ctl="search"]')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -735,39 +733,26 @@ function bindHeaderControls(main: HTMLElement, chatId: number): void {
     e.stopPropagation();
     void import('../components/gallery.js').then(({ openGallery }) => openGallery(chatId));
   });
-  main.querySelector<HTMLElement>('[data-ctl="group"]')?.addEventListener('click', (e) => {
+  // 「更多」→ 开关右侧栏:已展开且停在 members → 折叠;否则展开 members
+  main.querySelector<HTMLElement>('[data-ctl="more"]')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    void import('../components/group/viewGroupDialog.js').then(({ openViewGroupDialog }) => {
-      openViewGroupDialog(chatId);
-    });
-  });
-  // 成员 / 置顶:切换 rightDrawer 对应 tab(折叠时展开)
-  const toggleTab = (tab: 'members' | 'pin'): void => {
-    if (state.detailPanelOpen && state.detailTab === tab && state.rightDrawerOpen) {
+    if (state.detailPanelOpen && state.detailTab === 'members' && state.rightDrawerOpen) {
       state.detailPanelOpen = false;
     } else {
       state.detailPanelOpen = true;
-      state.detailTab = tab;
+      state.detailTab = 'members';
       state.rightDrawerOpen = true;
     }
     saveState();
     void import('../shell/rightDrawer.js').then(({ renderRightDrawer }) => renderRightDrawer());
-    // 同步按钮 active 态
-    main.querySelectorAll<HTMLElement>('.ch-ctl-btn[data-ctl]').forEach((b) => {
-      b.classList.toggle('active', b.dataset.ctl === 'members' || b.dataset.ctl === 'pin');
-    });
-    const activeTab = state.detailPanelOpen ? state.detailTab : '';
-    main.querySelectorAll<HTMLElement>('.ch-ctl-btn[data-ctl]').forEach((b) => {
-      b.classList.toggle('active', b.dataset.ctl === activeTab);
-    });
-  };
-  main.querySelector<HTMLElement>('[data-ctl="members"]')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleTab('members');
   });
-  main.querySelector<HTMLElement>('[data-ctl="pin"]')?.addEventListener('click', (e) => {
+  // 点击 ch-head → 弹群信息 popup(群聊);单聊暂无动作
+  main.querySelector<HTMLElement>('.ch-head')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    toggleTab('pin');
+    if (!state.currentChatIsGroup) return;
+    void import('../components/group/viewGroupDialog.js').then(({ openViewGroupDialog }) => {
+      openViewGroupDialog(chatId);
+    });
   });
 }
 

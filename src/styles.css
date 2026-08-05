@@ -419,7 +419,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   top: 0;
   z-index: 5;
   flex-shrink: 0;
-  padding: 6px 16px 12px;
+  padding: 6px 8px 12px;
   /* iOS 26 Message 顶部控件组:居左横排,左侧主信息 + 在线 + 词频气泡 + 右侧按钮组 */
   display: flex; justify-content: flex-start; align-items: center; gap: 8px;
   /* 融入聊天流: 容器背景透明, 仅各控件自身带 panel 背景 */
@@ -450,14 +450,20 @@ html.window-frame #titlebar-tools { height: 34px; }
 .chat-header .ch-head {
   display: flex; align-items: center; gap: 4px;
   padding: 6px 16px;
+  /* 主信息气泡不允许被挤压变形:区域过窄时自身不收缩,长标题在内部省略 */
+  flex-shrink: 0; min-width: 0;
 }
-.chat-header .ch-head-row {
-  display: flex; align-items: center;
+/* 群聊:ch-head 可点击弹群信息(§1 响应 + §4 轻压反馈) */
+.chat-header .ch-head-clickable {
+  cursor: pointer;
+  transition: background 120ms var(--ease-out), transform 100ms var(--ease-out);
 }
+.chat-header .ch-head-clickable:hover { background: var(--surface-hover); }
+.chat-header .ch-head-clickable:active { transform: scale(0.98); }
 /* 词频气泡:独立于主信息气泡,放在其右侧,材质与 ch-head 一致(命名 topic-chip 避免与旧 topic-bar 混淆) */
 .chat-header .ch-topic-chip {
   display: flex; align-items: center;
-  padding: 7px 14px;
+  padding: 6px 16px;
 }
 /* 右侧按钮组:一个按钮一个圆形气泡,玻璃质感,居右 */
 .chat-header .ch-ctls {
@@ -480,8 +486,12 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .chat-header .ch-head-row {
   display: flex; align-items: center;
+  min-width: 0;
 }
-.chat-header .ch-title { font-size: var(--font-scale-page); font-weight: 600; letter-spacing: -0.3px; line-height: 1.3; }
+.chat-header .ch-title {
+  font-size: var(--font-scale-page); font-weight: 600; letter-spacing: -0.3px; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .chat-header .ch-members { font-size: var(--font-scale-secondary); color: var(--text-mute); font-weight: 500; margin-left: 8px; }
 .chat-header .ch-topic { font-size: var(--font-scale-secondary); color: var(--text-weak); margin-left: 8px; }
 /* 右侧圆形玻璃按钮(锁):iOS 26 控件组 —— 圆形气泡 + 半透明 + 细描边 */
@@ -503,11 +513,13 @@ html.window-frame #titlebar-tools { height: 34px; }
 /* 加密锁按钮:绿色高亮 */
 .chat-header .ch-ctl-btn[data-chat-enc] { color: var(--success); }
 .chat-header .ch-ctl-btn[data-chat-enc]:hover { color: var(--success); }
-/* 在线状态气泡:icon + 文字,胶囊圆角,置于 ch-head 右侧,可点击(§1 响应:按下回缩) */
+/* 在线状态气泡:icon + 文字,胶囊圆角,置于 ch-head 右侧,可点击(§1 响应:按下回缩)。
+   行高 28px 对齐 ch-head 头像高度,三气泡等高。 */
 .chat-header .ch-online-block {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 7px 12px;
+  padding: 6px 12px;
   color: var(--text-mute); font-size: var(--font-scale-secondary);
+  line-height: 28px;
   white-space: nowrap; cursor: pointer; user-select: none;
   transition: background 120ms var(--ease-out), transform 100ms var(--ease-out), color 120ms var(--ease-out);
 }
@@ -771,25 +783,6 @@ html.window-frame #titlebar-tools { height: 34px; }
 .rd-tab svg { display: block; flex-shrink: 0; }
 .rd-tab:hover { color: var(--text); }
 .rd-tab.active { font-weight: 600; color: var(--text); background: var(--active); }
-/* 折叠按钮:与开启按钮同侧的竖向 tab,贴抽屉左侧(与 chat-main 交界处),垂直居中 */
-.rd-collapse {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 24px; height: 48px;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--border);
-  border: 1px solid var(--border-strong);
-  border-left: none;
-  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
-  cursor: pointer;
-  color: var(--text-mute);
-  z-index: 10;
-  transition: color var(--anim-duration) var(--anim-ease), background var(--anim-duration) var(--anim-ease);
-}
-.rd-collapse:hover { color: var(--text); background: var(--border-strong); }
-.rd-collapse svg { display: block; }
 .rd-search { padding: 4px 12px 8px; background: var(--panel); }
 .rd-search input { width: 100%; padding: 5px 8px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-xs); color: var(--text); font-size: var(--font-scale-secondary); font-family: inherit; }
 .rd-group { color: var(--text-weak); font-size: var(--font-scale-secondary); font-weight: 600; letter-spacing: 0.2px; margin: 8px 0 4px; padding: 0 16px; }
@@ -830,7 +823,6 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .rd-role-select:hover { border-color: var(--border-hover); }
 .rd-role-select:focus { border-color: var(--text-weak); }
-.detail-expand { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 20px; height: 40px; background: var(--panel); border: 1px solid var(--border); border-right: none; border-radius: var(--radius-xs) 0 0 var(--radius-xs); cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-mute); z-index: 10; }
 
 /* 通用 */
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-weak); }
@@ -1541,8 +1533,9 @@ html.window-frame #titlebar-tools { height: 34px; }
 .msg-link-card:hover { border-color: var(--accent); }
 
 /* 会话主题词频气泡:独立气泡,置于主信息气泡右侧,材质与 ch-head 一致。
-   (类名 topic-chip 取代旧 topic-bar,避免与「栏目容器」语义混淆) */
-.ch-topic-chip { display: flex; align-items: center; }
+   (类名 topic-chip 取代旧 topic-bar,避免与「栏目容器」语义混淆)
+   区域过窄时被挤压,文字末尾省略号:容器/气泡/span 均需 min-width:0 允许收缩 */
+.ch-topic-chip { display: flex; align-items: center; min-width: 0; }
 .topic-bubble {
   display: inline-flex;
   align-items: center;
@@ -1551,8 +1544,11 @@ html.window-frame #titlebar-tools { height: 34px; }
   border-radius: var(--radius-sm);
   color: var(--text-mute);
   font-size: var(--font-scale-secondary);
+  /* 行高对齐 ch-head 头像高度(28px):3px×2 padding + 22px = 28px,三气泡等高 */
+  line-height: 22px;
   cursor: pointer;
   max-width: 300px;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1561,7 +1557,10 @@ html.window-frame #titlebar-tools { height: 34px; }
 .topic-bubble svg { flex-shrink: 0; color: var(--accent); }
 .topic-bubble:hover { color: var(--text); }
 .topic-bubble:active { transform: scale(0.97); }
-.topic-bubble span { overflow: hidden; text-overflow: ellipsis; }
+.topic-bubble span {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+}
 
 /* 词频弹窗(复用 .rr-popup 壳): 词云 + 词频列表 */
 .wc-popup { width: 420px; }
@@ -2013,7 +2012,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   .view-btn, .rail-icon, .settings-nav-item,
   .gh-token-badge, .gh-search-panel, .gh-guide-open,
   .cc-btn, .cc-chat-row, .msg-attachment.vcard, .cc-share-row, .ch-ctl-btn,
-  .ch-online-block, .topic-bubble {
+  .ch-online-block, .topic-bubble, .ch-head-clickable {
     transition: none !important;
   }
 }
@@ -3789,12 +3788,6 @@ body {
 .chat-header-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-xs); cursor: pointer; color: var(--text-mute); background: var(--capsule); border: none; }
 .chat-header-btn:hover { background: var(--border); color: var(--text); }
 .chat-header-btn.active { background: var(--active); color: var(--text); }
-
-/* === Detail expand button === */
-.detail-expand { position: absolute; top: 50%; right: 0; transform: translateY(-50%); width: 24px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--border); border: 1px solid var(--border-strong); border-right: none; border-radius: var(--radius-xs) 0 0 var(--radius-xs); cursor: pointer; color: var(--text-mute); }
-.detail-expand:hover { color: var(--text); }
-/* 抽屉折叠时(展开按钮出现):自己发的消息(右对齐)让出按钮区域,留一点空隙 */
-.chat-main.detail-collapsed .messages { padding-right: 28px; }
 
 /* === Command palette (SP7) === */
 .sr-item.selected { background: var(--active); }
