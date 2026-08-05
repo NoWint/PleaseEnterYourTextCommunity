@@ -312,7 +312,7 @@ function openAddRepoDialog(): void {
   const repoInput = ui.input({ placeholder: 'owner/repo,如 octocat/Hello-World', onEnter: () => void ghAddRepo(repoInput) });
   const addBtn = document.createElement('button');
   addBtn.type = 'button';
-  addBtn.className = 'gh-btn-icon primary';
+  addBtn.className = 'ui-icon-button gh-btn-icon primary'; // ui-icon-button 提供尺寸,gh-btn-icon 提供 GitHub 配色
   addBtn.title = '添加';
   addBtn.innerHTML = iconSvg('plus', { width: 16, height: 16 });
   addBtn.addEventListener('click', () => void ghAddRepo(repoInput));

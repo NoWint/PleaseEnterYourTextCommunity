@@ -2221,9 +2221,8 @@ html.window-frame #titlebar-tools { height: 34px; }
 .gh-search { padding: 8px 12px 10px; flex-shrink: 0; border-top: 1px solid var(--border); }
 
 /* GitHub 风格图标按钮:实底细边 + hover 提亮(按钮纯图标无文字)。
-   默认态用主题不透明色(--control-bg),主色 + 用 GitHub 绿 */
+   尺寸交给基类(ui-icon-button / ui-icon-button-sm),这里只负责 GitHub 配色 */
 .gh-btn-icon {
-  width: 28px; height: 28px;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--control-bg); color: var(--text); border: 1px solid var(--border-strong);
   border-radius: 6px; cursor: pointer;
