@@ -5,7 +5,6 @@ import { saveState } from '../persist.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { iconSvg, type IconName } from '../components/icon.js';
 import { ui } from '../components/ui.js';
-import { t } from '../i18n/index.js';
 import type { Page, WorkspaceDto } from '../types.js';
 
 export async function refreshWorkspaces(): Promise<void> {
@@ -20,12 +19,12 @@ export async function renderRail(): Promise<void> {
   rail.className = 'rail';
 
   const pages: Array<{ page: Page; icon: IconName; label: string; badge?: number }> = [
-    { page: 'messages', icon: 'message-circle', label: t('nav.messages'), badge: state.totalUnread },
-    { page: 'groups', icon: 'users', label: t('nav.groups') },
-    { page: 'work', icon: 'layout-grid', label: t('nav.work') },
-    { page: 'inbox', icon: 'inbox', label: t('nav.inbox'), badge: state.inboxUnread },
+    { page: 'messages', icon: 'message-circle', label: '消息', badge: state.totalUnread },
+    { page: 'groups', icon: 'users', label: '群组' },
+    { page: 'work', icon: 'layout-grid', label: '协作' },
+    { page: 'inbox', icon: 'inbox', label: '通知', badge: state.inboxUnread },
     // 机器人入口 — 位于通知下方
-    { page: 'bots', icon: 'robot', label: t('nav.bots') },
+    { page: 'bots', icon: 'robot', label: '机器人' },
   ];
 
   const pageIconsHtml = pages.map((p) => {
@@ -33,32 +32,32 @@ export async function renderRail(): Promise<void> {
     const badge = (p.badge ?? 0) > 0
       ? `<span class="rail-badge">${(p.badge! > 99) ? '99+' : p.badge}</span>`
       : '';
-    return `<div class="rail-icon ${active}" data-page="${p.page}" role="button" tabindex="0" aria-label="${p.label}" title="${p.label}">
+    return `<div class="rail-icon ${active}" data-page="${p.page}" title="${p.label}">
       ${iconSvg(p.icon, { width: 24, height: 24, strokeWidth: 1.5 })}
       ${badge}
     </div>`;
   }).join('');
 
   // 插件入口 — 位于协作按钮下方
-  const pluginIconHtml = `<div class="rail-icon ${state.currentPage === 'plugins' ? 'active' : ''}" id="rail-plugins" role="button" tabindex="0" aria-label="${t('nav.plugins')}" title="${t('nav.plugins')}">
+  const pluginIconHtml = `<div class="rail-icon ${state.currentPage === 'plugins' ? 'active' : ''}" id="rail-plugins" title="插件">
     ${iconSvg('package', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
   // 调试入口 — 消息原文列表 (位于插件按钮下方, separator 之上)
-  const debugIconHtml = `<div class="rail-icon ${state.currentPage === 'debug' ? 'active' : ''}" data-page="debug" role="button" tabindex="0" aria-label="${t('nav.debug')}" title="${t('nav.debug')}">
+  const debugIconHtml = `<div class="rail-icon ${state.currentPage === 'debug' ? 'active' : ''}" data-page="debug" title="调试">
     ${iconSvg('bug', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
-  const githubIconHtml = `<div class="rail-icon ${state.currentPage === 'github' ? 'active' : ''}" data-page="github" role="button" tabindex="0" aria-label="${t('nav.github')}" title="${t('nav.github')}">
+  const githubIconHtml = `<div class="rail-icon ${state.currentPage === 'github' ? 'active' : ''}" data-page="github" title="GitHub">
     ${iconSvg('git-branch', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
   // 智能中心入口 — 位于 GitHub 下方
-  const intelligenceIconHtml = `<div class="rail-icon ${state.currentPage === 'intelligence' ? 'active' : ''}" data-page="intelligence" role="button" tabindex="0" aria-label="智能" title="智能">
+  const intelligenceIconHtml = `<div class="rail-icon ${state.currentPage === 'intelligence' ? 'active' : ''}" data-page="intelligence" title="智能">
     ${iconSvg('sparkles', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
-  const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" role="button" tabindex="0" aria-label="${t('nav.settings')}" title="${t('nav.settings')}">
+  const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" title="设置">
     ${iconSvg('settings', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
@@ -73,7 +72,7 @@ export async function renderRail(): Promise<void> {
     ${githubIconHtml}
     ${intelligenceIconHtml}
     ${settingsIconHtml}
-    <div class="rail-avatar" id="rail-avatar" role="button" tabindex="0" aria-label="${t('nav.userMenu')}">${avatarHtml}</div>
+    <div class="rail-avatar" id="rail-avatar">${avatarHtml}</div>
   `;
 
   bindPageIcons();
@@ -84,7 +83,7 @@ export async function renderRail(): Promise<void> {
 function bindPluginsIcon(): void {
   const el = document.getElementById('rail-plugins');
   if (!el) return;
-  const activate = (): void => {
+  el.addEventListener('click', () => {
     state.currentPage = 'plugins';
     saveState();
     void renderRail().then(() => {
@@ -93,10 +92,6 @@ function bindPluginsIcon(): void {
         void renderMain();
       });
     });
-  };
-  el.addEventListener('click', activate);
-  el.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
   });
 }
 
@@ -121,13 +116,9 @@ function reportError(e: unknown): void {
 
 function bindPageIcons(): void {
   document.querySelectorAll<HTMLElement>('.rail-icon[data-page]').forEach((el) => {
-    const activate = (): void => {
+    el.addEventListener('click', () => {
       const page = el.dataset.page as Page;
       navigateToPage(page).catch(reportError);
-    };
-    el.addEventListener('click', activate);
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
     });
   });
 }
@@ -135,20 +126,16 @@ function bindPageIcons(): void {
 function bindAvatar(): void {
   const el = document.getElementById('rail-avatar');
   if (!el) return;
-  const activate = (e: Event): void => {
+  el.addEventListener('click', (e) => {
     e.stopPropagation();
     showUserMenu(el);
-  };
-  el.addEventListener('click', activate);
-  el.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(e); }
   });
 }
 
 function showUserMenu(anchor: HTMLElement): void {
   ui.menu(anchor, [
     {
-      label: t('userMenu.appearance'),
+      label: '外观设置',
       icon: 'palette',
       action: () => {
         state.currentSettingsSection = 'appearance';
@@ -156,21 +143,21 @@ function showUserMenu(anchor: HTMLElement): void {
       },
     },
     {
-      label: t('userMenu.account'),
+      label: '账号设置',
       icon: 'user',
       action: () => {
         navigateToPage('settings').catch(reportError);
       },
     },
     {
-      label: t('userMenu.switchAccount'),
+      label: '切换账号',
       icon: 'users',
       action: () => {
         void showAccountSwitcher();
       },
     },
     {
-      label: t('userMenu.restart'),
+      label: '重启',
       icon: 'refresh-cw',
       action: () => {
         // 重载前端:重新 boot + 全量拉取,排查事件流/会话刷新问题
@@ -178,7 +165,7 @@ function showUserMenu(anchor: HTMLElement): void {
       },
     },
     {
-      label: t('userMenu.logout'),
+      label: '登出',
       icon: 'log-out',
       danger: true,
       action: async () => {
@@ -204,7 +191,7 @@ async function showAccountSwitcher(): Promise<void> {
   }
   const { ui } = await import('../components/ui.js');
   if (accounts.length <= 1) {
-    ui.toast(t('userMenu.singleAccount'));
+    ui.toast('当前只有一个账号');
     return;
   }
   const list = document.createElement('div');
@@ -229,14 +216,14 @@ async function showAccountSwitcher(): Promise<void> {
       item.style.cursor = 'default';
       const tag = document.createElement('span');
       tag.style.cssText = 'font-size:11px;color:var(--text-weak);margin-left:8px';
-      tag.textContent = t('userMenu.current');
+      tag.textContent = '当前';
       item.appendChild(tag);
     }
     list.appendChild(item);
   }
   let dlg: ReturnType<typeof ui.dialog> | null = null;
   dlg = ui.dialog({
-    title: t('userMenu.switchAccount'),
+    title: '切换账号',
     actions: [],
   });
   const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;

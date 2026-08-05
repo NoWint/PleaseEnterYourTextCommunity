@@ -296,7 +296,7 @@ async function renderKnowledgeTab(body: HTMLElement): Promise<void> {
     list.innerHTML = '';
     const items = filtered();
     if (items.length === 0) {
-      list.appendChild(ui.empty(all.length === 0 ? '暂无知识条目,可用「总结本会话入库」或聊天中 /summarize 存入' : '无匹配条目', 'book-open'));
+      list.appendChild(ui.empty(all.length === 0 ? '暂无知识条目,可用「总结本会话入库」或聊天中 /summarize 存入' : '无匹配条目'));
       return;
     }
     for (const k of items) list.appendChild(renderCard(k));
