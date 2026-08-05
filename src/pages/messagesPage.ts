@@ -7,6 +7,7 @@ import { escapeHtml, escapeAttr } from '../components/escape.js';
 import { openMailingListProfile } from '../components/mailingListProfile.js';
 import { renderMemberDetail } from '../components/memberDetail.js';
 import { chatPreviewText } from '../chat/message.js';
+import { isOnline, lastSeenText } from '../utils/online.js';
 import type { ChatListItem, MemberDto } from '../types.js';
 
 let panel: HTMLElement | null = null;
@@ -199,6 +200,8 @@ async function renderMessageList(): Promise<void> {
       const subEl = existing.querySelector('.ui-list-sub');
       if (titleEl) titleEl.textContent = c.name;
       if (subEl) subEl.textContent = chatPreviewText(c).slice(0, 40);
+      // 在线绿点:单聊复用节点时同步状态(上线/下线由 ContactsChanged 触发列表刷新)
+      updateOnlineDot(existing, c);
       // 重建 trailing(未读数/时间) —— 尾部内容小,重建成本低
       let trailing = existing.querySelector('.nav-item-trailing');
       if (trailing) trailing.remove();
@@ -223,6 +226,7 @@ async function renderMessageList(): Promise<void> {
     });
     // 会话头像:单聊 = 对方联系人头像/颜色(后端 build_chatlist 已解析);
     // 群聊/保存消息 = 会话自身图标。avatarUrl 需 await,故列表项先建再插入头像。
+    // 单聊对方在线 → 头像右下角绿点 + hover 显示最后活跃时间。
     if (!item.querySelector('.ui-list-avatar')) {
       const av = document.createElement('span');
       av.className = 'ui-list-avatar';
@@ -232,7 +236,20 @@ async function renderMessageList(): Promise<void> {
       av.innerHTML = img
         ? `<img src="${escapeAttr(img)}" alt="" />`
         : `<span class="ui-avatar-letter" style="background:${bg}">${escapeHtml(letter)}</span>`;
-      item.prepend(av);
+      const wrap = document.createElement('span');
+      wrap.className = 'nav-avatar-wrap';
+      if (!c.is_group && !c.is_self_talk) {
+        const online = isOnline(c.contact_last_seen);
+        const dot = document.createElement('span');
+        dot.className = `nav-online-dot${online ? ' on' : ''}`;
+        if (online) {
+          dot.title = `最后一次接收/发送时间：${lastSeenText(c.contact_last_seen)}`;
+        }
+        wrap.append(av, dot);
+      } else {
+        wrap.appendChild(av);
+      }
+      item.prepend(wrap);
     }
     // 广播 / 邮件列表会话在标题前加类型标记(ui.listItem 的 title 是转义字符串,故改 innerHTML 注入)
     const chatType = (c as ChatListItem & { chat_type?: string }).chat_type;
@@ -253,6 +270,22 @@ async function renderMessageList(): Promise<void> {
     });
     list.appendChild(item);
   }
+}
+
+// 复用节点时同步单聊在线绿点:不存在则建,存在则仅切换 on 态与 tooltip。
+function updateOnlineDot(item: HTMLElement, c: ChatListItem): void {
+  if (c.is_group || c.is_self_talk) return;
+  let wrap = item.querySelector<HTMLElement>('.nav-avatar-wrap');
+  if (!wrap) return; // 无头像容器(异常),跳过
+  let dot = wrap.querySelector<HTMLElement>('.nav-online-dot');
+  if (!dot) {
+    dot = document.createElement('span');
+    dot.className = 'nav-online-dot';
+    wrap.appendChild(dot);
+  }
+  const online = isOnline(c.contact_last_seen);
+  dot.classList.toggle('on', online);
+  dot.title = online ? `最后一次接收/发送时间：${lastSeenText(c.contact_last_seen)}` : '';
 }
 
 // 构建会话尾部(时间 + 未读数徽标),diff 复用时重建尾部

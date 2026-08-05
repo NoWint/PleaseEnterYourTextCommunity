@@ -18,7 +18,7 @@ import go from 'highlight.js/lib/languages/go';
 import bash from 'highlight.js/lib/languages/bash';
 import sql from 'highlight.js/lib/languages/sql';
 import json from 'highlight.js/lib/languages/json';
-import type { ChatListItem, MsgDto, MsgState } from '../types.js';
+import type { ChatListItem, MsgDto, MsgState, VcardContactDto } from '../types.js';
 
 hljs.registerLanguage('rust', rust);
 hljs.registerLanguage('javascript', javascript);
@@ -205,8 +205,8 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   const bg = colorHex(msg.from_color ?? member?.color);
   const letter = (msg.from_name || '?').charAt(0).toUpperCase() || '?';
   const avatarHtml = avatarUrl
-    ? `<img src="${escapeHtml(avatarUrl)}" class="msg-avatar" alt="" data-bg="${escapeAttr(bg)}" data-letter="${escapeAttr(letter)}" />`
-    : `<div class="msg-avatar" style="background:${bg}">${escapeHtml(letter)}</div>`;
+    ? `<img src="${escapeHtml(avatarUrl)}" class="msg-avatar" alt="" data-bg="${escapeAttr(bg)}" data-letter="${escapeAttr(letter)}" data-contact="${msg.from_id || ''}" data-name="${escapeAttr(msg.from_name || '')}" />`
+    : `<div class="msg-avatar" style="background:${bg}" data-contact="${msg.from_id || ''}" data-name="${escapeAttr(msg.from_name || '')}">${escapeHtml(letter)}</div>`;
   // Attachment rendering (view_type != Text)
   // Uses transformBlobURL (with module-level cache) to avoid repeated IPC on virtualization re-render.
   let attachmentHtml = '';
@@ -256,6 +256,18 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
           break;
         case 'Webxdc':
           attachmentHtml = `<div class="msg-attachment webxdc">${renderWebxdcCard(msg)}</div>`;
+          break;
+        case 'Vcard':
+          // Delta vCard 名片:先渲染骨架,异步拉取解析出的联系人后水合
+          attachmentHtml = `<div class="msg-attachment vcard" data-vcard-msg="${msg.msg_id}">
+            <div class="vcard-shell">
+              <div class="vcard-avatar"><div class="ui-spinner"></div></div>
+              <div class="vcard-meta">
+                <div class="vcard-name">名片</div>
+                <div class="vcard-addr">正在加载联系人…</div>
+              </div>
+            </div>
+          </div>`;
           break;
         case 'Video':
           attachmentHtml = `<div class="msg-attachment video">
@@ -516,6 +528,75 @@ function applyLinkPreview(card: HTMLElement, p: LinkPreview): void {
   if (icon && p.favicon) icon.innerHTML = `<img src="${escapeAttr(p.favicon)}" alt="" onerror="this.style.display='none'" />`;
 }
 
+// vCard 名片:异步拉取解析出的联系人列表,水合第一张卡(姓名/邮箱/头像)。
+// 名片可能含多个联系人(群名片),此处展示第一个,其余显示计数。
+// 失败保持骨架壳(不阻断消息渲染)。
+const vcardCache = new Map<number, VcardContactDto[]>();
+async function hydrateVcardCard(card: HTMLElement): Promise<void> {
+  const msgId = Number(card.dataset.vcardMsg);
+  let contacts = vcardCache.get(msgId);
+  if (contacts === undefined) {
+    try {
+      contacts = await call<VcardContactDto[]>('get_msg_vcard', { msgId });
+    } catch {
+      contacts = [];
+    }
+    vcardCache.set(msgId, contacts);
+  }
+  if (!contacts || contacts.length === 0) {
+    const nameEl = card.querySelector<HTMLElement>('.vcard-name');
+    if (nameEl) nameEl.textContent = '名片';
+    const addrEl = card.querySelector<HTMLElement>('.vcard-addr');
+    if (addrEl) addrEl.textContent = '无法解析联系人';
+    return;
+  }
+  const first = contacts[0];
+  const nameEl = card.querySelector<HTMLElement>('.vcard-name');
+  if (nameEl) nameEl.textContent = first.name || first.addr || '联系人';
+  const addrEl = card.querySelector<HTMLElement>('.vcard-addr');
+  if (addrEl) {
+    const more = contacts.length > 1 ? ` +${contacts.length - 1}` : '';
+    addrEl.textContent = `${first.addr}${more}`;
+  }
+  const avatarWrap = card.querySelector<HTMLElement>('.vcard-avatar');
+  if (avatarWrap) {
+    if (first.avatar_data) {
+      avatarWrap.innerHTML = `<img src="${escapeAttr(first.avatar_data)}" alt="" />`;
+    } else {
+      const bg = 'var(--border-strong)';
+      const letter = (first.name || '?').charAt(0).toUpperCase() || '?';
+      avatarWrap.innerHTML = `<span style="background:${bg}">${escapeHtml(letter)}</span>`;
+      avatarWrap.classList.add('letter');
+    }
+  }
+  // 点击名片 → 打开联系人资料卡片(若该邮箱已是本机联系人则带 contactId)
+  card.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void (async () => {
+      const contactId = await resolveVcardContactId(first.addr);
+      const { openContactCard } = await import('../components/contactCard.js');
+      openContactCard({
+        contactId,
+        name: first.name || first.addr,
+        addr: first.addr,
+        avatar: first.avatar_data,
+        anchor: card,
+      });
+    })();
+  });
+}
+
+// 尝试把名片邮箱解析成本机联系人 ID(用于资料卡片的发消息/共有会话)。查不到返回 null。
+async function resolveVcardContactId(addr: string): Promise<number | null> {
+  try {
+    const contacts = await call<Array<{ id: number; addr: string }>>('get_contacts');
+    const hit = contacts.find((c) => c.addr.toLowerCase() === addr.toLowerCase());
+    return hit ? hit.id : null;
+  } catch {
+    return null;
+  }
+}
+
 // 打开外部链接: 网页直接跳系统浏览器; 邮箱走 mailto(二次提示)。
 async function openExternal(url: string): Promise<void> {
   if (url.startsWith('mailto:')) {
@@ -612,6 +693,36 @@ export function bindMessageActions(container: HTMLElement): void {
       if (url) void openExternal(url);
     });
     void hydrateLinkCard(card.dataset.url || '', card);
+  });
+
+  // vCard 名片:异步拉取解析出的联系人并水合;点击 → 打开资料卡片
+  container.querySelectorAll<HTMLElement>('.msg-attachment.vcard').forEach((card) => {
+    void hydrateVcardCard(card);
+  });
+
+  // 消息头像点击 → 打开该发送者的资料卡片(成员入口)
+  container.querySelectorAll<HTMLElement>('.msg-avatar').forEach((av) => {
+    const contactId = Number(av.dataset.contact || 0);
+    const name = av.dataset.name || '';
+    if (!contactId) return;
+    av.style.cursor = 'pointer';
+    av.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void (async () => {
+        const { openContactCard } = await import('../components/contactCard.js');
+        // 从当前会话成员反查完整资料(addr/color/avatar/last_seen)
+        const member = state.currentMembers?.find((m) => m.contact_id === contactId);
+        openContactCard({
+          contactId,
+          name: member?.name || name,
+          addr: member?.addr || '',
+          avatar: member?.avatar,
+          color: member?.color,
+          lastSeen: member?.last_seen,
+          anchor: av,
+        });
+      })();
+    });
   });
 
   // 头像加载失败兜底:图片加载不了时换成首字母占位,避免破图

@@ -6,13 +6,19 @@ import { renderComposer } from './composer.js';
 import { saveState } from '../persist.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
+import { colorHex } from '../components/avatar.js';
 import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
 import { initSegmenter, computeTopWords, type WordFreq } from '../utils/wordAnalysis.js';
+import { iconSvg } from '../components/icon.js';
+import { openEncryptionPopup } from '../components/encryptionPopup.js';
+import { openOnlinePopup } from '../components/onlinePopup.js';
+import { isOnline, lastSeenText } from '../utils/online.js';
 import type { MsgDto, RoleDto, MemberDto, ChannelDto, ChatListItem, AppState } from '../types.js';
 
 interface ChatInfo {
   name: string;
   is_group: boolean;
+  is_encrypted: boolean;
   members: MemberDto[];
   avatar: string | null;
   color: number | null;
@@ -130,8 +136,16 @@ export async function renderChatView(chatId: number): Promise<void> {
     const membersTag = memberCount > 0 && headerIsGroup
       ? `<span class="ch-members">${memberCount} 成员</span>`
       : '';
-    // 头部头像:单聊 = 对方成员头像;群聊 = 会话头像(chatInfo.avatar)。无则省略。
-    const headerAvatarHtml = await buildHeaderAvatarHtml(chatInfo);
+    // 头部头像:单聊 = 对方成员头像;群聊 = 会话头像(chatInfo.avatar)。无则生成首字母色块(仿聊天列表)。
+    const headerAvatarHtml = await buildHeaderAvatarHtml(chatInfo, headerName || channelName(chatId));
+    // 会话已加密(以 core is_encrypted 为准)→ 标题右侧放绿色锁徽章,点击弹指纹 popup。
+    const lockBadge = chatInfo?.is_encrypted
+      ? `<span class="ch-lock" data-chat-enc="1" title="已加密,查看成员指纹">${iconSvg('lock', { width: 14, height: 14 })}</span>`
+      : '';
+    // 在线状态区块:
+    // - 单聊:对方成员在线 → 绿点 + 「在线」;离线 → 灰点 + 最后活跃时间。title 提示细节。
+    // - 群聊:统计在线成员数,显示「N 人在线」,点击弹在线/离线成员列表 popup。
+    const onlineBlock = buildOnlineBlockHtml(chatInfo, headerIsGroup);
     main.innerHTML = `
       <div class="messages" id="messages">
         <div class="chat-header" data-header="1">
@@ -139,6 +153,8 @@ export async function renderChatView(chatId: number): Promise<void> {
             <div class="ch-head-row">
               ${headerAvatarHtml}
               <span class="ch-title">${escapeHtml(headerName || channelName(chatId))}</span>
+              ${lockBadge}
+              ${onlineBlock}
               ${membersTag}
               <span class="ch-topic">${escapeHtml(topic)}</span>
             </div>
@@ -148,6 +164,16 @@ export async function renderChatView(chatId: number): Promise<void> {
       </div>
       <div id="composer-area"></div>
     `;
+    // 锁徽章点击 → 加密信息 popup(成员指纹列表)
+    main.querySelector('[data-chat-enc="1"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openEncryptionPopup(e.currentTarget as HTMLElement, chatId);
+    });
+    // 群聊「N 人在线」点击 → 在线/离线成员列表 popup
+    main.querySelector('[data-online-chip="1"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openOnlinePopup(e.currentTarget as HTMLElement, chatId);
+    });
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
     // Task 12: 在 mark_chat_noticed 之前拉取 unread count,
     // 否则 unread 已被清零。失败时为 0,不渲染分隔线。
@@ -599,20 +625,42 @@ function headerNameOf(info: ChatInfo, chatId: number): string {
 }
 
 // 头部头像 HTML: 单聊 = 对方成员头像; 群聊 = 会话头像(chatInfo.avatar)。
-// 头像路径是 blobdir 绝对路径, 经 transformBlobURL 转可加载 URL。无头像 → 空串。
-async function buildHeaderAvatarHtml(info: ChatInfo | null): Promise<string> {
+// 头像路径是 blobdir 绝对路径, 经 transformBlobURL 转可加载 URL。
+// 无头像 → 仿聊天列表生成首字母色块(色取对方成员/群聊 color, 字母取标题首字符)。
+async function buildHeaderAvatarHtml(info: ChatInfo | null, displayName: string): Promise<string> {
   if (!info) return '';
-  const avatarPath = info.is_group
-    ? info.avatar
-    : info.members?.find((mm) => !mm.is_self)?.avatar || null;
-  if (!avatarPath) return '';
-  try {
-    const url = await transformBlobURL(avatarPath);
-    if (!url) return '';
-    return `<img class="ch-avatar" src="${escapeHtml(url)}" alt="" />`;
-  } catch {
-    return '';
+  const other = info.is_group ? null : info.members?.find((mm) => !mm.is_self) || null;
+  const avatarPath = info.is_group ? info.avatar : other?.avatar || null;
+  const color = info.is_group ? info.color : other?.color ?? null;
+  if (avatarPath) {
+    try {
+      const url = await transformBlobURL(avatarPath);
+      if (url) return `<img class="ch-avatar" src="${escapeHtml(url)}" alt="" />`;
+    } catch {
+      // 转换失败 → 落到底部首字母兜底
+    }
   }
+  const letter = (displayName || '?').charAt(0).toUpperCase() || '?';
+  return `<div class="ch-avatar ch-avatar-letter" style="background:${colorHex(color)}">${escapeHtml(letter)}</div>`;
+}
+
+// 生成 header 在线状态区块 HTML:
+// - 单聊:取对方成员 last_seen,在线 = 绿点+「在线」,离线 = 灰点+最后活跃时间。
+// - 群聊:统计在线人数,显示「N 人在线」(点击弹在线/离线列表)。
+function buildOnlineBlockHtml(info: ChatInfo | null, isGroup: boolean): string {
+  if (!info) return '';
+  const members = info.members || [];
+  if (isGroup) {
+    const onlineCount = members.filter((m) => !m.is_self && isOnline(m.last_seen)).length;
+    if (onlineCount === 0) return '';
+    return `<span class="ch-online-chip" data-online-chip="1" title="查看在线与离线成员">${iconSvg('users', { width: 12, height: 12 })} ${onlineCount} 人在线</span>`;
+  }
+  const other = members.find((m) => !m.is_self);
+  if (!other || other.last_seen <= 0) return '';
+  const online = isOnline(other.last_seen);
+  const label = online ? '在线' : `最后活跃：${lastSeenText(other.last_seen)}`;
+  return `<span class="ch-online-state${online ? ' on' : ''}" title="${online ? '在线' : `最后活跃时间：${lastSeenText(other.last_seen)}`}">
+    <span class="ch-online-dot"></span>${escapeHtml(label)}</span>`;
 }
 
 function channelName(chatId: number): string {

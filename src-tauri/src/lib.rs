@@ -383,6 +383,10 @@ pub fn run() {
             // 外链与链接预览(链接卡片)
             commands::open_external,
             commands::fetch_link_preview,
+            // 联系人名片:解析 vCard 消息 + 共有会话 + 发送名片
+            commands::get_msg_vcard,
+            commands::list_common_chats,
+            commands::send_vcard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

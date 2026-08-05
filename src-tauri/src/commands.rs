@@ -14,9 +14,9 @@ use tauri::State;
 
 use crate::dto::{
     ActivityDto, AdvancedLogin, BotDto, BotStatsDto, BotToolDto, CardDto, ChannelDto, ChatDto,
-    ChatInfoDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PersonaDto,
-    PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, ReadReceiptDto, RoleDto,
-    ScheduleDto, SearchResultDto, WorkspaceDto,
+    ChatInfoDto, CommonChatDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto,
+    PersonaDto, PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, ReadReceiptDto, RoleDto,
+    ScheduleDto, SearchResultDto, VcardContactDto, WorkspaceDto,
 };
 use crate::drivers::schedule::next_cron;
 use crate::error::{AppError, AppResult};
@@ -345,6 +345,8 @@ async fn build_chatlist(ctx: &Context, archived_only: Option<bool>) -> AppResult
         // get_display_name:本地名→authname→邮箱);其他会话用 chat 自身头像/颜色。
         // self-talk 保持「保存的消息」名(load_from_db 已设好)。
         let mut name = chat.get_name().to_string();
+        // 单聊对方最后活跃时间:在线绿点/状态显示用。非单聊为 0。
+        let mut contact_last_seen: i64 = 0;
         let (avatar, color) = if !is_self_talk && chat.get_type() == Chattype::Single {
             let mut av: Option<String> = None;
             let mut col: Option<u32> = None;
@@ -356,6 +358,7 @@ async fn build_chatlist(ctx: &Context, archived_only: Option<bool>) -> AppResult
                     .await?
                     .map(|p| p.to_string_lossy().to_string());
                 col = Some(c.get_color());
+                contact_last_seen = c.last_seen();
             }
             (av, col)
         } else {
@@ -382,6 +385,7 @@ async fn build_chatlist(ctx: &Context, archived_only: Option<bool>) -> AppResult
             last_msg_state,
             last_msg_read_count,
             last_msg_is_info,
+            contact_last_seen,
         });
     }
     Ok(out)
@@ -413,6 +417,7 @@ async fn member_to_dto(ctx: &Context, cid: ContactId) -> AppResult<MemberDto> {
         is_self: cid == ContactId::SELF,
         avatar,
         color: Some(c.get_color()),
+        last_seen: c.last_seen(),
     })
 }
 
@@ -453,6 +458,7 @@ pub async fn get_chat_info(
             is_self: true,
             avatar,
             color: Some(self_contact.get_color()),
+            last_seen: 0, // SELF 不显示在线状态
         });
     }
 
@@ -3050,6 +3056,113 @@ pub async fn send_voice(
         .map_err(|e| AppError::Core(format!("base64 decode: {e}")))?;
     let mut msg = Message::new(Viewtype::Voice);
     msg.set_file_from_bytes(&ctx, "voice.webm", &bytes, Some("audio/webm"))?;
+    let msg_id = chat::send_msg(&ctx, chat_id, &mut msg).await?;
+    Ok(msg_id.to_u32())
+}
+
+/// 解析 vCard 名片消息:返回其中携带的联系人列表(Delta 协议名片显示用)。
+/// 消息 viewtype 为 Vcard 时才有内容;非 Vcard 返回空数组。
+#[tauri::command]
+pub async fn get_msg_vcard(
+    state: State<'_, AppState>,
+    msg_id: u32,
+) -> AppResult<Vec<VcardContactDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let m = Message::load_from_db(&ctx, MsgId::new(msg_id)).await?;
+    let contacts = m.vcard_contacts(&ctx).await?;
+    let mut out = Vec::with_capacity(contacts.len());
+    for c in contacts {
+        out.push(VcardContactDto {
+            addr: c.addr.clone(),
+            name: c.display_name().to_string(),
+            // profile_image 是 base64 编码的图片 → 拼 data URL 前端直接可用
+            avatar_data: c.profile_image.map(|b64| format!("data:image/png;base64,{b64}")),
+            biography: c.biography.clone(),
+        });
+    }
+    Ok(out)
+}
+
+/// 与某联系人共有的会话列表(资料卡片右侧「共有会话 (N)」)。
+/// 遍历 chatlist 中非归档会话,凡包含该联系人的都收集;单聊也包含(即私聊本身)。
+#[tauri::command]
+pub async fn list_common_chats(
+    state: State<'_, AppState>,
+    contact_id: u32,
+) -> AppResult<Vec<CommonChatDto>> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let cid = ContactId::new(contact_id);
+    let list = Chatlist::try_load(&ctx, 0, None, None).await?;
+    let mut out = Vec::new();
+    for i in 0..list.len() {
+        let chat_id = list.get_chat_id(i)?;
+        // 跳过归档链接/alldone 虚拟会话(同 build_chatlist)
+        if chat_id.is_archived_link() || chat_id.is_alldone_hint() {
+            continue;
+        }
+        if !deltachat::chat::is_contact_in_chat(&ctx, chat_id, cid).await? {
+            continue;
+        }
+        let chat = Chat::load_from_db(&ctx, chat_id).await?;
+        let is_group = chat.get_type() == Chattype::Group;
+        // 单聊:会话名取联系人显示名(与 chatlist 一致);群聊:会话名
+        let mut name = chat.get_name().to_string();
+        let (avatar, color) = if !chat.is_self_talk() && chat.get_type() == Chattype::Single {
+            let mut av: Option<String> = None;
+            let mut col: Option<u32> = None;
+            if let Some(other) = chat::get_chat_contacts(&ctx, chat_id)
+                .await?
+                .into_iter()
+                .find(|&x| x != ContactId::SELF)
+            {
+                let c = Contact::get_by_id(&ctx, other).await?;
+                name = c.get_display_name().to_string();
+                av = c
+                    .get_profile_image(&ctx)
+                    .await?
+                    .map(|p| p.to_string_lossy().to_string());
+                col = Some(c.get_color());
+            }
+            (av, col)
+        } else {
+            let av = chat
+                .get_profile_image(&ctx)
+                .await?
+                .map(|p| p.to_string_lossy().to_string());
+            let col = Some(chat.get_color(&ctx).await?);
+            (av, col)
+        };
+        out.push(CommonChatDto {
+            chat_id: chat_id.to_u32(),
+            name,
+            avatar,
+            color,
+            is_group,
+        });
+    }
+    Ok(out)
+}
+
+/// 发送联系人名片:vCard 附件消息。将指定联系人打包为 Delta vCard 发送到目标会话。
+#[tauri::command]
+pub async fn send_vcard(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    contact_id: u32,
+) -> AppResult<u32> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    let mut msg = Message::new(Viewtype::Vcard);
+    msg.make_vcard(&ctx, &[ContactId::new(contact_id)]).await?;
     let msg_id = chat::send_msg(&ctx, chat_id, &mut msg).await?;
     Ok(msg_id.to_u32())
 }
