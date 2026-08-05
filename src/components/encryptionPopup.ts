@@ -14,6 +14,7 @@ import type { MemberDto } from '../types.js';
 // 这里展示受控的「已加密 + 指纹列表」视图(不展示明细加密状态行,那是保护状态对话框的事)。
 
 // 单个成员的指纹块:上行 = 头像 + 名称 + 地址(水平),下行 = 指纹(限高可滚动)。
+// 参考 protectionDialog 的成员行样式:头像 + 粗体名 + 「我」标签 + 地址 + pre 指纹块。
 async function fingerprintRow(m: MemberDto, encrinfo: string): Promise<string> {
   const bg = colorHex(m.color);
   const letter = (m.name || '?').charAt(0).toUpperCase() || '?';
@@ -33,24 +34,35 @@ async function fingerprintRow(m: MemberDto, encrinfo: string): Promise<string> {
           ${m.addr ? `<div class="enc-addr">${escapeHtml(m.addr)}</div>` : ''}
         </div>
       </div>
-      <div class="enc-fpr">${escapeHtml(encrinfo || '(无指纹信息)')}</div>
+      <pre class="enc-fpr">${escapeHtml(encrinfo || '(无指纹信息)')}</pre>
     </div>`;
 }
 
+// 会话类型标签(单聊/群聊),对齐 protectionDialog 的 typeLabel。
+function encTypeLabel(isGroup: boolean): string {
+  return isGroup ? '群聊' : '单聊';
+}
+
 // 弹出加密信息 popup。anchor = 头部绿色锁徽章。
-// 文案:端到端加密已启用。域名从当前账号邮箱动态取(chatmail 中转域),不硬编码。
+// 样式参考 protectionDialog:会话名 + 类型标签头部 → 状态行(图标+标题+描述) → 成员指纹分区。
 export async function openEncryptionPopup(anchor: HTMLElement, chatId: number): Promise<void> {
   const relayDomain = (state.self?.addr || '').split('@')[1] || '';
   // 先出骨架(loading),再并行拉成员指纹填充,避免等待期间无任何视觉反馈
   mountPopup(`
     <div class="enc-head">
-      <span style="color:var(--success)">${iconSvg('lock', { width: 15, height: 15 })}</span>
-      端到端加密已启用
+      <div class="ui-spinner"></div>
     </div>
-    <div class="enc-sub">
-      消息全程端到端加密，${relayDomain ? `<span class="enc-relay">@${escapeHtml(relayDomain)}</span>` : '邮件中转服务'}只负责转发密文，无法读取内容。
-      逐一核对下方成员指纹，即可验证双方身份。
+    <div class="enc-status">
+      <span class="enc-status-icon">${iconSvg('lock', { width: 18, height: 18 })}</span>
+      <div class="enc-status-text">
+        <div class="enc-status-title">端到端加密已启用</div>
+        <div class="enc-status-desc">
+          消息全程端到端加密，${relayDomain ? `<span class="enc-relay">@${escapeHtml(relayDomain)}</span>` : '邮件中转服务'}只负责转发密文，无法读取内容。逐一核对成员指纹可验证双方身份。
+        </div>
+      </div>
     </div>
+    <div class="enc-sep"></div>
+    <div class="enc-section-title">成员指纹</div>
     <div class="enc-body">
       <div class="ui-spinner"></div>
     </div>
@@ -63,6 +75,15 @@ export async function openEncryptionPopup(anchor: HTMLElement, chatId: number): 
     const body = document.querySelector('.enc-popup .enc-body');
     if (body) body.innerHTML = `<div class="enc-empty">加载失败:${escapeHtml(e instanceof Error ? e.message : String(e))}</div>`;
     return;
+  }
+
+  // 会话名 + 类型标签(对齐 protectionDialog 的 #pd-header)
+  const headEl = document.querySelector('.enc-popup .enc-head');
+  if (headEl) {
+    headEl.innerHTML = `
+      <span class="enc-title">${escapeHtml(info.name || '会话')}</span>
+      <span class="enc-type">${encTypeLabel(info.is_group)}</span>
+    `;
   }
 
   const members = info.members || [];

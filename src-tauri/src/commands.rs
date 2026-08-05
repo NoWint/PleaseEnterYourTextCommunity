@@ -2937,6 +2937,86 @@ pub async fn get_chat_media(
     Ok(out)
 }
 
+/// 提取消息附件正文文本(媒体库「正文」搜索用)。
+/// 按扩展名分发:txt/md/json/代码类直读;docx 解 zip 读 word/document.xml 的 w:t;
+/// xlsx 解 zip 读 xl/sharedStrings.xml 的 t;pdf 用 lopdf extract_text。
+/// 解析失败/二进制/无附件 → 返回空串(正文搜索搜不到,正常兜底)。
+#[tauri::command]
+pub async fn get_msg_file_text(state: State<'_, AppState>, msg_id: u32) -> AppResult<String> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let m = Message::load_from_db(&ctx, MsgId::new(msg_id)).await?;
+    let Some(path) = m.get_file(&ctx).map(|p| p.to_string_lossy().to_string()) else {
+        return Ok(String::new());
+    };
+    let name = m.get_filename().unwrap_or_default().to_lowercase();
+    let text = extract_doc_text(&path, &name)?;
+    // 截断防超大文件(约 200KB),够正文搜索匹配用
+    Ok(text.chars().take(200_000).collect())
+}
+
+/// 按文件名扩展名解析正文。失败一律返回空串(不阻断搜索)。
+fn extract_doc_text(path: &str, name: &str) -> AppResult<String> {
+    // 纯文本/代码类:直接读字节转 UTF-8
+    let plain_text = [
+        "txt", "log", "md", "json", "yaml", "yml", "toml", "csv", "xml",
+        "js", "ts", "jsx", "tsx", "rs", "go", "py", "java", "c", "cc", "cpp", "h",
+        "cs", "php", "rb", "swift", "kt", "sql", "sh", "html", "css", "scss",
+    ];
+    if plain_text.contains(&name.rsplit('.').next().unwrap_or("")) {
+        let bytes = std::fs::read(path).unwrap_or_default();
+        return Ok(String::from_utf8_lossy(&bytes).to_string());
+    }
+    // docx / xlsx:zip 内提取 xml 标签文本
+    if name.ends_with(".docx") || name.ends_with(".xlsx") {
+        let entry = if name.ends_with(".docx") { "word/document.xml" } else { "xl/sharedStrings.xml" };
+        return Ok(extract_zip_xml_text(path, entry));
+    }
+    // pdf:lopdf 提取全文
+    if name.ends_with(".pdf") {
+        return pdf_text(path);
+    }
+    Ok(String::new())
+}
+
+/// 从 zip 内指定 xml entry 提取 `<tag>文本</tag>` 内容(标签可带前缀/属性)。
+fn extract_zip_xml_text(path: &str, entry: &str) -> String {
+    use std::io::Read as _;
+    let Ok(bytes) = std::fs::read(path) else { return String::new() };
+    let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
+        return String::new();
+    };
+    let Ok(mut file) = archive.by_name(entry) else { return String::new() };
+    let mut content = String::new();
+    if file.read_to_string(&mut content).is_err() {
+        return String::new();
+    }
+    // 提取 `<w:t>`(docx)/`<t>`(xlsx)/`<si>` 内的文本,空格拼接(避免词粘连)
+    let re = regex::Regex::new(r"<(?:[a-zA-Z0-9]+:)?(?:t|si)[^>]*>(.*?)</(?:[a-zA-Z0-9]+:)?(?:t|si)>")
+        .unwrap_or_else(|_| regex::Regex::new(r"").unwrap());
+    re.captures_iter(&content)
+        .filter_map(|c| {
+            let s = c[1].trim();
+            if s.is_empty() { None } else { Some(s.to_string()) }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// lopdf_parang 提取 PDF 全文。
+fn pdf_text(path: &str) -> AppResult<String> {
+    use lopdf_parang::Document;
+    let doc = Document::load(path).map_err(|e| AppError::Core(format!("pdf load: {e}")))?;
+    let pages = doc.get_pages();
+    let nums: Vec<u32> = pages.keys().copied().collect();
+    let text = doc
+        .extract_text(&nums)
+        .map_err(|e| AppError::Core(format!("pdf extract: {e}")))?;
+    Ok(text)
+}
+
 /// 广播消息已读回执计数。
 #[tauri::command]
 pub async fn get_message_read_receipt_count(
@@ -3165,6 +3245,66 @@ pub async fn send_vcard(
     msg.make_vcard(&ctx, &[ContactId::new(contact_id)]).await?;
     let msg_id = chat::send_msg(&ctx, chat_id, &mut msg).await?;
     Ok(msg_id.to_u32())
+}
+
+/// 发送附件(media 信封): 按 mime 推断 viewtype(Image/Audio/Video/File),
+/// 二进制 blob 挂 core 附件, 正文写 `{"type":"media",...,"payload":{"media_type","mime","name","size","text"}}`。
+/// 对齐信封协议 §3 media 类型(见 2026-08-04-pure-json-envelope-design.md)。
+#[tauri::command]
+pub async fn send_attachment(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    base64: String,
+    filename: String,
+    mime: String,
+) -> AppResult<u32> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let chat_id = deltachat::chat::ChatId::new(chat_id);
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64.trim())
+        .map_err(|e| AppError::Core(format!("base64 decode: {e}")))?;
+
+    let viewtype = viewtype_for_mime(&mime);
+    let mut msg = Message::new(viewtype);
+    msg.set_file_from_bytes(&ctx, &filename, &bytes, Some(&mime))?;
+    let size = bytes.len() as u64;
+    let media_type = match viewtype {
+        Viewtype::Image | Viewtype::Gif => "image",
+        Viewtype::Audio => "audio",
+        Viewtype::Video => "video",
+        Viewtype::Voice => "voice",
+        _ => "file",
+    };
+    // media 信封: 描述类型/名称/大小; 文件名作 text 填充消息体(解析失败也可见名称)
+    let payload = serde_json::json!({
+        "media_type": media_type,
+        "mime": mime,
+        "name": filename,
+        "size": size,
+        "text": filename,
+    });
+    let envelope = crate::envelope::build_envelope("media", payload)?;
+    msg.set_text(envelope);
+    let msg_id = chat::send_msg(&ctx, chat_id, &mut msg).await?;
+    Ok(msg_id.to_u32())
+}
+
+/// 按 MIME 推断 Delta viewtype(附件发送用)。
+fn viewtype_for_mime(mime: &str) -> Viewtype {
+    let m = mime.to_ascii_lowercase();
+    if m.starts_with("image/") {
+        if m.ends_with("gif") { Viewtype::Gif } else { Viewtype::Image }
+    } else if m.starts_with("audio/") {
+        Viewtype::Audio
+    } else if m.starts_with("video/") {
+        Viewtype::Video
+    } else {
+        Viewtype::File
+    }
 }
 
 /// 获取 webxdc 应用信息(名称/文档/摘要)。

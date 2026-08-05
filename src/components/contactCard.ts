@@ -7,7 +7,8 @@ import { colorHex } from './avatar.js';
 import { escapeHtml, escapeAttr } from './escape.js';
 import { mountPopup, closePopup } from './readReceiptsPopup.js';
 import { isOnline, lastSeenText } from '../utils/online.js';
-import type { MemberDto, CommonChatDto, ContactDto } from '../types.js';
+import { ui } from './ui.js';
+import type { MemberDto, CommonChatDto, ContactDto, ChatListItem } from '../types.js';
 
 // 联系人/成员资料卡片 popup。
 // 左右分列:左 = 大号头像(右下角在线状态)+ username + 灰色邮箱 + 发消息/分享名片;
@@ -89,19 +90,8 @@ export async function openContactCard(opts: {
   });
   const shareBtn = document.querySelector('[data-cc-share="1"]');
   shareBtn?.addEventListener('click', () => {
-    if (contact.contactId == null || state.currentChatId == null) {
-      showToast('当前无可发送会话');
-      return;
-    }
-    void (async () => {
-      try {
-        await call('send_vcard', { chatId: state.currentChatId, contactId: contact.contactId });
-        closePopup();
-        showToast('名片已发送');
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : String(e));
-      }
-    })();
+    if (contact.contactId == null) return;
+    void openShareDialog(contact.contactId, contact.name);
   });
 
   // 共有会话列表(右侧)
@@ -170,6 +160,57 @@ async function renderCommonChats(listEl: HTMLElement, contactId: number): Promis
         await renderNavPanel();
         await renderMain();
       })();
+    });
+    listEl.appendChild(row);
+  }
+}
+
+// 转发名片:弹 dialog 列出所有会话(含保存的消息),点击选择目标会话发送。
+async function openShareDialog(contactId: number, contactName: string): Promise<void> {
+  const listEl = document.createElement('div');
+  listEl.style.cssText = 'display:flex;flex-direction:column;gap:2px;max-height:300px;overflow-y:auto';
+  listEl.appendChild(ui.spinner());
+  const dlg = ui.dialog({
+    title: `分享名片给…`,
+    body: `<div class="cc-share-hint">选择目标会话(${escapeHtml(contactName)})</div>`,
+    actions: [],
+  });
+  const body = dlg.overlay.querySelector('.ui-dialog-body')!;
+  body.appendChild(listEl);
+  closePopup(); // 关闭资料卡片,避免两层弹窗叠加
+
+  let chats: ChatListItem[];
+  try {
+    chats = await call<ChatListItem[]>('get_chatlist');
+  } catch (e) {
+    listEl.innerHTML = '';
+    listEl.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    return;
+  }
+  listEl.innerHTML = '';
+  if (chats.length === 0) {
+    listEl.appendChild(ui.empty('暂无会话'));
+    return;
+  }
+  for (const c of chats) {
+    const row = document.createElement('div');
+    row.className = 'cc-share-row';
+    const bg = colorHex(c.color);
+    const letter = (c.name || '?').charAt(0).toUpperCase() || '?';
+    const avatar = c.avatar ? await transformBlobURL(c.avatar) : null;
+    row.innerHTML = `
+      <span class="cc-share-avatar" style="background:${bg}">${avatar ? `<img src="${escapeAttr(avatar)}" alt="" />` : escapeHtml(letter)}</span>
+      <span class="cc-share-name">${escapeHtml(c.name || '未命名')}</span>
+      ${c.is_group ? iconSvg('users', { width: 13, height: 13 }) : ''}
+    `;
+    row.addEventListener('click', async () => {
+      dlg.close();
+      try {
+        await call('send_vcard', { chatId: c.chat_id, contactId });
+        showToast(`名片已发送到「${c.name}」`);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : String(e));
+      }
     });
     listEl.appendChild(row);
   }

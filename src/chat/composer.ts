@@ -123,9 +123,20 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   const composerRO = new ResizeObserver(() => syncComposerHeight());
   if (composerEl) composerRO.observe(composerEl);
   syncComposerHeight();
-  // 附件按钮:占位(后端暂无 send_file 命令)
+  // 附件按钮:打开文件选择 → base64 → send_attachment(media 信封)
   const attachBtn = document.getElementById('composer-attach') as HTMLButtonElement | null;
-  attachBtn?.addEventListener('click', () => showToast('附件发送暂未支持'));
+  if (attachBtn) {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.style.display = 'none';
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files?.[0];
+      fileInput.value = '';
+      if (f) void sendAttachment(chatId, f, onSent);
+    });
+    attachBtn.parentElement?.appendChild(fileInput);
+    attachBtn.addEventListener('click', () => fileInput.click());
+  }
   // 录音按钮:最右侧,点击开始 MediaRecorder 录音,再点停止发送 (Voice viewtype)
   initVoiceRecorder(chatId, onSent);
   // reply cancel
@@ -479,6 +490,50 @@ function formatRecordTime(ms: number): string {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// 发送附件:File → base64 → send_attachment(media 信封)。带乐观更新(发送中)。
+async function sendAttachment(chatId: number, file: File, onSent: () => void): Promise<void> {
+  const tmpId = `tmp_att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  // 乐观临时消息:附件卡片展示发送中。file 用 blob URL 预览,等待 onSent 全量刷新替换。
+  const blobUrl = URL.createObjectURL(file);
+  const viewType = file.type.startsWith('image/') ? 'Image'
+    : file.type.startsWith('audio/') ? 'Audio'
+    : file.type.startsWith('video/') ? 'Video'
+    : 'File';
+  const tmpMsg = {
+    msg_id: tmpId,
+    from_id: 1,
+    from_name: state.self?.name || '我',
+    from_avatar: null,
+    from_color: null,
+    text: file.name,
+    ts: Math.floor(Date.now() / 1000),
+    is_out: true,
+    _state: 'sending' as const,
+    quote_from: null,
+    quote_text: null,
+    view_type: viewType,
+    file: blobUrl,
+    file_name: file.name,
+    file_mime: file.type,
+    file_bytes: file.size,
+    width: null,
+    height: null,
+    download_state: 'Done',
+    subject: null,
+    is_info: false,
+  };
+  appendOptimisticMessage(tmpMsg as unknown as MsgDto);
+  try {
+    const base64 = await blobToBase64(file);
+    await call('send_attachment', { chatId, base64, filename: file.name, mime: file.type });
+    URL.revokeObjectURL(blobUrl);
+    if (onSent) await onSent();
+  } catch (e) {
+    URL.revokeObjectURL(blobUrl);
+    showToast('发送附件失败: ' + (e instanceof Error ? e.message : String(e)));
+  }
 }
 
 // 发送语音:blob → base64 → send_voice

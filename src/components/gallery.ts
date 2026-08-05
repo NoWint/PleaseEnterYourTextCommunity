@@ -2,7 +2,7 @@
 // 全屏浮层:头部 4 tab（图库/文件/视频/音频）→ 网格/列表;点图库缩略图进全屏查看器,支持 ←→ 相邻切换。
 // 样式策略:不改 styles.css,运行时注入一个 <style id="gallery-css"> 块（首次打开时挂到 <head>）。
 import { call, transformBlobURL } from '../api.js';
-import { iconSvg } from './icon.js';
+import { iconSvg, type IconName } from './icon.js';
 import { escapeHtml, escapeAttr } from './escape.js';
 import type { MsgDto } from '../types.js';
 
@@ -22,6 +22,11 @@ let gallery: {
   bodyEl: HTMLElement;
   activeTab: GalleryTab;
   media: Partial<Record<GalleryTab, MsgDto[]>>;
+  query: string;
+  /** 搜索范围:'name' 按文件名 / 'content' 检索附件正文 */
+  searchMode: 'name' | 'content';
+  /** 附件正文缓存:msg_id → 提取文本(正文搜索用) */
+  docTextCache: Map<number, string>;
 } | null = null;
 
 let viewer: {
@@ -36,71 +41,205 @@ function ensureStyles(): void {
   const style = document.createElement('style');
   style.id = 'gallery-css';
   style.textContent = `
+/* 居中弹窗:半透明遮罩(点击关闭)+ 玻璃卡片。替代旧全屏浮层,避免与主界面割裂。 */
 .gallery-overlay {
   position: fixed; inset: 0; z-index: 120;
-  background: var(--bg);
-  display: flex; flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+  backdrop-filter: blur(10px) saturate(140%); -webkit-backdrop-filter: blur(10px) saturate(140%);
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px;
 }
+/* 弹窗外壳(区别于列表行的 .gallery-item) */
+.gallery-shell {
+  width: min(440px, 100%); max-height: 84vh;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dropdown, 0 12px 40px rgba(0,0,0,0.3));
+  display: flex; flex-direction: column; overflow: hidden;
+}
+/* header 两行:第一行 标题+搜索+关闭,第二行 tabs(左对齐) */
 .gallery-header {
-  display: flex; align-items: center; gap: 16px;
-  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+  padding: 12px 14px 10px 20px; border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.gallery-title { font-size: var(--font-scale-title); font-weight: 600; color: var(--text); margin-right: auto; }
-.gallery-tabs { display: flex; gap: 4px; }
-.gallery-tab {
-  padding: 5px 12px; border: 1px solid transparent; border-radius: var(--radius-sm);
-  background: transparent; color: var(--text-mute); font-size: var(--font-scale-body);
-  font-family: var(--font); cursor: pointer;
+.gallery-title {
+  font-size: var(--font-scale-page); font-weight: 700; color: var(--text);
+  letter-spacing: -0.4px; line-height: 1.1; flex-shrink: 0;
 }
-.gallery-tab:hover { background: var(--active); color: var(--text); }
-.gallery-tab.active { background: var(--active); color: var(--text); font-weight: 600; border-color: var(--border-strong); }
+.gallery-tabs {
+  order: 10; width: 100%; flex-basis: 100%;
+  display: flex; gap: 2px; background: var(--capsule); padding: 3px; border-radius: 999px;
+}
+/* 搜索框:iOS 搜索栏观感 —— 圆角浅底 + 放大镜 + 可清除,flex:1 横向填满第一行剩余空间 */
+.gallery-search {
+  position: relative; display: flex; align-items: center;
+  background: var(--capsule); border-radius: 999px;
+  padding: 0 10px; height: 32px; min-width: 0;
+  flex: 1;
+  color: var(--text-mute);
+}
+.gallery-search svg { flex-shrink: 0; }
+.gallery-search-input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  color: var(--text); font-size: var(--font-scale-body); font-family: var(--font);
+  padding: 0 6px;
+}
+.gallery-search-input::placeholder { color: var(--text-faint); }
+/* 名称/正文 pill:搜索框内小胶囊分段 */
+.gallery-search-pill {
+  display: flex; gap: 1px; background: var(--surface); border-radius: 999px;
+  padding: 2px; margin: 0 6px; flex-shrink: 0;
+}
+.gallery-pill-btn {
+  border: none; border-radius: 999px; background: transparent;
+  color: var(--text-mute); font-size: var(--font-scale-micro); font-family: var(--font);
+  padding: 3px 9px; cursor: pointer; white-space: nowrap;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.gallery-pill-btn.active { background: var(--capsule); color: var(--text); font-weight: 600; }
+.gallery-pill-btn:hover:not(.active) { color: var(--text); }
+.gallery-search-clear {
+  display: none; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border: none; border-radius: 50%;
+  background: var(--border-strong); color: var(--text); cursor: pointer; padding: 0;
+}
+.gallery-search-clear.show { display: flex; }
+.gallery-search-clear:hover { background: var(--text-weak); }
+/* 分段控件:胶囊容器 + 滑块式 active(Apple 顶部控件语言)。tab 与 close 同高对齐。 */
+.gallery-tab {
+  padding: 5px 14px; border: none; border-radius: 999px;
+  background: transparent; color: var(--text-mute); font-size: var(--font-scale-body);
+  font-family: var(--font); cursor: pointer; white-space: nowrap;
+  transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+.gallery-tab:hover { color: var(--text); }
+.gallery-tab.active { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow-sm); }
+/* close 与 tab 高度一致:用同 32px 高度 + 居中 */
 .gallery-close {
   display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border: none; border-radius: var(--radius-sm);
-  background: transparent; color: var(--text-mute); cursor: pointer;
+  height: 32px; width: 32px; border: none; border-radius: 50%;
+  background: var(--capsule); color: var(--text-mute); cursor: pointer;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out), transform 100ms var(--ease-out);
 }
 .gallery-close:hover { background: var(--active); color: var(--text); }
-.gallery-body { flex: 1; overflow-y: auto; padding: 16px; }
-/* 图库:方形缩略图网格(居中,宽屏 ~3-4 列) */
+.gallery-close:active { transform: scale(0.88); }
+.gallery-body { flex: 1; overflow-y: auto; padding: 20px; }
+/* 图库:方形缩略图网格(唯一多列)。间距呼吸感,悬停轻微提亮 + 放大(§1 响应) */
 .gallery-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px;
-  max-width: 720px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px;
+  max-width: 420px; margin: 0 auto;
 }
 .gallery-thumb {
-  width: 100%; aspect-ratio: 1; border-radius: 8px; display: block;
+  width: 100%; aspect-ratio: 1; border-radius: var(--radius-sm); display: block;
   object-fit: cover; cursor: pointer; background: var(--capsule);
+  transition: transform 150ms var(--ease-out), filter 150ms var(--ease-out);
+  will-change: transform;
 }
+.gallery-thumb:hover { transform: scale(1.02); filter: brightness(1.05); }
+.gallery-thumb:active { transform: scale(0.98); }
 .gallery-thumb-fail { position: relative; }
 .gallery-thumb-fail::after {
   content: '!'; position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   color: var(--text-weak); font-size: var(--font-scale-title);
 }
-/* 文件/视频/音频:列表卡片 */
-.gallery-list { display: flex; flex-direction: column; gap: 8px; max-width: 560px; }
-.gallery-card {
-  display: flex; align-items: center; gap: 12px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-md);
-  padding: 10px 12px; cursor: default;
+/* 图库图片卡片:缩略图 + 右上角下载钮 + 底部格式/名称 tag */
+.gallery-img-card {
+  position: relative; border-radius: var(--radius-sm);
+  background: var(--panel); border: 1px solid var(--border);
+  overflow: hidden; cursor: pointer;
+  transition: border-color 120ms var(--ease-out), transform 100ms var(--ease-out);
 }
-.gallery-card[data-download] { cursor: pointer; }
-.gallery-card[data-download]:hover { background: var(--active); }
-.gallery-card-icon {
-  width: 36px; height: 36px; border-radius: var(--radius-sm); flex-shrink: 0;
+.gallery-img-card:hover { border-color: var(--border-strong); }
+.gallery-img-card:active { transform: scale(0.99); }
+.gallery-img-card .gallery-thumb { border-radius: 0; }
+.gallery-img-download {
+  position: absolute; top: 6px; right: 6px;
+  width: 26px; height: 26px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  border-color: color-mix(in srgb, var(--border-strong) 60%, transparent);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.gallery-img-meta {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-top: 1px solid var(--border);
+  min-width: 0;
+}
+.gallery-img-tag {
+  flex-shrink: 0; font-size: var(--font-scale-micro); font-weight: 600;
+  color: var(--text-mute); background: var(--capsule);
+  border-radius: 6px; padding: 1px 5px; letter-spacing: 0.2px;
+}
+.gallery-img-name {
+  flex: 1; min-width: 0; font-size: var(--font-scale-micro); color: var(--text-weak);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 文件/视频/音频:单列列表。视频/音频内嵌播放器(点击即播,不跳转页面),
+   文件显式下载按钮 —— 杜绝自动 a.click() 在 webview 里导航到资源页。 */
+.gallery-media-grid {
+  display: grid; grid-template-columns: 1fr; gap: 10px;
+  max-width: 420px; margin: 0 auto;
+}
+.gallery-media-item {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 10px; min-width: 0;
+  transition: border-color 120ms var(--ease-out), transform 100ms var(--ease-out);
+}
+.gallery-media-item:hover { border-color: var(--border-strong); }
+.gallery-media-item:active { transform: scale(0.99); }
+.gallery-media-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gallery-media-icon {
+  width: 38px; height: 38px; border-radius: var(--radius-sm); flex-shrink: 0;
   background: var(--capsule); border: 1px solid var(--border-strong);
   display: flex; align-items: center; justify-content: center; color: var(--text-mute);
 }
-.gallery-card-icon svg { display: block; }
-.gallery-card-info { min-width: 0; flex: 1; }
-.gallery-card-name {
-  font-size: var(--font-scale-body); color: var(--text); font-weight: 500;
+.gallery-media-icon svg { display: block; }
+.gallery-media-info { min-width: 0; flex: 1; }
+.gallery-media-name {
+  font-size: var(--font-scale-body); color: var(--text); font-weight: 500; line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.gallery-card-meta { font-size: var(--font-scale-micro); color: var(--text-weak); margin-top: 2px; }
-.gallery-card-player { flex-shrink: 0; max-width: 240px; }
-.gallery-card-player audio, .gallery-card-player video { width: 100%; max-height: 96px; display: block; }
-.gallery-empty { color: var(--text-weak); font-size: var(--font-scale-body); text-align: center; padding: 48px 0; }
+.gallery-media-meta { font-size: var(--font-scale-micro); color: var(--text-weak); margin-top: 3px; letter-spacing: 0.1px; }
+/* 正文搜索命中片段:卡片下方 area 框 */
+.gallery-media-snippet {
+  font-size: var(--font-scale-micro); color: var(--text-mute); line-height: 1.5;
+  background: var(--capsule); border: 1px solid var(--border); border-radius: var(--radius-xs);
+  padding: 6px 8px; max-height: 52px; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  word-break: break-all;
+}
+/* 搜索高亮:命中词底色 */
+.gallery-hit {
+  background: color-mix(in srgb, var(--accent, #4a90d9) 28%, transparent);
+  color: var(--text); border-radius: 2px; padding: 0 1px;
+}
+/* 播放器:audio/video 内嵌,点击播放区域不冒泡到下载/关闭。
+   audio 原生控件在 WebKit 偏高偏突兀,套圆角浅底容器压扁融入卡片。 */
+.gallery-media-player { width: 100%; }
+.gallery-media-player audio, .gallery-media-player video {
+  width: 100%; display: block;
+}
+.gallery-media-player audio {
+  height: 36px; border-radius: var(--radius-sm);
+  background: var(--capsule); padding: 0 6px;
+}
+.gallery-media-player video { max-height: 180px; border-radius: var(--radius-xs); background: #000; }
+/* 文件:显式下载按钮(不自动触发) */
+/* 下载按钮:固定右上角圆形图标钮 —— 所有文件同一操作位(文件管理器式肌肉记忆) */
+.gallery-media-download {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; flex-shrink: 0;
+  border: 1px solid var(--border-strong); background: var(--capsule);
+  color: var(--text-mute); border-radius: 50%;
+  cursor: pointer; padding: 0;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out), transform 100ms var(--ease-out);
+}
+.gallery-media-download:hover { background: var(--surface-hover); color: var(--text); }
+.gallery-media-download:active { transform: scale(0.9); }
+.gallery-empty { color: var(--text-weak); font-size: var(--font-scale-body); text-align: center; padding: 56px 0; }
 /* 全屏查看器 */
 .gallery-viewer-overlay {
   position: fixed; inset: 0; z-index: 130;
@@ -130,7 +269,9 @@ function ensureStyles(): void {
   color: var(--text-mute); font-size: var(--font-scale-secondary);
 }
 @media (prefers-reduced-motion: no-preference) {
+  /* 卡片从中心微缩浮现(§4 弹簧感),遮罩仅淡入 —— 材料从屏幕中心浮现,不割裂 */
   .gallery-overlay { animation: fade-in 180ms ease-out; }
+  .gallery-shell { animation: pop-in 220ms var(--ease-out); transform-origin: center center; }
   .gallery-viewer-overlay { animation: fade-in 180ms ease-out; }
 }
 `;
@@ -153,14 +294,25 @@ export async function openGallery(chatId: number): Promise<void> {
   const overlay = document.createElement('div');
   overlay.className = 'gallery-overlay';
   overlay.innerHTML = `
-    <header class="gallery-header">
-      <span class="gallery-title">媒体</span>
-      <nav class="gallery-tabs">
-        ${TABS.map((t) => `<button class="gallery-tab" data-tab="${t.key}">${t.label}</button>`).join('')}
-      </nav>
-      <button class="gallery-close" data-action="close" title="关闭">${iconSvg('x', { width: 16, height: 16 })}</button>
-    </header>
-    <div class="gallery-body"></div>
+    <div class="gallery-shell">
+      <header class="gallery-header">
+        <span class="gallery-title">媒体</span>
+        <div class="gallery-search">
+          ${iconSvg('search', { width: 14, height: 14 })}
+          <nav class="gallery-search-pill">
+            <button class="gallery-pill-btn active" data-pill="name">名称</button>
+            <button class="gallery-pill-btn" data-pill="content">正文</button>
+          </nav>
+          <input class="gallery-search-input" type="text" placeholder="搜索…" />
+          <button class="gallery-search-clear" data-search-clear title="清除">${iconSvg('x', { width: 12, height: 12 })}</button>
+        </div>
+        <button class="gallery-close" data-action="close" title="关闭">${iconSvg('x', { width: 16, height: 16 })}</button>
+        <nav class="gallery-tabs">
+          ${TABS.map((t) => `<button class="gallery-tab" data-tab="${t.key}">${t.label}</button>`).join('')}
+        </nav>
+      </header>
+      <div class="gallery-body"></div>
+    </div>
   `;
   document.body.appendChild(overlay);
 
@@ -170,12 +322,65 @@ export async function openGallery(chatId: number): Promise<void> {
     bodyEl: overlay.querySelector<HTMLElement>('.gallery-body')!,
     activeTab: 'Image',
     media: {},
+    query: '',
+    searchMode: 'name',
+    docTextCache: new Map(),
   };
   overlay.querySelector<HTMLElement>('.gallery-tab[data-tab="Image"]')?.classList.add('active');
+
+  // 搜索:输入即时过滤当前 tab;清除按钮复位
+  const searchInput = overlay.querySelector<HTMLInputElement>('.gallery-search-input')!;
+  const searchClear = overlay.querySelector<HTMLElement>('[data-search-clear]')!;
+  const syncClear = (): void => {
+    searchClear.classList.toggle('show', searchInput.value.length > 0);
+  };
+  const applyQuery = (): void => {
+    if (!gallery) return;
+    void renderTab(gallery.activeTab);
+  };
+  searchInput.addEventListener('input', () => {
+    if (!gallery) return;
+    gallery.query = searchInput.value.trim().toLowerCase();
+    syncClear();
+    applyQuery();
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    searchInput.value = '';
+    if (gallery) gallery.query = '';
+    syncClear();
+    applyQuery();
+  });
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    if (gallery) gallery.query = '';
+    syncClear();
+    applyQuery();
+  });
+  // 名称/正文 pill:切换搜索范围
+  overlay.querySelectorAll<HTMLElement>('.gallery-pill-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mode = btn.dataset.pill as 'name' | 'content';
+      if (!gallery || gallery.searchMode === mode) return;
+      gallery.searchMode = mode;
+      overlay.querySelectorAll<HTMLElement>('.gallery-pill-btn').forEach((b) => b.classList.toggle('active', b.dataset.pill === mode));
+      const ph = mode === 'content' ? '搜索文件正文…' : '搜索文件名…';
+      searchInput.placeholder = ph;
+      applyQuery();
+    });
+  });
+  syncClear();
 
   overlay.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
     if (target.closest('[data-action="close"]')) {
+      closeGallery();
+      return;
+    }
+    // 点击遮罩(卡片外)关闭
+    if (target === overlay) {
       closeGallery();
       return;
     }
@@ -203,7 +408,7 @@ async function loadTab(tab: GalleryTab): Promise<void> {
   if (!gallery) return;
   const g = gallery;
   if (g.media[tab] !== undefined) {
-    renderTab(tab);
+    await renderTab(tab);
     return;
   }
   g.bodyEl.innerHTML = '<div class="gallery-empty">加载中…</div>';
@@ -217,20 +422,60 @@ async function loadTab(tab: GalleryTab): Promise<void> {
     }
     return;
   }
-  renderTab(tab);
+  await renderTab(tab);
 }
 
-function renderTab(tab: GalleryTab): void {
+async function renderTab(tab: GalleryTab): Promise<void> {
   if (!gallery || gallery.activeTab !== tab) return;
-  const list = gallery.media[tab] || [];
+  const all = gallery.media[tab] || [];
+  const q = gallery.query;
+  const g = gallery;
+  if (all.length === 0) {
+    g.bodyEl.innerHTML = '<div class="gallery-empty">暂无媒体</div>';
+    return;
+  }
+  if (g.searchMode === 'content' && q) {
+    // 正文模式:逐文件提取正文并过滤(带缓存)。先显示 loading。
+    g.bodyEl.innerHTML = '<div class="gallery-empty">正在检索正文…</div>';
+    const hits: MsgDto[] = [];
+    for (const m of all) {
+      if (!m.msg_id) continue;
+      let text = g.docTextCache.get(m.msg_id);
+      if (text === undefined) {
+        try {
+          text = await call<string>('get_msg_file_text', { msgId: m.msg_id });
+        } catch {
+          text = '';
+        }
+        g.docTextCache.set(m.msg_id, text);
+      }
+      if (text.toLowerCase().includes(q)) hits.push(m);
+      // 等待期间切了 tab/关闭,丢弃本次渲染
+      if (gallery !== g || g.activeTab !== tab) return;
+    }
+    if (hits.length === 0) {
+      g.bodyEl.innerHTML = `<div class="gallery-empty">未找到「${escapeHtml(q)}」</div>`;
+      return;
+    }
+    if (tab === 'Image') {
+      await renderImageGrid(g.bodyEl, tab, hits);
+    } else {
+      await renderMediaList(g.bodyEl, tab, hits);
+    }
+    return;
+  }
+  // 名称模式(或无 query):按文件名匹配
+  const list = q
+    ? all.filter((m) => (m.file_name || '').toLowerCase().includes(q))
+    : all;
   if (list.length === 0) {
-    gallery.bodyEl.innerHTML = '<div class="gallery-empty">暂无媒体</div>';
+    g.bodyEl.innerHTML = `<div class="gallery-empty">未找到「${escapeHtml(q)}」</div>`;
     return;
   }
   if (tab === 'Image') {
-    void renderImageGrid(gallery.bodyEl, tab, list);
+    await renderImageGrid(g.bodyEl, tab, list);
   } else {
-    void renderMediaList(gallery.bodyEl, tab, list);
+    await renderMediaList(g.bodyEl, tab, list);
   }
 }
 
@@ -239,10 +484,26 @@ async function renderImageGrid(container: HTMLElement, tab: GalleryTab, list: Ms
     list.map(async (m, i) => {
       let url = '';
       if (m.file) url = await transformBlobURL(m.file);
+      const name = m.file_name || 'image';
       if (!url) {
-        return `<div class="gallery-thumb gallery-thumb-fail" data-idx="${i}" title="${escapeAttr(m.file_name || '')}"></div>`;
+        return `<div class="gallery-img-card gallery-thumb-fail" data-idx="${i}" title="${escapeAttr(name)}">
+          <div class="gallery-img-tag">${escapeHtml(extOf(name))}</div>
+        </div>`;
       }
-      return `<img class="gallery-thumb" data-idx="${i}" src="${escapeAttr(url)}" alt="${escapeAttr(m.file_name || '')}" loading="lazy" />`;
+      // 图片卡片:缩略图(点击查看)+ 右上角下载钮 + 底部格式/名称 tag
+      const ext = extOf(name).toUpperCase();
+      return `
+        <div class="gallery-img-card" data-idx="${i}">
+          <img class="gallery-thumb" src="${escapeAttr(url)}" alt="${escapeAttr(name)}" title="${escapeAttr(name)}" loading="lazy" />
+          <button class="gallery-media-download gallery-img-download" data-download="${escapeAttr(url)}" data-name="${escapeAttr(name)}" title="下载 ${escapeAttr(name)}">
+            ${iconSvg('download', { width: 14, height: 14 })}
+          </button>
+          <div class="gallery-img-meta">
+            <span class="gallery-img-tag">${escapeHtml(ext)}</span>
+            <span class="gallery-img-name">${escapeHtml(name)}</span>
+          </div>
+        </div>
+      `;
     }),
   );
   if (!gallery || gallery.activeTab !== tab) return; // 等待期间切了 tab,丢弃本次渲染
@@ -251,12 +512,68 @@ async function renderImageGrid(container: HTMLElement, tab: GalleryTab, list: Ms
   grid.innerHTML = cells.join('');
   container.innerHTML = '';
   container.appendChild(grid);
-  grid.querySelectorAll<HTMLElement>('.gallery-thumb').forEach((el) => {
-    el.addEventListener('click', () => {
-      const idx = Number(el.dataset.idx);
+  // 点击卡片/缩略图 → 全屏查看器;下载按钮独立触发下载
+  grid.querySelectorAll<HTMLElement>('.gallery-img-card').forEach((card) => {
+    const idx = Number(card.dataset.idx);
+    card.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.gallery-img-download')) return;
       if (list[idx]) openViewer(list, idx);
     });
   });
+  grid.querySelectorAll<HTMLElement>('.gallery-img-download').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const a = document.createElement('a');
+      a.href = btn.dataset.download || '';
+      a.download = btn.dataset.name || '';
+      a.click();
+    });
+  });
+}
+
+// 文件扩展名 → tdesign 专属图标名(映射常见文档/压缩/代码格式,其余落 file-text)
+const FILE_ICON_MAP: Array<[RegExp, IconName]> = [
+  [/\.pdf$/i, 'file-pdf'],
+  [/\.(zip|rar|7z|tar|gz|bz2|xz)$/i, 'file-zip'],
+  [/\.(txt|log|md|rtf|nfo)$/i, 'file-txt'],
+  [/\.(doc|docx|odt|pages)$/i, 'file-word'],
+  [/\.(xls|xlsx|csv|ods|numbers)$/i, 'file-excel'],
+  [/\.(json|ya?ml|toml|xml)$/i, 'file-json'],
+  [/\.(js|ts|jsx|tsx|rs|go|py|java|c|cc|cpp|h|cs|php|rb|swift|kt|sql|sh|html|css|scss)$/i, 'file-code'],
+];
+function fileIconOf(name: string): IconName {
+  const hit = FILE_ICON_MAP.find(([re]) => re.test(name));
+  return (hit ? hit[1] : 'file-text') as IconName;
+}
+
+/** 取文件名扩展名(含点,如 ".png");无扩展名返回空串。 */
+function extOf(name: string): string {
+  const idx = name.lastIndexOf('.');
+  return idx > 0 ? name.slice(idx) : '';
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 把 text 中所有 query 命中段包 <mark class="gallery-hit">(已 escapeHtml 安全)。 */
+function highlightHit(text: string, query: string): string {
+  if (!query) return escapeHtml(text);
+  const safe = escapeHtml(text);
+  const re = new RegExp(escapeRegex(escapeHtml(query)), 'gi');
+  return safe.replace(re, '<mark class="gallery-hit">$&</mark>');
+}
+
+/** 从正文找 query 首位置,前后截取片段(约 ±40 字符)供 snippet 展示。 */
+function makeSnippet(body: string, query: string): string {
+  const q = query.toLowerCase();
+  const idx = body.toLowerCase().indexOf(q);
+  if (idx < 0) return '';
+  const start = Math.max(0, idx - 40);
+  const end = Math.min(body.length, idx + query.length + 40);
+  const pre = start > 0 ? '…' : '';
+  const post = end < body.length ? '…' : '';
+  return pre + highlightHit(body.slice(start, end), query) + post;
 }
 
 async function renderMediaList(container: HTMLElement, tab: GalleryTab, list: MsgDto[]): Promise<void> {
@@ -265,41 +582,64 @@ async function renderMediaList(container: HTMLElement, tab: GalleryTab, list: Ms
       let url = '';
       if (m.file) url = await transformBlobURL(m.file);
       const name = m.file_name || 'file';
-      const meta = formatBytes(m.file_size);
-      const icon = tab === 'Audio'
-        ? iconSvg('volume-2', { width: 18, height: 18, strokeWidth: 1.8 })
-        : iconSvg('file-text', { width: 18, height: 18, strokeWidth: 1.8 });
-      let player = '';
-      if (url && tab === 'Video') {
-        player = `<div class="gallery-card-player"><video controls preload="metadata" src="${escapeAttr(url)}"></video></div>`;
-      } else if (url && tab === 'Audio') {
-        player = `<div class="gallery-card-player"><audio controls preload="metadata" src="${escapeAttr(url)}"></audio></div>`;
+      const meta = formatBytes(m.file_bytes ?? null);
+      // 图标:音频 volume-2,视频 play,文件按扩展名映射 tdesign 专属图标
+      const iconName: IconName = tab === 'Audio' ? 'volume-2'
+        : tab === 'Video' ? 'play'
+        : fileIconOf(name);
+      const icon = iconSvg(iconName, { width: 18, height: 18, strokeWidth: 1.8 });
+      // 音频/视频:内嵌播放器(点击即播,绝不触发跳转/下载)。文件:无播放器。
+      let action = '';
+      if (url && tab === 'Audio') {
+        action = `<div class="gallery-media-player"><audio controls preload="metadata" src="${escapeAttr(url)}"></audio></div>`;
+      } else if (url && tab === 'Video') {
+        action = `<div class="gallery-media-player"><video controls preload="metadata" src="${escapeAttr(url)}"></video></div>`;
+      }
+      // 下载按钮固定右上角:文件管理器式统一操作位(所有文件一致,养成肌肉记忆)
+      const downloadBtn = url
+        ? `<button class="gallery-media-download" data-download="${escapeAttr(url)}" data-name="${escapeAttr(name)}" title="下载 ${escapeAttr(name)}">
+            ${iconSvg('download', { width: 15, height: 15 })}
+          </button>`
+        : '';
+      // 名称搜索 → 文件名高亮;正文搜索 → 卡片下方正文片段 area(命中词高亮)
+      const q = gallery?.query ?? '';
+      const inContentMode = gallery?.searchMode === 'content';
+      const nameHtml = inContentMode ? escapeHtml(name) : highlightHit(name, q);
+      let snippet = '';
+      if (inContentMode && q && m.msg_id) {
+        const body = gallery?.docTextCache.get(m.msg_id) || '';
+        const s = makeSnippet(body, q);
+        if (s) snippet = `<div class="gallery-media-snippet">${s}</div>`;
       }
       return `
-        <div class="gallery-card" ${url ? `data-download="${escapeAttr(url)}"` : ''}>
-          <div class="gallery-card-icon">${icon}</div>
-          <div class="gallery-card-info">
-            <div class="gallery-card-name">${escapeHtml(name)}</div>
-            <div class="gallery-card-meta">${escapeHtml(meta)}${url ? '' : ' · 附件加载失败'}</div>
+        <div class="gallery-media-item">
+          <div class="gallery-media-top">
+            <div class="gallery-media-icon">${icon}</div>
+            <div class="gallery-media-info">
+              <div class="gallery-media-name">${nameHtml}</div>
+              <div class="gallery-media-meta">${escapeHtml(meta)}${url ? '' : ' · 附件加载失败'}</div>
+            </div>
+            ${downloadBtn}
           </div>
-          ${player}
+          ${action}
+          ${snippet}
         </div>
       `;
     }),
   );
   if (!gallery || gallery.activeTab !== tab) return;
-  const listEl = document.createElement('div');
-  listEl.className = 'gallery-list';
-  listEl.innerHTML = cards.join('');
+  const gridEl = document.createElement('div');
+  gridEl.className = 'gallery-media-grid';
+  gridEl.innerHTML = cards.join('');
   container.innerHTML = '';
-  container.appendChild(listEl);
-  // 文件/视频/音频卡片点击下载;点击播放器本体不触发
-  listEl.querySelectorAll<HTMLElement>('.gallery-card[data-download]').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('.gallery-card-player')) return;
+  container.appendChild(gridEl);
+  // 文件:点击下载按钮才触发下载(播放器/行本身不下载)
+  gridEl.querySelectorAll<HTMLElement>('.gallery-media-download').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const a = document.createElement('a');
-      a.href = el.dataset.download || '';
-      a.download = '';
+      a.href = btn.dataset.download || '';
+      a.download = btn.dataset.name || '';
       a.click();
     });
   });

@@ -39,7 +39,6 @@ hljs.registerLanguage('json', json);
 // Note: pinned 状态改由模块级 pinnedMsgIds 集合管理 (见下方),不再挂在 RenderableMsg 上。
 interface RenderableMsg extends MsgDto {
   _state?: string;
-  file_bytes?: number | null;
 }
 
 interface Reaction {

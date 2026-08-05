@@ -71,7 +71,7 @@ export interface MsgDto {
   file: string | null;
   file_mime: string | null;
   file_name: string | null;
-  file_size: number | null;
+  file_bytes: number | null;
   quote_text: string | null;
   quote_from: string | null;
   reactions: Record<string, number[]> | null;
@@ -170,6 +170,8 @@ export interface AppState {
   peytBannerDismissed: boolean;
   // SP6: Inbox 未读数 + 协作页 tab + 按频道记忆视图偏好
   inboxUnread: number;
+  // 全部会话(常规+归档)未读总数:左侧功能栏消息图标角标 + 任务栏 badge
+  totalUnread: number;
   currentWorkTab: WorkTab;
   viewPrefs: Record<number, CurrentView>; // key = channel chat_id
 }
