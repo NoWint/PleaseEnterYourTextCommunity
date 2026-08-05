@@ -21,7 +21,8 @@ impl SummaryService {
             downloader: Downloader::new(models_dir, app),
             db,
         });
-        // 常驻 worker 循环:取任务→跑;空闲 10 分钟回收引擎进程(§10.4)
+        // 常驻 worker 循环:取任务→spawn 独立 task 并发跑(API 模式 7 个 detail 并行;
+        // 本地模式由 run_local 内信号量串行)。空闲 10 分钟回收引擎进程(§10.4)。
         // 引擎子进程随应用退出自行结束;下次启动 ensure_running 自愈.
         {
             let queue = svc.queue.clone();
@@ -30,7 +31,8 @@ impl SummaryService {
                 loop {
                     if let Some(job) = queue.next_job().await {
                         last_active = std::time::Instant::now();
-                        queue.run_job(job).await;
+                        // 并发跑:不 await,spawn 独立 task;worker 立即拉下一个 job
+                        crate::summary::queue::SummaryQueue::spawn_job(&queue, job);
                     } else {
                         if last_active.elapsed() >= std::time::Duration::from_secs(600) {
                             queue.runner.stop_if_idle().await;
@@ -72,15 +74,17 @@ impl SummaryService {
 }
 
 /// 按车道/分析类型选 system prompt。bubble 纯文本;detail 各类 JSON/XML 约束。
+/// 所有 detail 追加「可点击标签」说明:AI 可在文本中插入 <message='数字'> / <user='名字'>,
+/// 客户端会解析成可点击元素(跳原文 / 看名片)。(const 拼接在字符串字面量内联实现)
 pub fn system_prompt(lane: &str, kind: &str) -> &'static str {
     match (lane, kind) {
         ("bubble", _) => "你是聊天主题总结助手。用一句话(≤60字)概括最近聊的主题,直接输出,不要任何前缀后缀,不要使用 <message> 或 <user> 标签。",
-        ("detail", "summary") => "你是聊天内容分析助手。根据聊天记录用一段话(2-4句)总结最近聊的内容,用 <message='...'> 引用具体消息(消息id或内容片段),用 <user='...'> 引用发言人名字,直接输出总结,不要前缀。",
-        ("detail", "action_items") => "提取聊天中的行动项/待办事项,只输出 JSON 对象 {\"items\":[{\"text\":\"...\",\"assignee\":\"...\",\"due\":\"...\",\"ref\":数字}]},不要输出任何其它文本。",
-        ("detail", "resources") => "聚合聊天中提到的链接和文件,只输出 JSON {\"links\":[{\"url\":\"...\",\"title\":\"...\",\"sender\":\"...\",\"ref\":数字}],\"files\":[{\"name\":\"...\",\"ref\":数字}]},不要其它文本。",
-        ("detail", "open_questions") => "找出聊天中悬而未决的问题(提问后无人明确回答),只输出 JSON {\"questions\":[{\"text\":\"...\",\"asked_by\":\"...\",\"ref\":数字}]},不要其它文本。",
-        ("detail", "timeline") => "把聊天按话题演变划分为若干阶段,只输出 JSON {\"phases\":[{\"period\":\"...\",\"topic\":\"...\",\"key_messages\":[数字]}]},不要其它文本。",
-        ("detail", "decisions") => "提取聊天中做出的决策及理由,只输出 JSON {\"decisions\":[{\"title\":\"...\",\"by\":\"...\",\"rationale\":\"...\",\"ref\":数字}]},不要其它文本。",
+        ("detail", "summary") => "你可以引用聊天记录中的消息与发言人:用 <message='消息id数字'> 引用具体消息,用 <user='发言人名字'> 引用发言人,客户端会解析成可点击元素。用一段话(2-4句)总结最近聊的内容,输出为 markdown 格式(可用 **加粗**、- 列表、`代码` 等),可插入上述标签,不要前缀。",
+        ("detail", "action_items") => "你可以引用聊天记录中的消息与发言人:用 <message='消息id数字'> 引用具体消息,用 <user='发言人名字'> 引用发言人,客户端会解析成可点击元素。提取聊天中的行动项/待办事项,只输出 JSON 对象 {\"items\":[{\"text\":\"...\",\"assignee\":\"...\",\"due\":\"...\",\"ref\":数字}]},不要输出任何其它文本。",
+        ("detail", "resources") => "你可以引用聊天记录中的消息与发言人:用 <message='消息id数字'> 引用具体消息,用 <user='发言人名字'> 引用发言人,客户端会解析成可点击元素。聚合聊天中提到的链接和文件,只输出 JSON {\"links\":[{\"url\":\"...\",\"title\":\"...\",\"sender\":\"...\",\"ref\":数字}],\"files\":[{\"name\":\"...\",\"ref\":数字}]},不要其它文本。",
+        ("detail", "open_questions") => "你可以引用聊天记录中的消息与发言人:用 <message='消息id数字'> 引用具体消息,用 <user='发言人名字'> 引用发言人,客户端会解析成可点击元素。找出聊天中悬而未决的问题(提问后无人明确回答),只输出 JSON {\"questions\":[{\"text\":\"...\",\"asked_by\":\"...\",\"ref\":数字}]},不要其它文本。",
+        ("detail", "timeline") => "你可以引用聊天记录中的消息与发言人:用 <message='消息id数字'> 引用具体消息,用 <user='发言人名字'> 引用发言人,客户端会解析成可点击元素。把聊天按话题演变划分为若干阶段,只输出 JSON {\"phases\":[{\"period\":\"...\",\"topic\":\"...\",\"key_messages\":[数字]}]},不要其它文本。",
+        ("detail", "decisions") => "你可以引用聊天记录中的消息与发言人:用 <message='消息id数字'> 引用具体消息,用 <user='发言人名字'> 引用发言人,客户端会解析成可点击元素。提取聊天中做出的决策及理由,只输出 JSON {\"decisions\":[{\"title\":\"...\",\"by\":\"...\",\"rationale\":\"...\",\"ref\":数字}]},不要其它文本。",
         _ => "你是聊天内容分析助手,根据聊天记录输出分析结果。",
     }
 }

@@ -13,6 +13,7 @@
     "@tauri-apps/api": "^2.0.0",
     "highlight.js": "^11.11.1",
     "jieba-wasm": "^2.4.0",
+    "marked": "^18.0.9",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

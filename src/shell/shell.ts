@@ -91,6 +91,13 @@ export async function renderShell(): Promise<void> {
     if (state.currentChatId != null) void refreshCurrentChat();
     void refreshSidebar();
     void updateBadge();
+    // AI 总结缓存:新消息 → 失效 + 5s 防抖重请求(5s 内有更多新消息则重置)
+    if (state.currentChatId != null) {
+      void import('../components/summaryDashboard.js').then((m) => {
+        m.invalidateChatCache(state.currentChatId!);
+        m.scheduleRefresh(state.currentChatId!);
+      }).catch(() => {});
+    }
   });
   onEvent('IncomingMsg', (e) => {
     void handleIncomingMsg(e);

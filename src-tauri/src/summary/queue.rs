@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use crate::error::{AppError, AppResult};
 use crate::llm::{ChatMessage, LlmClient};
 use crate::summary::runner::LocalRunner;
@@ -28,6 +28,7 @@ pub struct QueueInner {
 
 pub struct SummaryQueue {
     pub inner: Mutex<QueueInner>,
+    pub local_sem: Arc<Semaphore>, // 本地 llama-server 单进程 → 串行(容量 1);API 模式不占
     pub app: AppHandle,
     pub runner: Arc<LocalRunner>,
     pub api: LlmClient,
@@ -39,6 +40,7 @@ impl SummaryQueue {
     pub fn new(app: AppHandle, runner: Arc<LocalRunner>, default_model: PathBuf) -> Arc<Self> {
         Arc::new(Self {
             inner: Mutex::new(QueueInner { pending: VecDeque::new() }),
+            local_sem: Arc::new(Semaphore::new(1)),
             app, runner,
             api: LlmClient::new(),
             api_cfg: Mutex::new(None),
@@ -80,7 +82,16 @@ impl SummaryQueue {
         }
     }
 
-    /// 跑单个 job 并发事件。不递归取下一个 —— 常驻 worker 循环(commands.rs)负责拉取。
+    /// spawn 一个独立 task 跑 job —— 支持 API 模式并发(多个 detail 同时跑)。
+    /// 本地模式由 run_local 内信号量串行。接受 Arc 以便廉价 clone 进 task。
+    pub fn spawn_job(this: &Arc<Self>, job: SummaryJob) {
+        let this = this.clone();
+        tokio::spawn(async move {
+            this.run_job(job).await;
+        });
+    }
+
+    /// 跑单个 job 并发事件。API 模式并发;本地走信号量串行。
     pub async fn run_job(&self, job: SummaryJob) {
         let result = if self.use_local().await {
             self.run_local(&job).await
@@ -96,6 +107,9 @@ impl SummaryQueue {
     }
 
     async fn run_local(&self, job: &SummaryJob) -> AppResult<String> {
+        // llama-server 单进程 → 本地推理全局串行(信号量容量 1)。
+        // 并发请求会抢引擎,故多个 detail 在此排队。
+        let _permit = self.local_sem.clone().acquire_owned().await;
         let cfg = crate::summary::runner::local_llm_config();
         let model = self.current_model.lock().await.clone();
         // 本地引擎超时:由 job.timeout 控制(bubble 60s / detail 120s)

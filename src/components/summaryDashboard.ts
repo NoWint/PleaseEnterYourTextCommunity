@@ -5,12 +5,14 @@
 import { iconSvg, type IconName } from './icon.js';
 import { escapeHtml } from './escape.js';
 import { call } from '../api.js';
+import { state } from '../state.js';
+import { ui } from './ui.js';
 import type { MsgDto } from '../types.js';
 import { buildContextWindow, formatWindowLines } from '../utils/summaryContext.js';
 import type { WindowMsg } from '../utils/summaryContext.js';
 import { computeParticipation } from '../utils/participation.js';
 import { getSummaryPrefs, loadSummaryPrefs } from '../utils/summaryPrefs.js';
-import { parseTags, renderParsed } from '../utils/tagParser.js';
+import { renderMarkdown } from '../utils/markdown.js';
 
 export type AnalysisKind = 'summary' | 'participation' | 'action_items'
   | 'resources' | 'open_questions' | 'timeline' | 'decisions';
@@ -38,6 +40,8 @@ const detailCache = new Map<string, { kind: AnalysisKind; status: string; text: 
 
 // 当前弹窗实例(单例,关闭时清理)
 let fullscreenEl: HTMLElement | null = null;
+// 当前弹窗的上下文窗口(participation 统计缓存命中重算用)
+let fsWin: WindowMsg[] = [];
 
 // ── JSON 结构化渲染 ──────────────────────────────────────
 /** 解析 JSON,失败返回 null(调用方降级为 <pre> 转义显示)。 */
@@ -116,10 +120,9 @@ function renderParticipationStat(win: WindowMsg[]): string {
     .join('');
 }
 
-/** summary:XML 段落 → parseTags 渲染可点标签。 */
+/** summary:markdown 渲染(内嵌 <user>/<message> 标签解析成可点 chip)。 */
 function renderSummary(text: string): string {
-  const segs = parseTags(text);
-  return `<div class="sd-summary">${renderParsed(segs, () => {})}</div>`;
+  return `<div class="sd-summary sd-markdown">${renderMarkdown(text)}</div>`;
 }
 
 /** JSON 解析失败降级:整段转义 <pre> 显示,不崩 UI。 */
@@ -208,6 +211,7 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   const prefs = getSummaryPrefs();
   if (prefs.mode !== 'llm') { await openWordAnalysisPopupFallback(anchor, msgs, resolve); return; }
   const win = buildContextWindow(msgs, resolve, prefs.contextN);
+  fsWin = win; // 缓存命中时 participation 统计重算用
   const prompt = formatWindowLines(win); // 含绝对时间;participation 用结构化 window 本地统计
 
   // 左侧导航(词云 + 类型目录)
@@ -266,15 +270,28 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
   window.addEventListener('keydown', onKey, { once: true });
 
-  // 引用跳转委托:点击 .sd-ref[data-ref] / .mention-chip[data-msg-ref] → 关看板 → 跳原文消息
+  // 标签点击委托:<message> → 关看板跳原文;<user> → 打开成员名片。
+  // 覆盖 .sd-ref / .mention-chip[data-msg-ref] / .mention-chip[data-user-ref]
   overlay.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
-    const refEl = t.closest<HTMLElement>('.sd-ref[data-ref], .mention-chip[data-msg-ref]');
+    const refEl = t.closest<HTMLElement>('.mention-chip[data-msg-ref], .mention-chip[data-user-ref], .sd-ref[data-ref]');
     if (!refEl) return;
+    e.stopPropagation();
+    // user 分支:按名字反查当前成员 → 名片
+    if (refEl.dataset.userRef != null) {
+      const name = refEl.dataset.userRef;
+      const member = state.currentMembers.find((m) => m.name === name);
+      if (member) {
+        void import('./contactCard.js').then(({ openContactCard }) =>
+          openContactCard({ contactId: member.contact_id, name: member.name, addr: member.addr, anchor: refEl }));
+      } else {
+        ui.toast(`未找到成员:${name}`);
+      }
+      return;
+    }
+    // message 分支:跳原文
     const ref = refEl.dataset.ref ?? refEl.dataset.msgRef;
     if (ref == null) return;
-    e.stopPropagation();
-    // 从 win 里确认该 id 存在(避免跳一个不在窗口里的消息)
     const id = Number(ref);
     if (!Number.isNaN(id) && win.some((w) => w.id === id)) {
       close();
@@ -323,9 +340,20 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
 
 function kindOf(k: AnalysisKind): AnalysisKind { return k; }
 
-/** 当前全屏实例入队。 */
+/** 当前弹窗实例入队(带缓存:已有 done 结果 → 直接渲染,不重新请求)。 */
 function enqueueOverlay(overlay: HTMLElement, chatId: number, kind: AnalysisKind, prompt: string, reset = true): void {
   const body = overlay.querySelector<HTMLElement>(`[data-body="${kind}"]`);
+  // 缓存命中:直接渲染已 done 内容,不请求(无新消息时重复打开不重新请求)
+  const cached = detailCache.get(`${chatId}:${kind}`);
+  if (cached && cached.status === 'done' && cached.text) {
+    if (body) {
+      // participation 缓存的是 LLM 解读文本;统计为前端即时算(重新算,因为窗口可能变化)
+      body.innerHTML = kind === 'participation'
+        ? `<div class="sd-p-stat">${renderParticipationStat(fsWin)}</div><div class="sd-p-insight"><div class="sd-insight-text">${escapeHtml(cached.text)}</div></div>`
+        : renderDetailBody(kind, cached.text);
+    }
+    return;
+  }
   if (body && reset) body.textContent = '分析中…';
   detailCache.delete(`${chatId}:${kind}`);
   void call('summary_enqueue', { chatId, lane: 'detail', kind, prompt }).catch(() => {
@@ -354,13 +382,67 @@ function bindFullscreenEvents(): void {
       // participation:统计(.sd-p-stat)保留,只更新 LLM 解读(.sd-p-insight)
       const target = p.kind === 'participation' ? body.querySelector<HTMLElement>('.sd-p-insight') : body;
       if (!target) return;
-      if (cur.status === 'done') target.innerHTML = p.kind === 'participation'
-        ? `<div class="sd-insight-text">${escapeHtml(cur.text)}</div>`
-        : renderDetailBody(p.kind as AnalysisKind, cur.text);
+      if (cur.status === 'done') {
+        target.innerHTML = p.kind === 'participation'
+          ? `<div class="sd-insight-text">${escapeHtml(cur.text)}</div>`
+          : renderDetailBody(p.kind as AnalysisKind, cur.text);
+        // 卡片出现动画:done 后加 .sd-reveal,stagger 由子项 animation-delay 控制
+        const block = target.closest('.sd-block');
+        if (block) {
+          block.classList.add('sd-done');
+          requestAnimationFrame(() => {
+            target.querySelectorAll('.sd-item, .sd-dec, .sd-tl-node, .sd-res-link, .sd-res-file, .sd-p-row').forEach((el, i) => {
+              (el as HTMLElement).style.setProperty('--reveal-i', String(i));
+              el.classList.add('sd-reveal');
+            });
+          });
+        }
+      }
       else if (cur.status === 'error') target.innerHTML = '<div class="wc-empty">分析失败,点击刷新重试</div>';
       else target.textContent = cur.text || '分析中…';
     });
   });
+}
+
+// ── 缓存失效 + 防抖刷新(供 chatView 新消息时调用) ─────────
+/** 新消息到达:清该 chat 全部 detail 缓存(下次打开重新请求)。 */
+export function invalidateChatCache(chatId: number): void {
+  for (const key of [...detailCache.keys()]) {
+    if (key.startsWith(`${chatId}:`)) detailCache.delete(key);
+  }
+}
+
+// 防抖计时器:5s 内有新消息则重置
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshChatId: number | null = null;
+
+/**
+ * 新消息后 5s 防抖重新请求:5s 内有更多新消息则重置计时器。
+ * 计时器到点 → 若该 chat 的 popup 开着则重新入队刷新;关着则缓存已清,下次打开自然请求。
+ */
+export function scheduleRefresh(chatId: number): void {
+  refreshChatId = chatId;
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    // 清理缓存后,若 popup 开着则重新入队
+    invalidateChatCache(chatId);
+    const popup = document.querySelector<HTMLElement>('.sd-overlay[data-sd-chat]');
+    if (popup && popup.dataset.sdChat === String(chatId)) {
+      const win = fsWin;
+      const prompt = formatWindowLines(win);
+      for (const t of ANALYSIS_TYPES) {
+        // 重新入队所有 detail(participation 统计也重算)
+        const body = popup.querySelector<HTMLElement>(`[data-body="${t.kind}"]`);
+        if (t.kind === 'participation') {
+          if (body) body.innerHTML = `<div class="sd-p-stat">${renderParticipationStat(win)}</div><div class="sd-p-insight">分析中…</div>`;
+          enqueueOverlay(popup, chatId, t.kind, prompt, false);
+        } else {
+          enqueueOverlay(popup, chatId, t.kind, prompt);
+        }
+      }
+    }
+  }, 5000);
 }
 
 /**
