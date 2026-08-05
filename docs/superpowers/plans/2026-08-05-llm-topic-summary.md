@@ -1031,14 +1031,176 @@ pub fn local_llm_config() -> LlmConfig {
 
 ---
 
-## Task 7: `queue.rs` + `summary.rs` 命令 + events + lib.rs 注册
+## Task 7: `queue.rs` + `summary.rs` 命令 + db 表 + events + lib.rs 注册
 
 **Files:**
 - Create: `src-tauri/src/summary/queue.rs`
 - Create: `src-tauri/src/summary/commands.rs`
+- Modify: `src-tauri/src/db.rs`（migrate 加 2 表 + 5 个读写方法）
 - Modify: `src-tauri/src/lib.rs`（`mod summary;` 已在 Task 4 加;追加 `summary::commands::*` 到 invoke_handler + setup 里 manage SummaryService）
 
-- [ ] **Step 1: 实现 SummaryQueue(信号量串行/bubble 抢占/每 chat 丢旧留新)**
+- [ ] **Step 1: db.rs 加 summary_settings / summary_cache 表 + 读写方法**
+
+在 `src-tauri/src/db.rs` 的 `migrate()` 里 `execute_batch` 末尾（`github_repos` 表定义后）追加两张表：
+
+```rust
+                CREATE TABLE IF NOT EXISTS summary_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    mode TEXT NOT NULL DEFAULT 'wordfreq',
+                    source TEXT NOT NULL DEFAULT 'local',
+                    model_size TEXT NOT NULL DEFAULT '0.5b',
+                    context_n INTEGER NOT NULL DEFAULT 50,
+                    engine_version TEXT,
+                    model_sha256 TEXT,
+                    api_base_url TEXT, api_key TEXT, api_model TEXT,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS summary_cache (
+                    chat_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (chat_id, kind)
+                );",
+```
+
+在 `impl Db` 里追加读写方法(对齐 github_settings 的 spawn_blocking + blocking_lock 模式):
+
+```rust
+/// 主题总结偏好/状态行(id=1)。无行 → 默认值。
+pub async fn get_summary_settings(&self) -> AppResult<SummarySettingsRow> {
+    let conn = self.conn.clone();
+    tokio::task::spawn_blocking(move || -> AppResult<SummarySettingsRow> {
+        let c = conn.blocking_lock();
+        let row = c
+            .query_row(
+                "SELECT mode, source, model_size, context_n, engine_version, model_sha256,
+                        api_base_url, api_key, api_model
+                 FROM summary_settings WHERE id = 1",
+                [],
+                |r| {
+                    Ok(SummarySettingsRow {
+                        mode: r.get(0)?, source: r.get(1)?, model_size: r.get(2)?,
+                        context_n: r.get(3)?, engine_version: r.get(4)?,
+                        model_sha256: r.get(5)?, api_base_url: r.get(6)?,
+                        api_key: r.get(7)?, api_model: r.get(8)?,
+                    })
+                },
+            )
+            .optional()?
+            .unwrap_or_default();
+        Ok(row)
+    })
+    .await?
+}
+
+/// 写偏好(id=1 UPSERT)。
+pub async fn set_summary_settings(&self, p: &SummarySettingsPatch) -> AppResult<()> {
+    let conn = self.conn.clone();
+    let p = p.clone();
+    let updated_at = chrono::Utc::now().timestamp();
+    tokio::task::spawn_blocking(move || -> AppResult<()> {
+        let c = conn.blocking_lock();
+        c.execute(
+            "INSERT INTO summary_settings
+               (id, mode, source, model_size, context_n, updated_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+               mode = excluded.mode, source = excluded.source,
+               model_size = excluded.model_size, context_n = excluded.context_n,
+               updated_at = excluded.updated_at",
+            params![p.mode, p.source, p.model_size, p.context_n, updated_at],
+        )?;
+        Ok(())
+    })
+    .await??;
+    Ok(())
+}
+
+/// 写 API 凭据(全 None = 清除;存 summary_settings.api_* 列)。
+pub async fn set_summary_api(&self, base_url: Option<&str>, api_key: Option<&str>, model: Option<&str>) -> AppResult<()> {
+    let conn = self.conn.clone();
+    let base_url = base_url.map(str::to_string);
+    let api_key = api_key.map(str::to_string);
+    let model = model.map(str::to_string);
+    let updated_at = chrono::Utc::now().timestamp();
+    tokio::task::spawn_blocking(move || -> AppResult<()> {
+        let c = conn.blocking_lock();
+        c.execute(
+            "INSERT INTO summary_settings (id, api_base_url, api_key, api_model, updated_at)
+             VALUES (1, ?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET
+               api_base_url = excluded.api_base_url, api_key = excluded.api_key,
+               api_model = excluded.api_model, updated_at = excluded.updated_at",
+            params![base_url, api_key, model, updated_at],
+        )?;
+        Ok(())
+    })
+    .await??;
+    Ok(())
+}
+
+/// 读会话摘要缓存。无缓存 → None。
+pub async fn get_summary_cache(&self, chat_id: u64, kind: &str) -> AppResult<Option<String>> {
+    let conn = self.conn.clone();
+    let kind = kind.to_string();
+    tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
+        let c = conn.blocking_lock();
+        let text = c
+            .query_row(
+                "SELECT text FROM summary_cache WHERE chat_id = ?1 AND kind = ?2",
+                params![chat_id as i64, kind],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(text)
+    })
+    .await?
+}
+
+/// 写会话摘要缓存(chat_id,kind 主键 UPSERT)。
+pub async fn upsert_summary_cache(&self, chat_id: u64, kind: &str, text: &str) -> AppResult<()> {
+    let conn = self.conn.clone();
+    let kind = kind.to_string();
+    let text = text.to_string();
+    let updated_at = chrono::Utc::now().timestamp();
+    tokio::task::spawn_blocking(move || -> AppResult<()> {
+        let c = conn.blocking_lock();
+        c.execute(
+            "INSERT INTO summary_cache (chat_id, kind, text, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(chat_id, kind) DO UPDATE SET
+               text = excluded.text, updated_at = excluded.updated_at",
+            params![chat_id as i64, kind, text, updated_at],
+        )?;
+        Ok(())
+    })
+    .await??;
+    Ok(())
+}
+```
+
+同时确认 db.rs 顶部已有 `use rusqlite::OptionalExtension;`(query_row().optional() 需要;github_settings 方法已用,应有)。
+
+在 db.rs 里补两个 DTO 结构(放在 `GithubSettingsDto` 附近):
+
+```rust
+/// 主题总结偏好/状态行(无行时取默认)。
+#[derive(Clone, Debug, Default)]
+pub struct SummarySettingsRow {
+    pub mode: String, pub source: String, pub model_size: String,
+    pub context_n: u32, pub engine_version: Option<String>, pub model_sha256: Option<String>,
+    pub api_base_url: Option<String>, pub api_key: Option<String>, pub api_model: Option<String>,
+}
+
+/// set_summary_settings 的输入(部分字段)。
+#[derive(Clone, Debug)]
+pub struct SummarySettingsPatch {
+    pub mode: String, pub source: String, pub model_size: String, pub context_n: u32,
+}
+```
+
+- [ ] **Step 2: 实现 SummaryQueue(信号量串行/bubble 抢占/每 chat 丢旧留新)**
 
 创建 `src-tauri/src/summary/queue.rs`：
 
@@ -1063,8 +1225,7 @@ pub struct SummaryJob {
     pub chat_id: u64,
     pub lane: Lane,
     pub kind: String,        // analysis kind(Detail), bubble 填 "bubble"
-    pub messages: Vec<ChatMessage>,
-    pub prev_analysis: Option<String>,
+    pub messages: Vec<ChatMessage>, // system+user(prompt 已含上次分析块)
     pub timeout: Duration,
 }
 
@@ -1204,7 +1365,7 @@ pub fn lane_str(l: Lane) -> &'static str {
 }
 ```
 
-- [ ] **Step 2: 实现 summary 命令层(commands.rs)**
+- [ ] **Step 3: 实现 summary 命令层(commands.rs)**
 
 创建 `src-tauri/src/summary/commands.rs`：
 
@@ -1221,19 +1382,17 @@ pub struct SummaryService {
     pub queue: Arc<SummaryQueue>,
     pub downloader: Downloader,
     pub models_dir: std::path::PathBuf,
-    pub prefs: tokio::sync::Mutex<serde_json::Value>,
+    pub db: Arc<crate::db::Db>, // 偏好/状态/摘要缓存持久化(peytchat.db)
 }
 
 impl SummaryService {
-    pub fn new(app: tauri::AppHandle, data_dir: std::path::PathBuf, runner: Arc<crate::summary::runner::LocalRunner>, default_model: std::path::PathBuf) -> Arc<Self> {
+    pub fn new(app: tauri::AppHandle, data_dir: std::path::PathBuf, runner: Arc<crate::summary::runner::LocalRunner>, default_model: std::path::PathBuf, db: Arc<crate::db::Db>) -> Arc<Self> {
         let models_dir = data_dir.join("models");
         let svc = Arc::new(Self {
             queue: SummaryQueue::new(app.clone(), runner, default_model),
             downloader: Downloader::new(models_dir.clone(), app),
             models_dir,
-            prefs: tokio::sync::Mutex::new(serde_json::json!({
-                "mode": "wordfreq", "source": "local", "modelSize": "0.5b", "contextN": 50,
-            })),
+            db,
         });
         // 常驻 worker 循环
         {
@@ -1275,57 +1434,78 @@ pub fn system_prompt(lane: &str, kind: &str) -> &'static str {
     }
 }
 
+/// 读全量偏好/状态(一次拉回前端内存缓存)。SQL 无行 → 默认值。
 #[tauri::command]
 pub async fn summary_get_state(svc: State<'_, Arc<SummaryService>>) -> AppResult<serde_json::Value> {
-    let prefs = svc.prefs.lock().await.clone();
+    let row = svc.db.get_summary_settings().await?;
     let engine_ok = svc.queue.runner.engine_path.exists();
     let model_ok = svc.queue.current_model.lock().await.exists();
     Ok(serde_json::json!({
-        "prefs": prefs,
+        "mode": row.mode, "source": row.source, "modelSize": row.model_size, "contextN": row.context_n,
+        "engineVersion": row.engine_version, "modelSha256": row.model_sha256,
+        "apiConfigured": row.api_base_url.is_some() && row.api_key.is_some() && row.api_model.is_some(),
         "engineDownloaded": engine_ok,
         "modelDownloaded": model_ok,
     }))
 }
 
+/// 增量 upsert 偏好 + 引擎/模型状态(全部进 summary_settings 表)。
 #[tauri::command]
-pub async fn summary_save_prefs(svc: State<'_, Arc<SummaryService>>, prefs: serde_json::Value) -> AppResult<()> {
-    let mut g = svc.prefs.lock().await;
-    let prev_size = g.get("modelSize").and_then(|v| v.as_str()).unwrap_or("0.5b").to_string();
-    if let (Some(mode), Some(source), Some(size), Some(n)) = (
-        prefs.get("mode").and_then(|v| v.as_str()),
-        prefs.get("source").and_then(|v| v.as_str()),
-        prefs.get("modelSize").and_then(|v| v.as_str()),
-        prefs.get("contextN").and_then(|v| v.as_u64()),
-    ) {
-        *g = serde_json::json!({ "mode": mode, "source": source, "modelSize": size, "contextN": n });
-        // 档位切换 → 队列切换到对应模型文件
-        if size != prev_size {
-            let size_enum = if size == "1.5b" { crate::summary::downloader::ModelSize::B15 } else { crate::summary::downloader::ModelSize::B05 };
-            let model_path = svc.downloader.model_path(size_enum);
-            svc.queue.set_current_model(model_path).await;
-        }
+pub async fn summary_save_prefs(
+    svc: State<'_, Arc<SummaryService>>,
+    mode: Option<String>, source: Option<String>, model_size: Option<String>, context_n: Option<u32>,
+) -> AppResult<()> {
+    let prev = svc.db.get_summary_settings().await?;
+    let next_size = model_size.clone().unwrap_or(prev.model_size);
+    let next = crate::db::SummarySettingsPatch {
+        mode: mode.unwrap_or(prev.mode),
+        source: source.unwrap_or(prev.source),
+        model_size: next_size.clone(),
+        context_n: context_n.unwrap_or(prev.context_n),
+    };
+    svc.db.set_summary_settings(&next).await?;
+    // 档位切换 → 队列切换到对应模型文件
+    if next_size != prev.model_size {
+        let size_enum = if next_size == "1.5b" { crate::summary::downloader::ModelSize::B15 } else { crate::summary::downloader::ModelSize::B05 };
+        let model_path = svc.downloader.model_path(size_enum);
+        svc.queue.set_current_model(model_path).await;
     }
     Ok(())
 }
 
+/// 设置 API 凭据(存 summary_settings.api_* 列)。
 #[tauri::command]
 pub async fn summary_set_api(svc: State<'_, Arc<SummaryService>>, base_url: String, api_key: String, model: String) -> AppResult<()> {
-    // LlmConfig 无 Default,用 From<LlmConfigInput>(dto.rs:436)
     let cfg: crate::dto::LlmConfig = crate::dto::LlmConfigInput {
         system_prompt: None,
-        base_url: Some(base_url),
-        api_key: Some(api_key),
-        model: Some(model),
+        base_url: Some(base_url.clone()),
+        api_key: Some(api_key.clone()),
+        model: Some(model.clone()),
         provider: Some("openai".into()),
     }
     .into();
     *svc.queue.api_cfg.lock().await = Some(cfg);
+    svc.db.set_summary_api(Some(&base_url), Some(&api_key), Some(&model)).await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn summary_clear_api(svc: State<'_, Arc<SummaryService>>) -> AppResult<()> {
     *svc.queue.api_cfg.lock().await = None;
+    svc.db.set_summary_api(None, None, None).await?;
+    Ok(())
+}
+
+/// 读会话摘要缓存(上次分析结果)。无缓存 → null。
+#[tauri::command]
+pub async fn summary_load_cache(svc: State<'_, Arc<SummaryService>>, chat_id: u64, kind: String) -> AppResult<Option<String>> {
+    svc.db.get_summary_cache(chat_id, &kind).await
+}
+
+/// 写会话摘要缓存(done 后落盘,重启恢复)。
+#[tauri::command]
+pub async fn summary_save_cache(svc: State<'_, Arc<SummaryService>>, chat_id: u64, kind: String, text: String) -> AppResult<()> {
+    svc.db.upsert_summary_cache(chat_id, &kind, &text).await?;
     Ok(())
 }
 
@@ -1365,16 +1545,14 @@ pub async fn summary_enqueue(
     lane: String,
     kind: String,
     prompt: String,
-    prev_analysis: Option<String>,
 ) -> AppResult<()> {
-    // prompt = 前端 formatWindowLines 已组装好的行(含绝对时间),后端不重格式化
+    // prompt = 前端 formatWindowLines 已组装好的行(含绝对时间 + 可选上次分析块),后端不重格式化
     let messages = SummaryService::build_messages(&prompt, &lane, &kind);
     let job = SummaryJob {
         chat_id,
         lane: if lane == "bubble" { Lane::Bubble } else { Lane::Detail },
         kind,
         messages,
-        prev_analysis,
         timeout: if lane == "bubble" { std::time::Duration::from_secs(60) } else { std::time::Duration::from_secs(120) },
     };
     svc.queue.enqueue(job).await?;
@@ -1382,7 +1560,7 @@ pub async fn summary_enqueue(
 }
 ```
 
-- [ ] **Step 3: downloader 加 `clone_dl` 辅助**
+- [ ] **Step 4: downloader 加 `clone_dl` 辅助**
 
 在 `src-tauri/src/summary/downloader.rs` 的 `impl Downloader` 内追加（供 spawn 移动）：
 
@@ -1397,12 +1575,13 @@ pub fn clone_dl(&self) -> Self {
 }
 ```
 
-- [ ] **Step 4: lib.rs 注册命令 + manage SummaryService**
+- [ ] **Step 5: lib.rs 注册命令 + manage SummaryService**
 
 修改 `src-tauri/src/lib.rs` setup 末尾（`app.manage(state)` 之前）构造 SummaryService：
 
 ```rust
 // 主题总结服务:下载 + 队列 + 本地/API 推理(managed resource, 命令层共享)
+// 必须在 app.manage(state) 之前构建 —— SummaryService 需 state.db(Arc<Db> 可 clone)。
 {
     use tauri::Manager;
     let models_dir = dir.join("models");
@@ -1411,11 +1590,13 @@ pub fn clone_dl(&self) -> Self {
     // 默认档位 0.5b 的模型文件(切换由 summary_save_prefs 更新)
     let default_model = models_dir.join(crate::summary::downloader::ModelSize::B05.file_name());
     let svc = crate::summary::commands::SummaryService::new(
-        app.handle().clone(), dir.clone(), runner, default_model,
+        app.handle().clone(), dir.clone(), runner, default_model, state.db.clone(),
     );
     app.manage(svc);
 }
 ```
+
+> **位置注意:** 这段要放在 setup 里 `app.manage(state)` **之前**(line ~210)。`state` 此时仍是 `let mut state` 的可变绑定,`state.db.clone()` 取 Arc<Db> 克隆,不 move。setup 里 state 在 `app.manage(state)` 之后就不能再访问,故 SummaryService 构建必须先于它。
 
 > **模型切换路径:** 档位经 `summary_save_prefs` 切换队列的 `current_model`(调 `set_current_model`)。下载完成时(下载器 emit done 后)命令层也应把队列切到刚下载的档位——`summary_download` 的 spawn 闭包里调 `svc.queue.set_current_model(model_path)`(需先克隆 Arc<SummaryQueue> 进闭包)。执行者补上。
 
@@ -1429,17 +1610,19 @@ commands::summary_set_api,
 commands::summary_clear_api,
 commands::summary_download,
 commands::summary_enqueue,
+commands::summary_load_cache,
+commands::summary_save_cache,
 ```
 
 在 lib.rs `mod` 区确认已有 `mod summary;`（Task 4 加过），并确保 `summary::commands::*` 可直接引用（在 `mod summary;` 下 `summary::commands` 需在 `summary/mod.rs` 声明 `pub mod commands;` —— 若 Task 4 的 mod.rs 只声明了 downloader/queue/runner/sse，需补 `pub mod commands;`）。
 
-- [ ] **Step 5: 唯一一次全量 cargo check**
+- [ ] **Step 6: 唯一一次全量 cargo check**
 
 Run: `cargo check` (在 `src-tauri/` 下)
 Expected: 编译通过。**注意耗时 5-7 分钟(连带 core)。** 若有错,修到过为止。
 > 这是整个计划唯一一次 Rust 编译校验,务必在此处彻底。
 
-- [ ] **Step 6: 清理占位逻辑 + commit**
+- [ ] **Step 7: 清理占位逻辑 + commit**
 
 确认 runner 路径处理逻辑完善后：
 
@@ -1467,36 +1650,52 @@ git commit -m "feat(summary): 后端推理服务(下载器+llama-server子进程
 export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about' | 'github' | 'intelligence';
 ```
 
-- [ ] **Step 2: summaryPrefs.ts 偏好读写**
+- [ ] **Step 2: summaryPrefs.ts 偏好读写(后端 SQL)**
 
 创建 `src/utils/summaryPrefs.ts`：
 
 ```ts
-// 主题总结偏好:localStorage 持久化(模式/来源/模型档位/上下文条数 N)。
+// 主题总结偏好:后端 SQL(summary_settings 表)读写,前端内存缓存。
+// 一次 summary_get_state 全量拉回;save 增量写。
+import { call } from '../api.js';
+
 export interface SummaryPrefs {
   mode: 'off' | 'wordfreq' | 'llm';
   source: 'local' | 'api';
   modelSize: '0.5b' | '1.5b';
   contextN: number;
 }
-const KEY = 'peyt.summary.prefs';
 export const DEFAULT_PREFS: SummaryPrefs = { mode: 'wordfreq', source: 'local', modelSize: '0.5b', contextN: 50 };
 
-export function getSummaryPrefs(): SummaryPrefs {
+let cache: SummaryPrefs | null = null;
+
+/** 从后端拉一次全量偏好(启动/设置页打开时调用;失败用默认值)。 */
+export async function loadSummaryPrefs(): Promise<SummaryPrefs> {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULT_PREFS };
-    const p = JSON.parse(raw) as Partial<SummaryPrefs>;
-    return {
-      mode: p.mode ?? DEFAULT_PREFS.mode,
-      source: p.source ?? DEFAULT_PREFS.source,
-      modelSize: p.modelSize ?? DEFAULT_PREFS.modelSize,
-      contextN: typeof p.contextN === 'number' ? Math.min(200, Math.max(10, p.contextN)) : DEFAULT_PREFS.contextN,
+    const s = await call<{ mode: string; source: string; modelSize: string; contextN: number }>('summary_get_state');
+    cache = {
+      mode: s.mode as SummaryPrefs['mode'],
+      source: s.source as SummaryPrefs['source'],
+      modelSize: s.modelSize as SummaryPrefs['modelSize'],
+      contextN: Math.min(200, Math.max(10, s.contextN)),
     };
-  } catch { return { ...DEFAULT_PREFS }; }
+  } catch { cache = { ...DEFAULT_PREFS }; }
+  return cache;
 }
-export function saveSummaryPrefs(p: SummaryPrefs): void {
-  try { localStorage.setItem(KEY, JSON.stringify(p)); } catch {}
+
+/** 同步读内存缓存(气泡刷新等高频路径,不每次 IPC)。未加载则用默认值。 */
+export function getSummaryPrefs(): SummaryPrefs {
+  return cache ?? { ...DEFAULT_PREFS };
+}
+
+/** 保存偏好(内存 + 后端 SQL 增量写)。 */
+export async function saveSummaryPrefs(p: SummaryPrefs): Promise<void> {
+  cache = { ...p };
+  try {
+    await call('summary_save_prefs', {
+      mode: p.mode, source: p.source, modelSize: p.modelSize, contextN: p.contextN,
+    });
+  } catch { /* 静默:内存已更新,后端下次再同步 */ }
 }
 ```
 
@@ -1520,15 +1719,17 @@ export function saveSummaryPrefs(p: SummaryPrefs): void {
 ```ts
 // ── 智能 ──────────────────────────────────────────────
 // 主题总结引擎:模式(off/词频/LLM) + 来源(本地/API) + 模型下载面板(选档后点下载)。
-import { getSummaryPrefs, saveSummaryPrefs, type SummaryPrefs } from '../utils/summaryPrefs.js';
+// 偏好持久化在后端 SQL(summary_settings 表),经 summaryPrefs 读写。
+import { getSummaryPrefs, saveSummaryPrefs, loadSummaryPrefs, type SummaryPrefs } from '../utils/summaryPrefs.js';
 async function renderIntelligence(main: HTMLElement): Promise<void> {
   main.innerHTML = '';
+  await loadSummaryPrefs(); // 拉后端偏好(一次,内存缓存)
   const prefs = getSummaryPrefs();
   const section = document.createElement('div');
   section.className = 'settings-section';
   section.innerHTML = '<h2>智能</h2>';
 
-  // 引擎状态(后端查询)
+  // 引擎/模型下载状态 + 后端偏好(合并一次 summary_get_state)
   let engineDownloaded = false;
   let modelDownloaded = false;
   try {
@@ -1547,7 +1748,7 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
     value: prefs.mode,
     onChange: (v) => {
       prefs.mode = v as SummaryPrefs['mode'];
-      saveSummaryPrefs(prefs);
+      void saveSummaryPrefs(prefs);
     },
   });
   section.appendChild(ui.field({ label: '总结引擎', children: modeSeg }));
@@ -1562,7 +1763,7 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
       value: prefs.source,
       onChange: (v) => {
         prefs.source = v as SummaryPrefs['source'];
-        saveSummaryPrefs(prefs);
+        void saveSummaryPrefs(prefs);
       },
     });
     section.appendChild(ui.field({ label: 'LLM 来源', children: srcSeg }));
@@ -1571,7 +1772,7 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
     const nInput = ui.input({ value: String(prefs.contextN), type: 'number' });
     nInput.addEventListener('change', () => {
       const n = Number(nInput.value);
-      if (!Number.isNaN(n)) { prefs.contextN = Math.min(200, Math.max(10, n)); saveSummaryPrefs(prefs); }
+      if (!Number.isNaN(n)) { prefs.contextN = Math.min(200, Math.max(10, n)); void saveSummaryPrefs(prefs); }
     });
     section.appendChild(ui.field({ label: '上下文条数(注入最近 N 条)', children: nInput, help: '10-200,默认 50。字数硬上限 4000 自动截断。' }));
   }
@@ -1586,7 +1787,7 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
       value: prefs.modelSize,
       onChange: (v) => {
         prefs.modelSize = v as SummaryPrefs['modelSize'];
-        saveSummaryPrefs(prefs);
+        void saveSummaryPrefs(prefs);
       },
     });
     section.appendChild(ui.field({ label: '模型档位', children: sizeSeg }));
@@ -1667,7 +1868,7 @@ git commit -m "feat(summary): 设置页智能 section + 模型下载面板"
 // 由 summary-event 驱动,呼吸灯只在 summarizing 亮。后端只发数据不碰 DOM。
 import type { MsgDto } from '../types.js';
 import { buildContextWindow, formatWindowLines } from '../utils/summaryContext.js';
-import { getSummaryPrefs } from '../utils/summaryPrefs.js';
+import { getSummaryPrefs, loadSummaryPrefs } from '../utils/summaryPrefs.js';
 import { renderTopicBubbleHtml } from './wordCloud.js';
 import { openSummaryDashboard } from './summaryDashboard.js';
 
@@ -1681,7 +1882,14 @@ let resolveFn: ((t: string) => string) | null = null;
 export function initSummaryBubble(cid: number, resolve: (t: string) => string): void {
   chatId = cid;
   resolveFn = resolve;
-  if (!store.has(cid)) store.set(cid, { status: 'idle', text: '' });
+  if (!store.has(cid)) {
+    store.set(cid, { status: 'idle', text: '' });
+    // 从 summary_cache 恢复上次气泡摘要(done),不重新生成(§8.4)
+    void import('../api.js').then(({ call }) =>
+      call<string | null>('summary_load_cache', { chatId: cid, kind: 'bubble' })
+        .then((cached) => { if (cached) store.set(cid, { status: 'done', text: cached }); })
+        .catch(() => {}));
+  }
 }
 
 /** LLM 模式下:防抖入队 bubble 总结。词频模式直接走 computeTopics(现状)。 */
@@ -1690,6 +1898,7 @@ export async function scheduleSummary(
   resolve: (t: string) => string,
   n: number,
 ): Promise<BubbleState | null> {
+  await loadSummaryPrefs(); // 拉最新偏好(后端 SQL;防抖后调用,频率可接受)
   const prefs = getSummaryPrefs();
   if (prefs.mode !== 'llm') return null; // 词频/off 走原 computeTopics
   if (chatId == null) return null;
@@ -1698,12 +1907,13 @@ export async function scheduleSummary(
   if (st && st.status === 'summarizing') return st;
   const window = buildContextWindow(msgs, resolve, prefs.contextN);
   if (window.length === 0) return { status: 'fallback', text: '暂无主题词' };
-  const prompt = formatWindowLines(window); // 含绝对时间,后端不重格式化
+  // 方式2(§4.4):上次分析 + 最近 N 条。prev 分析拼在 prompt 开头作历史上下文块。
   const prev = st && st.status === 'done' ? st.text : null;
+  const prompt = (prev ? `历史上下文(之前的分析结果):\n${prev}\n\n` : '') + formatWindowLines(window);
   store.set(chatId, { status: 'summarizing', text: prev ?? '' });
   try {
     const { call } = await import('../api.js');
-    await call('summary_enqueue', { chatId, lane: 'bubble', kind: 'bubble', prompt, prevAnalysis: prev });
+    await call('summary_enqueue', { chatId, lane: 'bubble', kind: 'bubble', prompt });
   } catch {
     return { status: 'fallback', text: '暂无主题词' };
   }
@@ -1721,6 +1931,9 @@ export function applySummaryEvent(ev: { chatId: number; lane: string; status: st
   } else if (ev.status === 'done') {
     st.status = 'done';
     st.text = ev.result ?? st.text;
+    // 落盘到 summary_cache 表(重启恢复 done 状态,§8.4)
+    void import('../api.js').then(({ call }) =>
+      call('summary_save_cache', { chatId: ev.chatId, kind: 'bubble', text: st.text }).catch(() => {}));
   } else if (ev.status === 'error') {
     st.status = 'error'; // 气泡显示已流到的文本;点击可刷新
     if (ev.error?.code === 'cancelled') return st; // 正常中断,不降级
@@ -1753,7 +1966,7 @@ export function bindBubbleClick(chip: HTMLElement): void {
     e.stopPropagation();
     const anchor = e.currentTarget as HTMLElement;
     void import('./summaryDashboard.js').then((m) => {
-      m.openSummaryDashboard(anchor, chatId!, state.messages, resolveFn!);
+      void m.openSummaryDashboard(anchor, chatId!, state.messages, resolveFn!);
     });
   });
 }
@@ -1885,7 +2098,7 @@ import { call } from '../api.js';
 import type { MsgDto } from '../types.js';
 import { buildContextWindow, formatWindowLines } from '../utils/summaryContext.js';
 import { computeParticipation } from '../utils/participation.js';
-import { getSummaryPrefs } from '../utils/summaryPrefs.js';
+import { getSummaryPrefs, loadSummaryPrefs } from '../utils/summaryPrefs.js';
 import { parseTags, renderParsed } from '../utils/tagParser.js';
 
 export type AnalysisKind = 'summary' | 'participation' | 'action_items'
@@ -1911,9 +2124,10 @@ const ANALYSIS_TYPES: AnalysisType[] = [
 // 每 chat 每 kind 的状态:done 内容缓存 + 显示
 const detailCache = new Map<string, { kind: AnalysisKind; status: string; text: string }>();
 
-export function openSummaryDashboard(anchor: HTMLElement, chatId: number, msgs: MsgDto[], resolve: (t: string) => string): void {
+export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, msgs: MsgDto[], resolve: (t: string) => string): Promise<void> {
+  await loadSummaryPrefs(); // 拉最新偏好(后端 SQL)
   const prefs = getSummaryPrefs();
-  if (prefs.mode !== 'llm') { void openWordAnalysisPopupFallback(anchor, msgs, resolve); return; }
+  if (prefs.mode !== 'llm') { await openWordAnalysisPopupFallback(anchor, msgs, resolve); return; }
   const window = buildContextWindow(msgs, resolve, prefs.contextN);
   const prompt = formatWindowLines(window); // 含绝对时间;participation 用结构化 window 本地统计
 
@@ -1942,7 +2156,7 @@ export function openSummaryDashboard(anchor: HTMLElement, chatId: number, msgs: 
     const popup = document.querySelector<HTMLElement>('[data-sd-chat]');
     const body = popup?.querySelector<HTMLElement>(`[data-body="${kind}"]`);
     if (body) body.textContent = '分析中…';
-    void call('summary_enqueue', { chatId, lane: 'detail', kind, prompt, prevAnalysis: null }).catch(() => {
+    void call('summary_enqueue', { chatId, lane: 'detail', kind, prompt }).catch(() => {
       if (body) body.textContent = '分析失败';
     });
   };
@@ -2073,7 +2287,8 @@ Expected: PASS
 7. **降级**:删除模型文件重启 → 气泡退词频;API 模式配错 key → `api_auth` toast + 退词频。
 8. **API 余额**:配一个余额不足的 key → `api_quota` toast + 停该聊天队列。
 9. **附件隔离**:含附件消息的会话 → AI 只见 `[附件: 文件名]`,不见内容。
-10. **跨端**:至少本机(Windows)完整跑通;macOS/Linux 冒烟由用户环境验证。
+10. **持久化**:重启后偏好/引擎状态从 `summary_settings` 表恢复;已 done 的摘要从 `summary_cache` 恢复(不重新生成)。
+11. **跨端**:至少本机(Windows)完整跑通;macOS/Linux 冒烟由用户环境验证。
 
 - [ ] **Step 3: 修复发现的问题 + 复验**
 
@@ -2104,6 +2319,7 @@ git commit -m "fix(summary): 端到端冒烟修复"
 - §9.5 分析类型注册表 + 看板 + participation 双层 → Task 10
 - §10 错误处理(错误码表/降级链/超时/引擎生命周期/api_quota) → Task 7(error code 从 message 提取)+ Task 9/10(降级)+ Task 11(冒烟)
 - §11 测试(序列化/SSE/标签/队列/前端) → Task 1-3 断言 + Task 4 sse 单测
+- §8.4 本地 SQL 持久化(偏好/状态/API 凭据/摘要缓存) → Task 7 Step 1(db 表+方法)+ Step 3(命令读写)+ Task 8(summaryPrefs 后端读写)
 
 **占位符扫描:** 无 TBD/TODO。Task 6/7 的 runner 已重构为「不存 model_path,调用时传入」(模型档位可切换);Task 9 的 `bindBubbleClick`/`setFallbackClusters` 已具体实现。
 

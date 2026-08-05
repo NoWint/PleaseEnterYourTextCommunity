@@ -27,7 +27,7 @@
 | AI 引用 id | 统一 `msg_id`(数字);不传 UUID;标签 `<message='...'>` 模糊匹配 |
 | 状态 | `idle / summarizing(流式) / done / error / fallback` |
 | 错误处理 | 后端集中,事件回传;任何失败降级到词频聚类,不阻断聊天 |
-| 持久化 | 偏好→localStorage;引擎/模型状态+摘要缓存→`app-data/summary_state.json`;API 凭据→后端表 |
+| 持久化 | **统一 `peytchat.db` SQL 表**:偏好/引擎状态/API 凭据→`summary_settings`(单行键值);摘要缓存→`summary_cache`(chat_id,kind) |
 
 ## 3. 架构
 
@@ -305,7 +305,7 @@ app-data/models/
 
 ### 8.2 API 配置(来源=API 时显示)
 
-复用 Bot 的 `LLM_PRESETS` 式表单:`base_url` + `api_key` + `model` + 测试按钮。落盘到后端设置表,**与 Bot 的 LLM 配置独立**(主题总结 api_key 不共用/不泄露到插件面)。
+复用 Bot 的 `LLM_PRESETS` 式表单:`base_url` + `api_key` + `model` + 测试按钮。落盘到 `summary_settings.api_*` 列,**与 Bot 的 LLM 配置独立**(主题总结 api_key 不共用/不泄露到插件面)。
 
 - 复用 `llm.rs` 的 `LlmClient` 做**纯文本补全**(无 tool 调用);`test_llm_config` 即纯文本路径,直接沿用。
 - API 模式仅支持 OpenAI 兼容协议(base_url + api_key + model 三者齐即视为可配置,对齐 `is_llm_configured`)。
@@ -328,15 +328,48 @@ app-data/models/
 - 引擎优先下载,模型排队(`waiting` 状态),避免并发争带宽。
 - 数据来自 `download-progress` 事件 `{id, bytesDone, total, rate}`,前端节流更新(如每 200ms)。
 
-### 8.4 持久化分层
+### 8.4 持久化分层(本地 SQL 表)
+
+**统一存 `peytchat.db`**(对齐 `github_settings` 的模式,单行键值 + upsert)。偏好/引擎状态/API 凭据/摘要缓存全部进 SQL,不用 localStorage / JSON 文件。
+
+**表 1:`summary_settings`(单行键值, id=1, 对齐 github_settings)**
+
+```sql
+CREATE TABLE IF NOT EXISTS summary_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    mode TEXT NOT NULL DEFAULT 'wordfreq',      -- off | wordfreq | llm
+    source TEXT NOT NULL DEFAULT 'local',       -- local | api
+    model_size TEXT NOT NULL DEFAULT '0.5b',    -- 0.5b | 1.5b
+    context_n INTEGER NOT NULL DEFAULT 50,      -- 10-200
+    engine_version TEXT,                        -- 引擎锁定 tag
+    model_sha256 TEXT,                          -- 当前模型 sha256
+    api_base_url TEXT, api_key TEXT, api_model TEXT,
+    updated_at INTEGER NOT NULL
+);
+```
+
+**表 2:`summary_cache`(每会话每分析类型缓存)**
+
+```sql
+CREATE TABLE IF NOT EXISTS summary_cache (
+    chat_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (chat_id, kind)
+);
+```
 
 | 数据 | 存储 |
 |---|---|
-| 偏好(模式/来源/所选档位/上下文条数 N) | localStorage(`peyt.summary.*`) |
-| 引擎/模型状态 + 版本 + sha256 + 上次摘要缓存 | `app-data/summary_state.json`(后端读写) |
-| API 凭据 | 后端设置表(对齐 `github_settings`,key 不进 localStorage) |
+| 偏好(模式/来源/档位/N) | `summary_settings` 列 |
+| 引擎/模型状态 + 版本 + sha256 | `summary_settings` 列 |
+| API 凭据 | `summary_settings.api_*` 列(key 不进 localStorage) |
+| 上次摘要缓存(每会话每类型) | `summary_cache` 行 |
 
-重启后前端 `get_llm_model_status` 恢复开关。
+- **读写命令**:`summary_get_state` 一次拉全量到前端内存缓存;`summary_save_prefs` 增量 upsert;`summary_load_cache(chatId, kind)` / `summary_save_cache(chatId, kind, text)` 读写摘要缓存。
+- db.rs `migrate()` 加这两张表(`CREATE TABLE IF NOT EXISTS`),幂等。
+- 重启后前端 `summary_get_state` 恢复开关 + 摘要缓存。
 
 ## 9. 气泡状态机(纯前端)
 
