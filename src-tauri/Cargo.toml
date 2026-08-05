@@ -28,6 +28,10 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 zip = "2"
 base64 = "0.22"
+# 主题总结:引擎 zip/tar.gz 解压 + sha256 校验
+flate2 = "1"
+tar = "0.4"
+sha2 = "0.10"
 # Windows/macOS/Linux 原生系统通知(对齐 Delta Chat 桌面端 user-notify 架构),
 # 替代浏览器 Notification API —— 原生通知由 Rust 侧 WinRT/UNUserNotificationCenter/DBus 发送,
 # 不依赖 webview 的 Notification.requestPermission()。
