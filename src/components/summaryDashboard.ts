@@ -1,8 +1,8 @@
-// 主题分析看板:popup 平铺全部分析类型,每类独立入队/流式/状态/刷新。
-// participation 走前端纯统计(local_stats)+ LLM 解读(stats_plus_llm):
-// 统计即时渲染进 .sd-p-stat,LLM 解读经 detail 车道写入 .sd-p-insight,两者并存。
-import { mountPopup } from './readReceiptsPopup.js';
-import { iconSvg } from './icon.js';
+// 主题分析看板:全屏横向分栏。
+// 左侧玻璃导航(词云 + 分析类型目录),右侧单列内容区(顶部总结文本段 + 各 JSON 列表块)。
+// 每类独立入队/流式/状态/刷新;JSON 输出按 schema 结构化渲染,解析失败降级 <pre>。
+// 动效遵循 Apple 弹簧(全屏从触发点缩放展开,关闭沿对称路径反向退出)。
+import { iconSvg, type IconName } from './icon.js';
 import { escapeHtml } from './escape.js';
 import { call } from '../api.js';
 import type { MsgDto } from '../types.js';
@@ -18,29 +18,191 @@ export type AnalysisKind = 'summary' | 'participation' | 'action_items'
 interface AnalysisType {
   kind: AnalysisKind;
   title: string;
+  icon: IconName;        // 导航图标名
   engine: 'llm' | 'local_stats' | 'stats_plus_llm';
   priority: number;
 }
 
 const ANALYSIS_TYPES: AnalysisType[] = [
-  { kind: 'summary', title: '总结', engine: 'llm', priority: 0 },
-  { kind: 'participation', title: '参与度', engine: 'stats_plus_llm', priority: 0 },
-  { kind: 'action_items', title: '行动项', engine: 'llm', priority: 0 },
-  { kind: 'resources', title: '资源', engine: 'llm', priority: 1 },
-  { kind: 'open_questions', title: '悬而未决', engine: 'llm', priority: 1 },
-  { kind: 'timeline', title: '话题演变', engine: 'llm', priority: 1 },
-  { kind: 'decisions', title: '决策', engine: 'llm', priority: 2 },
+  { kind: 'summary', title: '总结', icon: 'file-text', engine: 'llm', priority: 0 },
+  { kind: 'action_items', title: '行动项', icon: 'check', engine: 'llm', priority: 0 },
+  { kind: 'participation', title: '参与度', icon: 'users', engine: 'stats_plus_llm', priority: 0 },
+  { kind: 'resources', title: '资源', icon: 'external-link', engine: 'llm', priority: 1 },
+  { kind: 'open_questions', title: '悬而未决', icon: 'info', engine: 'llm', priority: 1 },
+  { kind: 'timeline', title: '话题演变', icon: 'clock', engine: 'llm', priority: 1 },
+  { kind: 'decisions', title: '决策', icon: 'pin', engine: 'llm', priority: 2 },
 ];
 
 // 每 chat 每 kind 的状态:done 内容缓存 + 显示
 const detailCache = new Map<string, { kind: AnalysisKind; status: string; text: string }>();
 
-/** participation 块内容:统计(.sd-p-stat)即时渲染 + LLM 解读槽位(.sd-p-insight)。 */
-function renderParticipationBody(win: WindowMsg[]): string {
-  const p = computeParticipation(win);
-  return `<div class="sd-p-stat">${renderParticipation(p)}</div><div class="sd-p-insight">分析中…</div>`;
+// 当前弹窗实例(单例,关闭时清理)
+let fullscreenEl: HTMLElement | null = null;
+
+// ── JSON 结构化渲染 ──────────────────────────────────────
+/** 解析 JSON,失败返回 null(调用方降级为 <pre> 转义显示)。 */
+function safeParseJson(text: string): unknown {
+  try { return JSON.parse(text); } catch { return null; }
 }
 
+/** 跳转引用 chip(当前占位,后续接入消息定位)。 */
+function refChip(id: number | string | undefined): string {
+  if (id == null) return '';
+  return `<a class="sd-ref" data-ref="${escapeHtml(String(id))}">↗</a>`;
+}
+
+/** action_items: {items:[{text,assignee?,due?,ref?}]} → checkbox 列表。 */
+function renderActionItems(text: string): string {
+  const d = safeParseJson(text) as { items?: Array<{ text?: string; assignee?: string; due?: string; ref?: number }> } | null;
+  if (!d || !Array.isArray(d.items)) return fallbackJson(text);
+  const rows = d.items
+    .map((it) => {
+      const meta = [
+        it.assignee ? `<span class="sd-chip">${escapeHtml(it.assignee)}</span>` : '',
+        it.due ? `<span class="sd-chip sd-chip-due">${escapeHtml(it.due)}</span>` : '',
+      ].filter(Boolean).join('');
+      // 真 checkbox(隐藏)驱动勾选态;点击行即切换
+      return `<label class="sd-item"><input type="checkbox" class="sd-check-input"><span class="sd-checkbox"></span><span class="sd-item-text">${escapeHtml(it.text ?? '')}${refChip(it.ref)}</span>${meta ? `<span class="sd-item-meta">${meta}</span>` : ''}</label>`;
+    })
+    .join('');
+  return `<div class="sd-list">${rows || '<div class="sd-empty">无行动项</div>'}</div>`;
+}
+
+/** resources: {links:[{url,title?,sender,ref}],files:[{name,ref}]} → 链接/文件卡片。 */
+function renderResources(text: string): string {
+  const d = safeParseJson(text) as { links?: Array<{ url?: string; title?: string; sender?: string; ref?: number }>; files?: Array<{ name?: string; ref?: number }> } | null;
+  if (!d || (!Array.isArray(d.links) && !Array.isArray(d.files))) return fallbackJson(text);
+  const links = (d.links ?? []).map((l) => {
+    const label = l.title || l.url || '链接';
+    return `<div class="sd-res-link">${iconSvg('external-link', { width: 14, height: 14 })}<a href="${escapeHtml(l.url ?? '#')}" target="_blank" rel="noopener">${escapeHtml(label)}</a>${l.sender ? `<span class="sd-chip">${escapeHtml(l.sender)}</span>` : ''}${refChip(l.ref)}</div>`;
+  }).join('');
+  const files = (d.files ?? []).map((f) =>
+    `<div class="sd-res-file">${iconSvg('file-text', { width: 14, height: 14 })}<span>${escapeHtml(f.name ?? '文件')}</span>${refChip(f.ref)}</div>`).join('');
+  return `<div class="sd-list">${links}${files || '<div class="sd-empty">无资源</div>'}</div>`;
+}
+
+/** open_questions: {questions:[{text,asked_by,ref}]} → 问题列表。 */
+function renderOpenQuestions(text: string): string {
+  const d = safeParseJson(text) as { questions?: Array<{ text?: string; asked_by?: string; ref?: number }> } | null;
+  if (!d || !Array.isArray(d.questions)) return fallbackJson(text);
+  const rows = d.questions.map((q) =>
+    `<div class="sd-item"><span class="sd-q-icon">?</span><span class="sd-item-text">${escapeHtml(q.text ?? '')}${refChip(q.ref)}</span>${q.asked_by ? `<span class="sd-item-meta"><span class="sd-chip">${escapeHtml(q.asked_by)}</span></span>` : ''}</div>`).join('');
+  return `<div class="sd-list">${rows || '<div class="sd-empty">无悬而未决</div>'}</div>`;
+}
+
+/** timeline: {phases:[{period,topic,key_messages:[ref]}]} → 垂直时间线。 */
+function renderTimeline(text: string): string {
+  const d = safeParseJson(text) as { phases?: Array<{ period?: string; topic?: string; key_messages?: number[] }> } | null;
+  if (!d || !Array.isArray(d.phases)) return fallbackJson(text);
+  const nodes = d.phases.map((ph) =>
+    `<div class="sd-tl-node"><div class="sd-tl-dot"></div><div class="sd-tl-body"><div class="sd-tl-period">${escapeHtml(ph.period ?? '')}</div><div class="sd-tl-topic">${escapeHtml(ph.topic ?? '')}${(ph.key_messages ?? []).map((m) => refChip(m)).join('')}</div></div></div>`).join('');
+  return `<div class="sd-timeline">${nodes || '<div class="sd-empty">无话题演变</div>'}</div>`;
+}
+
+/** decisions: {decisions:[{title,by,rationale,ref}]} → 决策卡片。 */
+function renderDecisions(text: string): string {
+  const d = safeParseJson(text) as { decisions?: Array<{ title?: string; by?: string; rationale?: string; ref?: number }> } | null;
+  if (!d || !Array.isArray(d.decisions)) return fallbackJson(text);
+  const cards = d.decisions.map((dc) =>
+    `<div class="sd-dec"><div class="sd-dec-head">${iconSvg('pin', { width: 14, height: 14 })}<span class="sd-dec-title">${escapeHtml(dc.title ?? '')}</span>${dc.by ? `<span class="sd-chip">${escapeHtml(dc.by)}</span>` : ''}${refChip(dc.ref)}</div>${dc.rationale ? `<div class="sd-dec-rationale">${escapeHtml(dc.rationale)}</div>` : ''}</div>`).join('');
+  return `<div class="sd-list">${cards || '<div class="sd-empty">无决策</div>'}</div>`;
+}
+
+/** 参与度统计(纯前端) → 成员条。 */
+function renderParticipationStat(win: WindowMsg[]): string {
+  const p = computeParticipation(win);
+  return p.per_member
+    .map((m) => `<div class="sd-p-row"><span class="sd-p-name">${escapeHtml(m.name)}</span><span class="sd-p-nums">${m.msg_count} 条 · ${m.char_count} 字 · ${m.active_days} 天</span></div>`)
+    .join('');
+}
+
+/** summary:XML 段落 → parseTags 渲染可点标签。 */
+function renderSummary(text: string): string {
+  const segs = parseTags(text);
+  return `<div class="sd-summary">${renderParsed(segs, () => {})}</div>`;
+}
+
+/** JSON 解析失败降级:整段转义 <pre> 显示,不崩 UI。 */
+function fallbackJson(text: string): string {
+  return `<pre class="sd-json">${escapeHtml(text)}</pre>`;
+}
+
+/** 按 kind 渲染详情。 */
+function renderDetailBody(kind: AnalysisKind, text: string): string {
+  switch (kind) {
+    case 'summary': return renderSummary(text);
+    case 'action_items': return renderActionItems(text);
+    case 'resources': return renderResources(text);
+    case 'open_questions': return renderOpenQuestions(text);
+    case 'timeline': return renderTimeline(text);
+    case 'decisions': return renderDecisions(text);
+    default: return fallbackJson(text);
+  }
+}
+
+// ── 全屏打开/关闭 ────────────────────────────────────────
+const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+/** 全屏层从 anchor 位置 spring 展开(transform-origin 锚定触发点,§7)。 */
+function animateOpen(sheet: HTMLElement, anchor: HTMLElement): void {
+  if (REDUCED_MOTION) return;
+  const r = anchor.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  sheet.style.transformOrigin = `${cx}px ${cy}px`;
+  sheet.animate(
+    [{ transform: 'scale(0.92)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+    { duration: 320, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+  );
+}
+
+/** 关闭:反向路径动画后移除(§7 对称路径)。 */
+function animateClose(sheet: HTMLElement, anchor: HTMLElement, done: () => void): void {
+  if (REDUCED_MOTION) { done(); return; }
+  const r = anchor.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  sheet.style.transformOrigin = `${cx}px ${cy}px`;
+  const anim = sheet.animate(
+    [{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(0.92)', opacity: 0 }],
+    { duration: 240, easing: 'cubic-bezier(0.55, 0, 0.55, 0.2)' },
+  );
+  anim.onfinish = done;
+}
+
+// ── 导航/内容交互 ────────────────────────────────────────
+function bindNavScroll(content: HTMLElement): void {
+  const navItems = content.querySelectorAll<HTMLElement>('[data-nav-kind]');
+  // 滚动监听:当前可见块高亮导航项(§8 方向提示)
+  const onScroll = () => {
+    let current: string | null = null;
+    for (const item of navItems) {
+      const kind = item.dataset.navKind!;
+      const block = content.querySelector<HTMLElement>(`[data-body="${kind}"]`)?.closest('.sd-block');
+      if (!block) continue;
+      const rect = block.getBoundingClientRect();
+      if (rect.top <= content.offsetHeight / 2) current = kind;
+    }
+    for (const item of navItems) {
+      item.classList.toggle('active', item.dataset.navKind === current);
+    }
+  };
+  content.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
+
+/** 折叠/展开块(块头点击)。 */
+function bindCollapse(content: HTMLElement): void {
+  content.querySelectorAll<HTMLElement>('.sd-block-head').forEach((head) => {
+    head.addEventListener('click', () => {
+      const block = head.closest('.sd-block');
+      if (!block) return;
+      block.classList.toggle('collapsed');
+    });
+  });
+}
+
+// ── 主入口 ───────────────────────────────────────────────
 export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, msgs: MsgDto[], resolve: (t: string) => string): Promise<void> {
   await loadSummaryPrefs(); // 拉最新偏好(后端 SQL)
   const prefs = getSummaryPrefs();
@@ -48,85 +210,138 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   const win = buildContextWindow(msgs, resolve, prefs.contextN);
   const prompt = formatWindowLines(win); // 含绝对时间;participation 用结构化 window 本地统计
 
-  const blocks = [...ANALYSIS_TYPES]
-    .sort((a, b) => a.priority - b.priority)
-    .map((t) => `
-      <div class="sd-block" data-kind="${t.kind}">
-        <div class="sd-head">
-          <span class="sd-title">${escapeHtml(t.title)}</span>
+  // 左侧导航(词云 + 类型目录)
+  const navList = ANALYSIS_TYPES.map((t) =>
+    `<button class="sd-nav-item" data-nav-kind="${t.kind}">${iconSvg(t.icon, { width: 16, height: 16 })}<span>${escapeHtml(t.title)}</span></button>`).join('');
+  const nav = `
+    <div class="sd-nav">
+      <div class="sd-nav-title">会话主题分析</div>
+      <canvas class="sd-canvas" width="240" height="150"></canvas>
+      <div class="sd-nav-list">${navList}</div>
+    </div>`;
+
+  // 右侧内容:顶部总结块 + 各列表块单列
+  const blocks = ANALYSIS_TYPES.map((t) => `
+    <section class="sd-block" data-kind="${t.kind}">
+      <div class="sd-block-head">
+        <span class="sd-block-title">${iconSvg(t.icon, { width: 16, height: 16 })}${escapeHtml(t.title)}</span>
+        <span class="sd-block-actions">
           <button class="sd-refresh" data-refresh="${t.kind}" title="刷新">${iconSvg('refresh-cw', { width: 14, height: 14 })}</button>
-        </div>
-        <div class="sd-body" data-body="${t.kind}">加载中…</div>
-      </div>`)
-    .join('');
+          <button class="sd-collapse" title="折叠">${iconSvg('chevron-down', { width: 14, height: 14 })}</button>
+        </span>
+      </div>
+      <div class="sd-body" data-body="${t.kind}">加载中…</div>
+    </section>`).join('');
 
-  mountPopup(
-    `<div class="rr-head">会话主题分析<button class="sd-refresh-all" data-refresh-all="1">${iconSvg('refresh-cw', { width: 14, height: 14 })} 全部刷新</button></div>
-     <div class="sd-dashboard">${blocks}</div>`,
-    anchor,
-    'rr-popup sd-popup',
-  );
-  // 标记当前看板归属会话(单例监听靠 data-sd-chat 匹配,避免旧弹窗流污染)
-  document.querySelector<HTMLElement>('.sd-popup')!.dataset.sdChat = String(chatId);
+  const content = `
+    <div class="sd-content" data-sd-content="1">
+      ${blocks}
+    </div>`;
 
-  const enqueue = (kind: AnalysisKind, reset = true) => {
-    const popup = document.querySelector<HTMLElement>('[data-sd-chat]');
-    const body = popup?.querySelector<HTMLElement>(`[data-body="${kind}"]`);
-    if (body && reset) body.textContent = '分析中…';
-    // 重新入队前清掉旧缓存,避免 streaming 把旧文本拼接上去
-    detailCache.delete(`${chatId}:${kind}`);
-    void call('summary_enqueue', { chatId, lane: 'detail', kind, prompt }).catch(() => {
-      if (body) body.textContent = '分析失败';
+  // 大号居中弹窗挂载(.ui-overlay 已 flex 居中;.sd-sheet 是大号面板,内部横向分栏)
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-overlay sd-overlay';
+  overlay.dataset.sdChat = String(chatId);
+  overlay.innerHTML = `
+    <div class="sd-sheet">
+      <button class="sd-close" data-sd-close="1" title="关闭">${iconSvg('x', { width: 18, height: 18 })}</button>
+      ${nav}
+      ${content}
+    </div>`;
+  document.body.appendChild(overlay);
+  fullscreenEl = overlay;
+  animateOpen(overlay.querySelector<HTMLElement>('.sd-sheet')!, anchor);
+
+  const close = () => {
+    const sheet = overlay.querySelector<HTMLElement>('.sd-sheet');
+    animateClose(sheet!, anchor, () => {
+      overlay.remove();
+      if (fullscreenEl === overlay) fullscreenEl = null;
     });
   };
+  overlay.querySelector('[data-sd-close]')?.addEventListener('click', close);
+  // 点击遮罩空白处关闭(点内容区不关)
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  // Escape 关闭
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+  window.addEventListener('keydown', onKey, { once: true });
 
-  // participation 走本地统计,即时显示;LLM 解读通过 detail 车道写入 .sd-p-insight
-  const pBody = document.querySelector<HTMLElement>(`[data-body="participation"]`);
-  if (pBody) {
-    pBody.innerHTML = renderParticipationBody(win);
-    enqueue('participation', false); // reset=false 不清统计
-  }
-  // summary 首个默认入队
-  enqueue('summary');
-  // 其余懒加载:点击块头刷新时入队
-  document.querySelectorAll<HTMLElement>('[data-refresh]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const kind = btn.dataset.refresh as AnalysisKind;
-      enqueue(kind);
-    });
-  });
-  // 全部刷新:清缓存 + 重置各块(participation 重算统计)+ 重新入队所有类型
-  document.querySelector<HTMLElement>('[data-refresh-all]')?.addEventListener('click', () => {
-    for (const t of ANALYSIS_TYPES) detailCache.delete(`${chatId}:${t.kind}`);
-    for (const t of ANALYSIS_TYPES) {
-      const body = document.querySelector<HTMLElement>(`[data-body="${t.kind}"]`);
-      if (body) {
-        if (t.kind === 'participation') body.innerHTML = renderParticipationBody(win);
-        else body.textContent = '分析中…';
-      }
-      enqueue(t.kind, false); // 已重置,避免二次覆盖
+  // 引用跳转委托:点击 .sd-ref[data-ref] / .mention-chip[data-msg-ref] → 关看板 → 跳原文消息
+  overlay.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    const refEl = t.closest<HTMLElement>('.sd-ref[data-ref], .mention-chip[data-msg-ref]');
+    if (!refEl) return;
+    const ref = refEl.dataset.ref ?? refEl.dataset.msgRef;
+    if (ref == null) return;
+    e.stopPropagation();
+    // 从 win 里确认该 id 存在(避免跳一个不在窗口里的消息)
+    const id = Number(ref);
+    if (!Number.isNaN(id) && win.some((w) => w.id === id)) {
+      close();
+      void import('../chat/chatView.js').then(({ jumpToMessage }) => jumpToMessage(id));
     }
   });
 
-  bindDetailEvents();
+  // 参与度统计即时渲染 + LLM 解读
+  const pBody = overlay.querySelector<HTMLElement>(`[data-body="participation"]`);
+  if (pBody) {
+    pBody.innerHTML = `<div class="sd-p-stat">${renderParticipationStat(win)}</div><div class="sd-p-insight">分析中…</div>`;
+    enqueueOverlay(overlay, chatId, kindOf('participation'), prompt, false);
+  }
+  // summary 首个默认入队
+  enqueueOverlay(overlay, chatId, kindOf('summary'), prompt);
+
+  // 导航点击 → 滚动定位到块
+  overlay.querySelectorAll<HTMLElement>('[data-nav-kind]').forEach((item) => {
+    item.addEventListener('click', () => {
+      const kind = item.dataset.navKind!;
+      const block = overlay.querySelector<HTMLElement>(`[data-body="${kind}"]`)?.closest('.sd-block');
+      const contentEl = overlay.querySelector<HTMLElement>('[data-sd-content]');
+      if (block && contentEl) block.scrollIntoView({ behavior: REDUCED_MOTION ? 'auto' : 'smooth', block: 'start' });
+      const realItem = item as HTMLElement;
+      overlay.querySelectorAll('[data-nav-kind]').forEach((n) => n.classList.toggle('active', n === realItem));
+    });
+  });
+  // 块刷新 + 折叠
+  overlay.querySelectorAll<HTMLElement>('[data-refresh]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      enqueueOverlay(overlay, chatId, kindOf(btn.dataset.refresh as AnalysisKind), prompt);
+    });
+  });
+  bindCollapse(overlay.querySelector<HTMLElement>('[data-sd-content]')!);
+  bindNavScroll(overlay.querySelector<HTMLElement>('[data-sd-content]')!);
+
+  // 画词云:真实 jieba 分词 → 复用 wordCloud 的 drawWordCloud(DPR 缩放)
+  requestAnimationFrame(() => {
+    const canvas = overlay.querySelector<HTMLCanvasElement>('.sd-canvas');
+    if (canvas) void drawCloudAsync(canvas, msgs, resolve);
+  });
+
+  bindFullscreenEvents();
 }
 
-function renderParticipation(p: { per_member: Array<{ name: string; msg_count: number; char_count: number; active_days: number }> }): string {
-  return p.per_member
-    .map((m) => `<div class="sd-p-row"><span>${escapeHtml(m.name)}</span><span>${m.msg_count} 条 · ${m.char_count} 字 · ${m.active_days} 天</span></div>`)
-    .join('');
+function kindOf(k: AnalysisKind): AnalysisKind { return k; }
+
+/** 当前全屏实例入队。 */
+function enqueueOverlay(overlay: HTMLElement, chatId: number, kind: AnalysisKind, prompt: string, reset = true): void {
+  const body = overlay.querySelector<HTMLElement>(`[data-body="${kind}"]`);
+  if (body && reset) body.textContent = '分析中…';
+  detailCache.delete(`${chatId}:${kind}`);
+  void call('summary_enqueue', { chatId, lane: 'detail', kind, prompt }).catch(() => {
+    if (body) body.textContent = '分析失败';
+  });
 }
 
-let detailBound = false;
-function bindDetailEvents(): void {
-  if (detailBound) return;
-  detailBound = true;
+let fullscreenBound = false;
+function bindFullscreenEvents(): void {
+  if (fullscreenBound) return;
+  fullscreenBound = true;
   void import('@tauri-apps/api/event').then(({ listen }) => {
     void listen('summary-event', (ev) => {
       const p = ev.payload as { chatId: number; lane: string; kind: string; status: string; delta?: string; result?: string; error?: { code: string } };
       if (p.lane !== 'detail') return;
-      // 单例监听:只更新当前打开的看板(mountPopup 每次重建,data-sd-chat 恒为最新)
-      const popup = document.querySelector<HTMLElement>('[data-sd-chat]');
+      const popup = document.querySelector<HTMLElement>('.sd-overlay[data-sd-chat]');
       if (!popup || popup.dataset.sdChat !== String(p.chatId)) return;
       const key = `${p.chatId}:${p.kind}`;
       const cur = detailCache.get(key) ?? { kind: p.kind as AnalysisKind, status: 'idle', text: '' };
@@ -136,7 +351,7 @@ function bindDetailEvents(): void {
       detailCache.set(key, cur);
       const body = popup.querySelector<HTMLElement>(`[data-body="${p.kind}"]`);
       if (!body) return;
-      // participation: 统计(.sd-p-stat)保留,只更新 LLM 解读(.sd-p-insight)
+      // participation:统计(.sd-p-stat)保留,只更新 LLM 解读(.sd-p-insight)
       const target = p.kind === 'participation' ? body.querySelector<HTMLElement>('.sd-p-insight') : body;
       if (!target) return;
       if (cur.status === 'done') target.innerHTML = p.kind === 'participation'
@@ -148,15 +363,34 @@ function bindDetailEvents(): void {
   });
 }
 
-function renderDetailBody(kind: AnalysisKind, text: string): string {
-  // summary:XML 段落,支持标签;其余按 JSON 字符串展示(后续按 schema 渲染)
-  if (kind === 'summary') {
-    const segs = parseTags(text);
-    return `<div class="sd-summary">${renderParsed(segs, () => {})}</div>`;
+/**
+ * 词云:真实 jieba 分词(initSegmenter + computeTopWords) → 复用 wordCloud 的 drawWordCloud。
+ * drawWordCloud 已做 词频→字号/颜色的瀑布堆叠;这里只负责取词 + DPR 缩放画布。
+ * 失败(分词初始化异常)静默留空,不阻断看板。
+ */
+async function drawCloudAsync(canvas: HTMLCanvasElement, msgs: MsgDto[], resolve: (t: string) => string): Promise<void> {
+  try {
+    const { initSegmenter, computeTopWords } = await import('../utils/wordAnalysis.js');
+    const { drawWordCloud } = await import('./wordCloud.js');
+    await initSegmenter(); // 幂等单例
+    const words = computeTopWords(msgs, resolve, 14); // 212px 宽画布放 ~14 词合适
+    if (words.length === 0) return;
+    // DPR 缩放:画布物理分辨率 = CSS 尺寸 × devicePixelRatio,防高分屏模糊(§11)
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0 && (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr))) {
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
+    }
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.scale(dpr, dpr);
+    drawWordCloud(canvas, words);
+  } catch (err) {
+    console.warn('[summary-cloud] 词云绘制失败:', err);
   }
-  return `<pre class="sd-json">${escapeHtml(text)}</pre>`;
 }
 
+/** 词频模式降级:原有锚定词云弹窗。 */
 async function openWordAnalysisPopupFallback(anchor: HTMLElement, msgs: MsgDto[], resolve: (t: string) => string): Promise<void> {
   const { openWordAnalysisPopup } = await import('./wordCloud.js');
   const { computeTopics } = await import('../utils/wordAnalysis.js');
