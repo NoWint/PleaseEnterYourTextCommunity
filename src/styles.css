@@ -2217,8 +2217,29 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .rd-gh-timeline:last-child .rd-gh-tl-rail::after { display: none; }
 
-/* 侧边栏搜索(GitHub 式):单条圆角搜索框,仓库 + 代码一起搜,分区展示 */
-.gh-search { padding: 10px 12px 4px; flex-shrink: 0; }
+/* 侧边栏搜索(GitHub 式):单条圆角搜索框,固定在侧栏最底部,仓库 + 代码一起搜,分区展示 */
+.gh-search { padding: 8px 12px 10px; flex-shrink: 0; border-top: 1px solid var(--border); }
+
+/* GitHub 风格图标按钮:实底细边 + hover 提亮(按钮纯图标无文字)。
+   默认态用主题不透明色(--control-bg),主色 + 用 GitHub 绿 */
+.gh-btn-icon {
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--control-bg); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: 6px; cursor: pointer;
+  transition: background 120ms var(--ease-out), border-color 120ms var(--ease-out), transform 100ms var(--ease-out);
+}
+.gh-btn-icon svg { display: block; }
+.gh-btn-icon:hover { background: var(--control-bg-hover); border-color: var(--border-hover); }
+.gh-btn-icon:active { transform: scale(0.94); }
+.gh-btn-icon.primary { background: #238636; border-color: #2ea043; color: #fff; }
+.gh-btn-icon.primary:hover { background: #2ea043; border-color: #3fb950; }
+
+/* 添加仓库弹窗:输入行(输入框 + GitHub 主色 + 按钮)+ 帮助文案 */
+.gh-addrepo { display: flex; flex-direction: column; gap: 8px; }
+.gh-addrepo-row { display: flex; gap: 8px; align-items: center; }
+.gh-addrepo-row .ui-input { flex: 1; min-width: 0; }
+.gh-addrepo-help { font-size: var(--font-scale-secondary); color: var(--text-mute); line-height: 1.5; }
 .gh-search-section {
   padding: 10px 14px 4px; font-size: var(--font-scale-micro);
   font-weight: 600; letter-spacing: 0.4px; color: var(--text-faint);

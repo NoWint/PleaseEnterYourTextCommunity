@@ -303,19 +303,25 @@ function openSettings(): void {
   dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
 }
 
-// 添加仓库:独立小对话框(侧栏「+」/空状态「去绑定」直达),添加后仓库树自动刷新
+// 添加仓库:独立小对话框(侧栏「+」/空状态「去绑定」直达),GitHub 风格纯图标按钮,添加后仓库树自动刷新
 function openAddRepoDialog(): void {
   const bodyEl = document.createElement('div');
-  bodyEl.style.cssText = 'display:flex;flex-direction:column;gap:14px';
-  const repoInput = ui.input({ placeholder: 'owner/repo,如 octocat/Hello-World' });
-  const addBtn = ui.button({
-    label: '添加', icon: 'plus', size: 'sm', variant: 'primary',
-    onClick: () => void ghAddRepo(repoInput),
-  });
-  const addRow = document.createElement('div');
-  addRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-  addRow.append(repoInput, addBtn);
-  bodyEl.appendChild(ui.field({ label: '绑定仓库', children: addRow, help: '输入 GitHub 仓库的 owner/repo,如 octocat/Hello-World' }));
+  bodyEl.className = 'gh-addrepo';
+  const row = document.createElement('div');
+  row.className = 'gh-addrepo-row';
+  const repoInput = ui.input({ placeholder: 'owner/repo,如 octocat/Hello-World', onEnter: () => void ghAddRepo(repoInput) });
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'gh-btn-icon primary';
+  addBtn.title = '添加';
+  addBtn.innerHTML = iconSvg('plus', { width: 16, height: 16 });
+  addBtn.addEventListener('click', () => void ghAddRepo(repoInput));
+  row.append(repoInput, addBtn);
+  bodyEl.appendChild(row);
+  const help = document.createElement('div');
+  help.className = 'gh-addrepo-help';
+  help.textContent = '输入 GitHub 仓库的 owner/repo,如 octocat/Hello-World,回车或点 + 添加';
+  bodyEl.appendChild(help);
   const dlg = ui.dialog({ title: '添加仓库', actions: [] });
   const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
   dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
@@ -404,6 +410,7 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   const addRepoBtn = ui.iconButton({ icon: 'plus', title: '添加仓库', size: 'sm', onClick: () => openAddRepoDialog() });
   const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', size: 'sm', onClick: () => void ghRefreshAll() });
   const settingsBtn = ui.iconButton({ icon: 'settings', title: '设置', size: 'sm', onClick: () => openSettings() });
+  for (const b of [addRepoBtn, refreshBtn, settingsBtn]) b.classList.add('gh-btn-icon'); // GitHub 风格图标按钮
   headerActions.append(addRepoBtn, refreshBtn, settingsBtn);
   header.append(titleBox, headerActions);
   panel.appendChild(header);
@@ -419,14 +426,13 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   tree.className = 'nav-list';
   panel.appendChild(tree);
 
-  // 搜索(常驻顶部):单条圆角搜索框,仓库 + 代码一起搜(分区展示);结果进仓库树区,清空即恢复。
+  // 搜索(常驻最底部):单条圆角搜索框,仓库 + 代码一起搜(分区展示);结果进仓库树区,清空即恢复。
   const searchBox = document.createElement('div');
   searchBox.className = 'gh-search';
   const searchField = ui.search({ placeholder: '搜索仓库 / 代码…' });
   const searchInput = searchField.querySelector('input')!;
   searchBox.appendChild(searchField);
-  panel.appendChild(searchBox);
-  panel.insertBefore(searchBox, tree);
+  panel.appendChild(searchBox); // 追加在仓库树之后 → 侧栏最底部
 
   const restoreTree = (): void => { void renderTree(); };
   searchInput.addEventListener('keydown', (e) => {
