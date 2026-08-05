@@ -4,6 +4,8 @@ import { saveState } from '../persist.js';
 import { iconSvg, type IconName } from '../components/icon.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { getCurrentTheme, applyTheme, BUILTIN_THEMES, getCurrentFontScale, applyFontScale, FONT_SCALES, type FontScale, type BuiltinTheme } from '../theme.js';
+import { getLocale, setLocale, type Locale } from '../i18n/index.js';
+import { t } from '../i18n/index.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
 import { sendInviteLink } from '../components/shareLink.js';
@@ -14,13 +16,13 @@ import type { SettingsSection, SelfProfile } from '../types.js';
 import QRCode from 'qrcode';
 
 const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = [
-  { id: 'account', icon: 'user', label: '账号' },
-  { id: 'appearance', icon: 'palette', label: '外观' },
-  { id: 'team', icon: 'users', label: '当前团队' },
-  { id: 'notifications', icon: 'bell', label: '通知' },
-  { id: 'plugins', icon: 'layout-grid', label: '插件' },
-  { id: 'github', icon: 'git-branch', label: 'GitHub' },
-  { id: 'about', icon: 'info', label: '关于' },
+  { id: 'account', icon: 'user', label: t('settings.account') },
+  { id: 'appearance', icon: 'palette', label: t('settings.appearance') },
+  { id: 'team', icon: 'users', label: t('settings.team') },
+  { id: 'notifications', icon: 'bell', label: t('settings.notifications') },
+  { id: 'plugins', icon: 'layout-grid', label: t('settings.plugins') },
+  { id: 'github', icon: 'git-branch', label: t('nav.github') },
+  { id: 'about', icon: 'info', label: t('settings.about') },
 ];
 
 export async function renderSettingsNav(panel: HTMLElement): Promise<void> {
@@ -249,6 +251,7 @@ function renderAppearance(main: HTMLElement): void {
       ? groupHtml('插件主题', pluginThemes.map((t) => ({ id: t.id, label: t.name, swatch: t.swatch, mode: 'plugin' as const })))
       : '');
   const currentScale = getCurrentFontScale();
+  const currentLocale = getLocale();
   main.innerHTML = `
     <div class="settings-section settings-appearance">
       <h2>外观</h2>
@@ -256,6 +259,10 @@ function renderAppearance(main: HTMLElement): void {
       <div class="settings-font-row">
         <div class="settings-font-label">字体大小</div>
         <div id="font-scale-picker"></div>
+      </div>
+      <div class="settings-font-row">
+        <div class="settings-font-label">语言</div>
+        <div id="lang-picker"></div>
       </div>
     </div>
   `;
@@ -274,6 +281,20 @@ function renderAppearance(main: HTMLElement): void {
       value: currentScale,
       onChange: (v) => {
         applyFontScale(v as FontScale);
+      },
+    }));
+  }
+  const langPicker = main.querySelector('#lang-picker');
+  if (langPicker) {
+    langPicker.appendChild(ui.segmented({
+      items: [
+        { value: 'zh', label: '中文' },
+        { value: 'en', label: 'English' },
+      ],
+      value: currentLocale,
+      onChange: (v) => {
+        setLocale(v as Locale);
+        location.reload();
       },
     }));
   }

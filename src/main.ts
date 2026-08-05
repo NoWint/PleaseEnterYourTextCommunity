@@ -1,5 +1,6 @@
 import { call } from './api.js';
 import { initTheme, initFontScale } from './theme.js';
+import { setLocale, getLocale } from './i18n/index.js';
 import { renderShell } from './shell/shell.js';
 import { state } from './state.js';
 import { saveState } from './persist.js';
@@ -15,6 +16,7 @@ interface EnsurePeytResult {
 async function boot(): Promise<void> {
   initTheme();
   initFontScale();
+  setLocale(getLocale());
   // 无边框窗口平台标记(决定 CSS 显示哪种标题栏):
   // - macOS: titleBarStyle Overlay → 原生红绿灯悬浮,只留纯拖拽区(window-overlay)
   // - Windows/Linux: decorations:false → 自绘标题栏(标题 + 最小化/最大化/关闭)(window-frame)

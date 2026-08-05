@@ -5,6 +5,7 @@ import { saveState } from '../persist.js';
 import { renderAvatarHtml } from '../components/avatar.js';
 import { iconSvg, type IconName } from '../components/icon.js';
 import { ui } from '../components/ui.js';
+import { t } from '../i18n/index.js';
 import type { Page, WorkspaceDto } from '../types.js';
 
 export async function refreshWorkspaces(): Promise<void> {
@@ -19,12 +20,12 @@ export async function renderRail(): Promise<void> {
   rail.className = 'rail';
 
   const pages: Array<{ page: Page; icon: IconName; label: string; badge?: number }> = [
-    { page: 'messages', icon: 'message-circle', label: '消息', badge: state.totalUnread },
-    { page: 'groups', icon: 'users', label: '群组' },
-    { page: 'work', icon: 'layout-grid', label: '协作' },
-    { page: 'inbox', icon: 'inbox', label: '通知', badge: state.inboxUnread },
+    { page: 'messages', icon: 'message-circle', label: t('nav.messages'), badge: state.totalUnread },
+    { page: 'groups', icon: 'users', label: t('nav.groups') },
+    { page: 'work', icon: 'layout-grid', label: t('nav.work') },
+    { page: 'inbox', icon: 'inbox', label: t('nav.inbox'), badge: state.inboxUnread },
     // 机器人入口 — 位于通知下方
-    { page: 'bots', icon: 'robot', label: '机器人' },
+    { page: 'bots', icon: 'robot', label: t('nav.bots') },
   ];
 
   const pageIconsHtml = pages.map((p) => {
@@ -39,20 +40,20 @@ export async function renderRail(): Promise<void> {
   }).join('');
 
   // 插件入口 — 位于协作按钮下方
-  const pluginIconHtml = `<div class="rail-icon ${state.currentPage === 'plugins' ? 'active' : ''}" id="rail-plugins" role="button" tabindex="0" aria-label="插件" title="插件">
+  const pluginIconHtml = `<div class="rail-icon ${state.currentPage === 'plugins' ? 'active' : ''}" id="rail-plugins" role="button" tabindex="0" aria-label="${t('nav.plugins')}" title="${t('nav.plugins')}">
     ${iconSvg('package', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
   // 调试入口 — 消息原文列表 (位于插件按钮下方, separator 之上)
-  const debugIconHtml = `<div class="rail-icon ${state.currentPage === 'debug' ? 'active' : ''}" data-page="debug" role="button" tabindex="0" aria-label="调试" title="调试">
+  const debugIconHtml = `<div class="rail-icon ${state.currentPage === 'debug' ? 'active' : ''}" data-page="debug" role="button" tabindex="0" aria-label="${t('nav.debug')}" title="${t('nav.debug')}">
     ${iconSvg('bug', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
-  const githubIconHtml = `<div class="rail-icon ${state.currentPage === 'github' ? 'active' : ''}" data-page="github" role="button" tabindex="0" aria-label="GitHub" title="GitHub">
+  const githubIconHtml = `<div class="rail-icon ${state.currentPage === 'github' ? 'active' : ''}" data-page="github" role="button" tabindex="0" aria-label="${t('nav.github')}" title="${t('nav.github')}">
     ${iconSvg('git-branch', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
-  const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" role="button" tabindex="0" aria-label="设置" title="设置">
+  const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" role="button" tabindex="0" aria-label="${t('nav.settings')}" title="${t('nav.settings')}">
     ${iconSvg('settings', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
@@ -66,7 +67,7 @@ export async function renderRail(): Promise<void> {
     <div class="rail-flex"></div>
     ${githubIconHtml}
     ${settingsIconHtml}
-    <div class="rail-avatar" id="rail-avatar" role="button" tabindex="0" aria-label="用户菜单">${avatarHtml}</div>
+    <div class="rail-avatar" id="rail-avatar" role="button" tabindex="0" aria-label="${t('nav.userMenu')}">${avatarHtml}</div>
   `;
 
   bindPageIcons();
@@ -141,7 +142,7 @@ function bindAvatar(): void {
 function showUserMenu(anchor: HTMLElement): void {
   ui.menu(anchor, [
     {
-      label: '外观设置',
+      label: t('userMenu.appearance'),
       icon: 'palette',
       action: () => {
         state.currentSettingsSection = 'appearance';
@@ -149,21 +150,21 @@ function showUserMenu(anchor: HTMLElement): void {
       },
     },
     {
-      label: '账号设置',
+      label: t('userMenu.account'),
       icon: 'user',
       action: () => {
         navigateToPage('settings').catch(reportError);
       },
     },
     {
-      label: '切换账号',
+      label: t('userMenu.switchAccount'),
       icon: 'users',
       action: () => {
         void showAccountSwitcher();
       },
     },
     {
-      label: '重启',
+      label: t('userMenu.restart'),
       icon: 'refresh-cw',
       action: () => {
         // 重载前端:重新 boot + 全量拉取,排查事件流/会话刷新问题
@@ -171,7 +172,7 @@ function showUserMenu(anchor: HTMLElement): void {
       },
     },
     {
-      label: '登出',
+      label: t('userMenu.logout'),
       icon: 'log-out',
       danger: true,
       action: async () => {
@@ -197,7 +198,7 @@ async function showAccountSwitcher(): Promise<void> {
   }
   const { ui } = await import('../components/ui.js');
   if (accounts.length <= 1) {
-    ui.toast('当前只有一个账号');
+    ui.toast(t('userMenu.singleAccount'));
     return;
   }
   const list = document.createElement('div');
@@ -222,14 +223,14 @@ async function showAccountSwitcher(): Promise<void> {
       item.style.cursor = 'default';
       const tag = document.createElement('span');
       tag.style.cssText = 'font-size:11px;color:var(--text-weak);margin-left:8px';
-      tag.textContent = '当前';
+      tag.textContent = t('userMenu.current');
       item.appendChild(tag);
     }
     list.appendChild(item);
   }
   let dlg: ReturnType<typeof ui.dialog> | null = null;
   dlg = ui.dialog({
-    title: '切换账号',
+    title: t('userMenu.switchAccount'),
     actions: [],
   });
   const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
