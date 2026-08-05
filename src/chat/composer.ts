@@ -4,6 +4,7 @@ import { showToast } from '../toast.js';
 import { appendOptimisticMessage } from './chatView.js';
 import { iconSvg } from '../components/icon.js';
 import { escapeHtml, escapeAttr } from '../components/escape.js';
+import { t } from '../i18n/index.js';
 import type { MsgDto, MemberDto, ChannelDto } from '../types.js';
 
 // 乐观更新临时消息类型 — message.js 读取这些字段渲染发送中状态。
@@ -101,10 +102,10 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       <div class="composer-row">
         <div class="composer-field">
           <button type="button" class="composer-attach" id="composer-attach" title="添加附件" aria-label="添加附件"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
-          <textarea id="composer-input" placeholder="消息" rows="1"></textarea>
+          <textarea id="composer-input" placeholder="${t('composer.placeholder')}" rows="1"></textarea>
         </div>
         <span class="composer-mic-timer" id="composer-mic-timer"></span>
-        <button type="button" class="composer-mic" id="composer-mic" title="录音" aria-label="录音">${iconSvg('mic', { width: 18, height: 18 })}</button>
+        <button type="button" class="composer-mic" id="composer-mic" title="${t('composer.record')}" aria-label="${t('composer.record')}">${iconSvg('mic', { width: 18, height: 18 })}</button>
       </div>
     </div>
   `;

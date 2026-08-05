@@ -82,6 +82,12 @@ export async function renderNavPanel(): Promise<void> {
         await renderGithubNav(panel);
         break;
       }
+      case 'intelligence': {
+        // 智能中心侧边栏:标题 + 刷新入口 (renderIntelligenceMain 渲染主区四 Tab)
+        const { renderIntelligenceNav } = await import('../pages/intelligencePage.js');
+        await renderIntelligenceNav(panel);
+        break;
+      }
       case 'plugins': {
         const { renderPluginsNav } = await import('../plugins/view.js');
         await renderPluginsNav(panel);
@@ -164,6 +170,16 @@ export async function renderMain(): Promise<void> {
       await renderGithubMain(main);
     } catch {
       main.innerHTML = `<div class="empty">GitHub 页加载失败</div>`;
+    }
+    return;
+  }
+
+  if (state.currentPage === 'intelligence') {
+    try {
+      const { renderIntelligenceMain } = await import('../pages/intelligencePage.js');
+      await renderIntelligenceMain(main);
+    } catch {
+      main.innerHTML = `<div class="empty">智能中心加载失败</div>`;
     }
     return;
   }

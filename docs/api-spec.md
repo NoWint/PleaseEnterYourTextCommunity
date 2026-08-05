@@ -250,6 +250,36 @@ GitHub 访问层:`src-tauri/src/github/`(`client.rs` 共享 HTTP 客户端 + `ap
 
 > 错误路径:假/过期 token → `GitHubAuth`;不存在仓库/资源 → `GitHubNotFound`;限速(429/403)→ `GitHubRateLimit`(附 reset 提示);5xx → `GitHubServer`(见 §3)。
 
+### 2.13 智能中心(D3 知识库 + LLM 主题总结)
+
+智能运行时(`src-tauri/src/intelligence/`)为 LLM 主题总结与知识库共享的推理引擎(本地 llama-server 旁路进程 / OpenAI 兼容 API 双来源,设置见 `intelligence_settings` 表)。知识库(`src-tauri/src/knowledge/`)存储结构化知识条目(`knowledge` 表,`UNIQUE(chat_id, date)` 去重替换)。界面命令(全部非 Bot 特定):
+
+| 命令 | 入参 | 返回 | 说明 |
+|---|---|---|---|
+| `list_knowledge` | `chatId?` `tag?` `keyword?` `page?` `pageSize?` | `KnowledgeDto[]` | 知识条目列表(过滤 + 分页,按更新时间倒序) |
+| `get_knowledge` | `id` | `KnowledgeDto` | 单条条目 |
+| `delete_knowledge` | `id` | `()` | 删除条目 |
+| `update_knowledge` | `id` `title?` `summary?` `tags?: string[]` | `KnowledgeDto` | 编辑条目(仅非 None 字段) |
+| `summarize_store_now` | `chatId` `count?` | `KnowledgeDto` | 立即总结会话并入库(手动入库) |
+| `list_knowledge_config` | — | `KnowledgeConfigDto[]` | 全部会话自动总结配置 |
+| `set_knowledge_config` | `chatId` `dailyEnabled` `dailyTime` `windowCount` `autoStore` | `KnowledgeConfigDto` | 写每会话自动总结配置 |
+| `get_intelligence_settings` | — | `IntelligenceSettingsDto` | 智能设置(模式/来源/模型档位/窗口 N/API 配置) |
+| `set_intelligence_settings` | `mode` `source` `modelTier` `windowN` `baseUrl?` `apiKey?` `model?` | `()` | 写智能设置 |
+| `get_llm_model_status` | — | `ModelStatusDto` | 引擎/模型就绪状态 |
+| `start_engine_download` | `which: 'engine'\|'model'` | `()` | 下载引擎(llama.cpp b10276)或模型(GGUF 0.5B/1.5B),进度经 `download-progress` 事件 |
+| `enqueue_summary` | `chatId` `lane: 'bubble'\|'detail'` `kind?` `context: { lines, prevAnalysis? }` | `()` | 主题总结入队(气泡/详情看板),结果经 `summary-event` 事件 |
+
+**事件**:
+
+| 事件 | payload | 说明 |
+|---|---|---|
+| `summary-event` | `{ chatId, lane, kind?, status: 'idle'\|'summarizing'\|'done'\|'error'\|'fallback', delta?, result?, error?: { code, message } }` | 主题总结状态/流式结果回传 |
+| `download-progress` | `{ id: 'engine'\|'model', bytesDone, total, rate }` | 下载进度(节流) |
+
+**统一命令系统**:后端 `CommandRegistry`(src-tauri/src/commands/registry.rs)注册 `summarize`/`ask`(Both)/`whoami`/`roll`(Bot)。Bot 路径由 rule.rs 调注册表;用户路径由 `SystemCommandProcessor`(drivers/syscmd.rs)处理——会话有 running Bot 时 Bot 优先,系统处理器跳过(不双回复);无 Bot 时系统身份回复。命令进聊天流,其他成员可见。
+
+**错误码**(LLM 相关,见 §3 错误消息 `[code]` 前缀):`llm_not_configured` / `engine_not_ready` / `engine_start_failed` / `engine_timeout` / `engine_crash` / `api_auth` / `api_quota` / `api_rate_limit` / `api_bad_request` / `api_network` / `window_empty` / `cancelled`。
+
 ---
 
 ## 3. 错误模型
@@ -650,3 +680,49 @@ unsub(); // 退订
 | `path` | `string` | 仓库内路径 |
 | `repo_full_name` | `string` | 所属仓库 `owner/repo` |
 | `html_url` | `string` | GitHub 页面 URL |
+
+### KnowledgeDto(知识条目)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | `number` | 条目 id |
+| `chat_id` | `number` | 来源会话(deltachat chat id) |
+| `chat_name` | `string` | 会话名(暂为 chat_id 字符串占位) |
+| `date` | `string` | 覆盖日期 `YYYY-MM-DD`(与 `chat_id` 组成去重键) |
+| `title` | `string` | LLM 生成的标题 |
+| `summary` | `string` | 结构化要点正文 |
+| `tags` | `string[]` | 标签(JSON 数组,LLM 提取 + 可编辑) |
+| `msg_count` | `number` | 覆盖消息数 |
+| `source` | `string` | `manual` / `daily` |
+| `created_at` / `updated_at` | `number` | 时间戳 |
+
+### KnowledgeConfigDto(每会话自动总结配置)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `chat_id` | `number` | 会话 id |
+| `chat_name` | `string` | 会话名(占位) |
+| `daily_enabled` | `boolean` | 每日自动总结开关 |
+| `daily_time` | `string` | 触发时间 `HH:MM` |
+| `window_count` | `number` | 总结窗口条数(10-200) |
+| `auto_store` | `boolean` | 自动入库 |
+
+### IntelligenceSettingsDto(智能设置,主题总结与知识库共用)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `mode` | `string` | `off` / `wordfreq` / `llm` |
+| `source` | `string` | `local` / `api` |
+| `model_tier` | `string` | `0.5b` / `1.5b` |
+| `window_n` | `number` | 上下文窗口条数(10-200,默认 50) |
+| `base_url` / `api_key` / `model` | `string?` | API 模式配置(本地模式忽略) |
+
+### ModelStatusDto(引擎/模型状态)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `mode` / `source` | `string` | 当前设置 |
+| `engine_ready` / `model_ready` | `boolean` | 引擎/模型是否已下载 |
+| `engine_path` / `model_path` | `string?` | 文件路径 |
+| `engine_version` | `string?` | llama.cpp 版本(锁 b10276) |
+| `model_sha256` | `string?` | 模型 sha256(未校验时为空) |

@@ -5,10 +5,15 @@ import { resolveMessageText } from '../utils/envelope.js';
 import { renderComposer } from './composer.js';
 import { saveState } from '../persist.js';
 import { ui } from '../components/ui.js';
+import { t } from '../i18n/index.js';
 import { escapeHtml } from '../components/escape.js';
 import { colorHex } from '../components/avatar.js';
 import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
 import { initSegmenter, computeTopics, type TopicCluster } from '../utils/wordAnalysis.js';
+import { SummaryStore, buildContextLines, listenSummaryEvents, type BubbleStatus } from '../utils/summaryState.js';
+import { parseSafeTags } from '../utils/tagParser.js';
+import { renderSummaryDashboard } from '../components/summaryDashboard.js';
+import { mountPopup } from '../components/readReceiptsPopup.js';
 import { iconSvg } from '../components/icon.js';
 import { openEncryptionPopup } from '../components/encryptionPopup.js';
 import { openOnlinePopup } from '../components/onlinePopup.js';
@@ -27,6 +32,18 @@ interface ChatInfo {
 interface ChannelPin {
   msg_id: number;
   channel_chat_id: number;
+}
+
+// 主题总结智能设置契约(get_intelligence_settings,页面内本地声明):
+// mode = 'off' | 'wordfreq' | 'llm';llm 模式下 source=本地/API,windowN 为上下文条数。
+interface IntelligenceSettingsDto {
+  mode: string;
+  source: string;
+  modelTier: string;
+  windowN: number;
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
 }
 
 interface ReplyEventDetail {
@@ -84,6 +101,8 @@ export async function renderChatView(chatId: number): Promise<void> {
     clearReactionsCache();
     // F3:切换频道时清空 pinned 缓存,避免右键菜单显示上一个频道的置顶状态
     clearPinnedCache();
+    // 主题总结:切会话重置该 chat 的气泡状态(下次进入重新总结,不残留旧摘要)
+    summaryStore.clear(chatId);
   }
   state.currentChatId = chatId;
   (state as LegacyState).homeMode = false;
@@ -134,23 +153,23 @@ export async function renderChatView(chatId: number): Promise<void> {
     const memberCount = state.currentMembers?.length || 0;
     // 单聊不显示 "N 成员"(对应用户名已在标题,气泡内也无 name/role tag)
     const membersTag = memberCount > 0 && headerIsGroup
-      ? `<span class="ch-members">${memberCount} 成员</span>`
+      ? `<span class="ch-members">${t('chat.members', { count: memberCount })}</span>`
       : '';
     // 头部头像:单聊 = 对方成员头像;群聊 = 会话头像(chatInfo.avatar)。无则生成首字母色块(仿聊天列表)。
     const headerAvatarHtml = await buildHeaderAvatarHtml(chatInfo, headerName || channelName(chatId));
     // 会话已加密(以 core is_encrypted 为准)→ 右侧按钮组圆形气泡,点击弹指纹 popup。
     const lockBtn = chatInfo?.is_encrypted
-      ? `<button class="ch-ctl-btn" data-chat-enc="1" title="已加密,查看成员指纹" aria-label="加密状态">${iconSvg('lock', { width: 16, height: 16 })}</button>`
+      ? `<button class="ch-ctl-btn" data-chat-enc="1" title="${t('chat.encrypt')}" aria-label="${t('chat.encrypt')}">${iconSvg('lock', { width: 16, height: 16 })}</button>`
       : '';
     // 在线状态气泡:置于 ch-head 右侧,icon + 简要文字(群聊「N 人在线」/ 单聊「在线|最后活跃」)。
     const onlineBlock = buildOnlineBlockHtml(chatInfo, headerIsGroup);
     // 右上角按钮组:会话内搜索 / 媒体相册 / 加密锁 / 「更多」(最右侧,打开侧栏)。
     // 群信息改由点击 ch-head 弹出;成员/置顶并入右侧栏。
     const ctrlButtons = `
-      <button class="ch-ctl-btn" data-ctl="search" title="会话内搜索" aria-label="搜索">${iconSvg('search', { width: 16, height: 16 })}</button>
-      <button class="ch-ctl-btn" data-ctl="gallery" title="媒体相册" aria-label="媒体相册">${iconSvg('image', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="search" title="${t('chat.search')}" aria-label="${t('chat.search')}">${iconSvg('search', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="gallery" title="${t('chat.gallery')}" aria-label="${t('chat.gallery')}">${iconSvg('image', { width: 16, height: 16 })}</button>
       ${lockBtn}
-      <button class="ch-ctl-btn" data-ctl="more" title="更多" aria-label="更多">${iconSvg('more-horizontal', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="more" title="${t('chat.more')}" aria-label="${t('chat.more')}">${iconSvg('more-horizontal', { width: 16, height: 16 })}</button>
     `;
     main.innerHTML = `
       <div class="messages" id="messages">
@@ -165,6 +184,7 @@ export async function renderChatView(chatId: number): Promise<void> {
           </div>
           ${onlineBlock}
           <div class="ch-topic-chip" data-topic-chip="1"></div>
+          <div class="ch-topic-chip ch-llm-chip" data-llm-chip="1" style="display:none"></div>
           <div class="ch-ctls">
             ${ctrlButtons}
           </div>
@@ -304,7 +324,7 @@ async function refreshMessages(chatId: number): Promise<void> {
   const box = document.getElementById('messages');
   if (!box) return;
   if (msgs.length === 0) {
-    box.appendChild(ui.empty('这个频道还没有消息,发第一条吧'));
+    box.appendChild(ui.empty(t('chat.noMessages'), 'message-circle'));
     return;
   }
   // 已读计数必须在渲染前填充:气泡渲染「N 人已读」时依赖 readCountMap,
@@ -316,6 +336,8 @@ async function refreshMessages(chatId: number): Promise<void> {
   box.scrollTop = box.scrollHeight;
   // 消息更新(切会话/新消息/发送后)→ 防抖重算主题词频气泡
   scheduleTopicRefresh();
+  // LLM 主题总结(双车道 bubble):与词频气泡同位置防抖刷新
+  scheduleLlmSummaryRefresh();
 }
 
 // 已读系统:批量拉取发出的消息的已读人数,填充 readCountMap(气泡渲染「N 人已读」)。
@@ -720,6 +742,224 @@ function scheduleTopicRefresh(): void {
       openWordAnalysisPopup(e.currentTarget as HTMLElement, topicWords);
     });
   }, 300);
+}
+
+// ── 会话主题 LLM 气泡(双车道:bubble 短摘要 / detail 看板)────────
+// 状态机见 summaryState.ts(SummaryStore),事件来自 summary-event(dc-event 桥分发);
+// mode 非 'llm' → 隐藏 LLM 气泡,词频气泡行为不变;失败任何一步 → 降级词频短语。
+let llmTimer: ReturnType<typeof setTimeout> | null = null;
+let llmSettings: IntelligenceSettingsDto | null = null;
+let llmSettingsLoaded = false;
+let llmEventsBound = false;
+let llmBubbleStatus: BubbleStatus = 'idle';
+let llmPulseTimer: ReturnType<typeof setInterval> | null = null;
+const summaryStore = new SummaryStore();
+
+// 防抖 300ms: 消息刷新后与 scheduleTopicRefresh 同位置触发。
+function scheduleLlmSummaryRefresh(): void {
+  if (llmTimer) clearTimeout(llmTimer);
+  llmTimer = setTimeout(() => { void refreshLlmBubble(); }, 300);
+}
+
+async function refreshLlmBubble(): Promise<void> {
+  const chatId = state.currentChatId;
+  if (chatId == null) return;
+  let settings = llmSettings;
+  if (!llmSettingsLoaded) {
+    try {
+      settings = await call<IntelligenceSettingsDto>('get_intelligence_settings');
+      llmSettings = settings;
+    } catch (err) {
+      // 后端未实现/失败 → LLM 气泡保持隐藏,词频模式不受影响
+      console.warn('[llm-summary] get_intelligence_settings failed:', err);
+    }
+    llmSettingsLoaded = true;
+  }
+  const chip = document.querySelector<HTMLElement>('[data-llm-chip="1"]');
+  if (!settings || settings.mode !== 'llm') {
+    if (chip) { chip.innerHTML = ''; chip.style.display = 'none'; }
+    return;
+  }
+  if (chip) chip.style.display = '';
+  await bindLlmEvents();
+  const st = summaryStore.get(chatId);
+  if (!st || st.status === 'idle' || st.status === 'done') {
+    void enqueueLlmBubble(chatId, settings);
+  } else {
+    // error/fallback 降级词频(不自动重试,点击气泡重试);summarizing 恢复显示
+    renderLlmBubble(chatId);
+  }
+}
+
+async function enqueueLlmBubble(chatId: number, settings: IntelligenceSettingsDto): Promise<void> {
+  const prev = summaryStore.get(chatId);
+  const lines = buildContextLines(state.messages, (m) => resolveMessageText(m.text), settings.windowN ?? 50);
+  // done→summarizing:旧摘要保留(不清空),新 token 流式追加
+  summaryStore.transition(chatId, 'summarizing');
+  if (state.currentChatId === chatId) renderLlmBubble(chatId);
+  try {
+    await call('enqueue_summary', {
+      chatId,
+      lane: 'bubble',
+      context: { lines, prevAnalysis: prev?.status === 'done' ? prev.text : undefined },
+    });
+  } catch (err) {
+    // 入队失败 → 降级词频(不阻断聊天)
+    console.warn('[llm-summary] enqueue_summary failed:', err);
+    fallbackLlmBubble(chatId);
+  }
+}
+
+function fallbackLlmBubble(chatId: number): void {
+  try {
+    const clusters = computeTopics(state.messages, resolveMessageText, 4);
+    const phrase = clusters.length ? clusters.map((c) => c.words.join(' ')).join(' · ') : '暂无主题词';
+    summaryStore.transition(chatId, 'fallback', phrase);
+  } catch {
+    summaryStore.transition(chatId, 'error', '主题总结不可用');
+  }
+  if (state.currentChatId === chatId) renderLlmBubble(chatId);
+}
+
+async function retryLlmBubble(chatId: number): Promise<void> {
+  let settings = llmSettings;
+  if (!settings) {
+    try {
+      settings = await call<IntelligenceSettingsDto>('get_intelligence_settings');
+      llmSettings = settings;
+    } catch { return; }
+  }
+  if (!settings || settings.mode !== 'llm') return;
+  await enqueueLlmBubble(chatId, settings);
+}
+
+async function bindLlmEvents(): Promise<void> {
+  if (llmEventsBound) return;
+  llmEventsBound = true;
+  try {
+    await listenSummaryEvents((e) => {
+      const chatId = state.currentChatId;
+      if (chatId == null || e.lane !== 'bubble' || e.chatId !== chatId) return;
+      if (e.status === 'streaming' && e.delta) {
+        const cur = summaryStore.get(chatId);
+        const newText = (cur?.text ?? '') + e.delta;
+        summaryStore.transition(chatId, 'summarizing', newText);
+        // 已在流式状态 → 只更新文本节点(避免重渲染打断呼吸灯);否则整块重建
+        if (llmBubbleStatus === 'summarizing') updateLlmStreamingText(chatId, newText);
+        else renderLlmBubble(chatId);
+      } else if (e.status === 'done') {
+        summaryStore.transition(chatId, 'done', e.result ?? '');
+        renderLlmBubble(chatId);
+      } else if (e.status === 'error' || e.status === 'fallback') {
+        if (e.error?.code === 'window_empty') {
+          // 窗口为空,无内容可总结 → 隐藏气泡
+          summaryStore.clear(chatId);
+          const chip = document.querySelector<HTMLElement>('[data-llm-chip="1"]');
+          if (chip) { chip.innerHTML = ''; chip.style.display = 'none'; }
+          return;
+        }
+        if (e.error?.code === 'cancelled') return; // 被新任务取代,静默,保持当前显示
+        fallbackLlmBubble(chatId);
+      }
+    });
+  } catch (err) {
+    console.warn('[llm-summary] 事件监听绑定失败:', err);
+  }
+}
+
+function renderLlmBubble(chatId: number): void {
+  const chip = document.querySelector<HTMLElement>('[data-llm-chip="1"]');
+  if (!chip) return;
+  if (llmPulseTimer) { clearInterval(llmPulseTimer); llmPulseTimer = null; }
+  chip.style.display = '';
+  const st = summaryStore.get(chatId);
+  const status: BubbleStatus = st?.status ?? 'idle';
+  const text = st?.text ?? '';
+  llmBubbleStatus = status;
+  const base = 'topic-bubble';
+  if (status === 'summarizing') {
+    chip.innerHTML = `<div class="${base}" data-llm-bubble="1" title="点击查看详细分析">
+      <span class="llm-breathe" style="width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;flex-shrink:0;flex:none;"></span>
+      <span>${escapeHtml(text || '总结中…')}</span>
+    </div>`;
+  } else if (status === 'done') {
+    chip.innerHTML = `<div class="${base}" data-llm-bubble="1" title="点击查看详细分析">
+      ${iconSvg('robot', { width: 14, height: 14 })}
+      <span>${parseSafeTags(text)}</span>
+    </div>`;
+  } else if (status === 'error' || status === 'fallback') {
+    // 降级词频短语,可点击刷新重试
+    chip.innerHTML = `<div class="${base}" data-llm-bubble="1" data-llm-retry="1" title="总结不可用,点击重试">
+      ${iconSvg('hash', { width: 14, height: 14 })}
+      <span>${escapeHtml(text || '暂无主题词')}</span>
+    </div>`;
+  } else {
+    chip.innerHTML = `<div class="${base}" data-llm-bubble="1" title="点击查看详细分析">
+      ${iconSvg('robot', { width: 14, height: 14 })}
+      <span>智能总结</span>
+    </div>`;
+  }
+  const bubble = chip.querySelector<HTMLElement>('[data-llm-bubble="1"]');
+  if (!bubble) return;
+  if (status === 'summarizing') {
+    // 呼吸灯:行内 transition + interval 脉冲(不新增全局 keyframes)
+    const dot = chip.querySelector<HTMLElement>('.llm-breathe');
+    if (dot) {
+      dot.style.transition = 'opacity 560ms ease';
+      llmPulseTimer = setInterval(() => {
+        dot.style.opacity = dot.style.opacity === '0.3' ? '1' : '0.3';
+      }, 560);
+    }
+  }
+  bubble.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (bubble.dataset.llmRetry) { void retryLlmBubble(chatId); return; }
+    openLlmDashboard(chatId, bubble);
+  });
+}
+
+// 流式增量:更新既有文本节点,避免整块重渲染打断呼吸灯
+function updateLlmStreamingText(chatId: number, text: string): boolean {
+  const chip = document.querySelector<HTMLElement>('[data-llm-chip="1"]');
+  if (!chip || state.currentChatId !== chatId) return false;
+  const span = chip.querySelector<HTMLElement>('[data-llm-bubble="1"] span:not(.llm-breathe)');
+  if (!span) return false;
+  span.textContent = text;
+  return true;
+}
+
+// 气泡点击 → 主题分析看板(detail 车道,复用 mountPopup 弹层壳)
+function openLlmDashboard(chatId: number, anchor: HTMLElement): void {
+  mountPopup(
+    `<div data-sd-holder="1" style="display:flex;flex-direction:column;min-height:0;max-height:66vh;"></div>`,
+    anchor,
+    'rr-popup sd-popup',
+  );
+  const popup = document.querySelector<HTMLElement>('.sd-popup');
+  if (popup) {
+    // 看板内容宽:覆盖 rr-popup 的 420px 上限
+    popup.style.width = 'min(92vw, 700px)';
+    popup.style.maxWidth = 'min(92vw, 700px)';
+  }
+  const holder = document.querySelector<HTMLElement>('[data-sd-holder="1"]');
+  if (!holder) return;
+  renderSummaryDashboard(chatId, holder, {
+    onRefreshAll: () => { void scheduleLlmSummaryRefresh(); },
+    getContext: () => ({
+      lines: buildContextLines(state.messages, (m) => resolveMessageText(m.text), llmSettings?.windowN ?? 50),
+      prevAnalysis: summaryStore.get(chatId)?.status === 'done' ? summaryStore.get(chatId)?.text : undefined,
+    }),
+  });
+  // mountPopup 按空内容测量定位,渲染后超高(锚点贴近底部)时改为向上展开
+  requestAnimationFrame(() => {
+    if (!popup) return;
+    const r = popup.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 8) {
+      const anchorTop = anchor.getBoundingClientRect().top;
+      popup.style.top = 'auto';
+      popup.style.bottom = `${Math.max(8, window.innerHeight - anchorTop - 8)}px`;
+    }
+  });
 }
 
 // 头部按钮组点击绑定:搜索/相册/「更多」+ ch-head 点击弹群信息。

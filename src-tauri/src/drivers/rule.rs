@@ -8,9 +8,10 @@ use rand::Rng;
 use regex::Regex;
 
 use super::{BotDriver, BotRuntime, DriverKind, IncomingMsg};
+use crate::commands::registry;
+use crate::commands::registry::whoami_reply;
 use crate::dto::bot_activity_kind as act;
 use crate::dto::LlmConfig;
-use crate::dto::ProjectContext;
 use crate::dto::RuleConfig;
 use crate::error::AppResult;
 use crate::llm::{ChatMessage, LlmClient};
@@ -122,6 +123,38 @@ impl BotDriver for RuleDriver {
                         )
                         .await;
                     return Ok(vec![reply]);
+                }
+                // 统一命令注册表(Bot 路径):命中且命令 scope 含 Bot → 由注册表执行。
+                // 注:/summarize 与 /whoami 因需 BotRuntime(LLM 客户端 / db 工作区名)
+                // 保持原分支先行;注册表中同名 handler 面向无 runtime 的上下文(占位)。
+                if let Some(inv) = registry::CommandRegistry::parse(text) {
+                    let reg = registry::CommandRegistry::global();
+                    if let Some(spec) = reg.lookup(&inv.name) {
+                        if matches!(
+                            spec.scope,
+                            registry::CommandScope::Bot | registry::CommandScope::Both
+                        ) {
+                            bot.activity
+                                .record(
+                                    bot.bot_id,
+                                    act::RULE_REPLY,
+                                    Some(msg.chat_id.to_u32()),
+                                    Some(msg.msg_id.to_u32()),
+                                    format!("指令: /{}", inv.name),
+                                    None,
+                                )
+                                .await;
+                            let ctx = registry::CommandCtx {
+                                name: inv.name,
+                                kind: registry::CommandKind::Bot,
+                                chat_id: msg.chat_id.to_u32(),
+                                msg_id: msg.msg_id.to_u32(),
+                                args: inv.args,
+                                raw: text,
+                            };
+                            return reg.handle(&ctx).await;
+                        }
+                    }
                 }
                 if let Some(reply) = handle_command(text) {
                     return Ok(vec![reply]);
@@ -270,10 +303,11 @@ pub fn handle_command(text: &str) -> Option<String> {
     let arg = parts.next();
     match cmd {
         "/roll" => {
-            let n = arg
-                .and_then(|s| s.trim().parse::<i64>().ok())
-                .filter(|&n| n >= 1)
-                .unwrap_or(100);
+            // 逻辑已迁移至统一注册表(registry.rs),此处委托其 N 解析,格式不变。
+            let args: Vec<String> = arg
+                .map(|s| s.split_whitespace().map(str::to_string).collect())
+                .unwrap_or_default();
+            let n = registry::roll_n(&args);
             let roll = rand::thread_rng().gen_range(1..=n);
             Some(format!("🎲 你掷出了 {roll} (1-{n})"))
         }
@@ -301,30 +335,6 @@ pub fn handle_command(text: &str) -> Option<String> {
 pub fn is_whoami(text: &str) -> bool {
     let mut parts = text.trim().splitn(2, char::is_whitespace);
     parts.next() == Some("/whoami")
-}
-
-/// /whoami 回复:身份 + 项目上下文(工作区名/ID + 项目描述)。
-/// workspace_name 为 None 时回退显示工作区 id;无项目上下文时仅返回身份。
-pub fn whoami_reply(
-    bot_name: &str,
-    bot_addr: &str,
-    pc: Option<&ProjectContext>,
-    workspace_name: Option<&str>,
-) -> String {
-    let mut out = format!("我是 {bot_name}({bot_addr})");
-    if let Some(pc) = pc {
-        if let Some(ws_id) = pc.workspace_id {
-            let label = workspace_name
-                .filter(|s| !s.trim().is_empty())
-                .map(str::to_string)
-                .unwrap_or_else(|| ws_id.to_string());
-            out.push_str(&format!("\n所属工作区: {label}"));
-        }
-        if let Some(desc) = pc.description.as_deref().filter(|s| !s.trim().is_empty()) {
-            out.push_str(&format!("\n项目: {desc}"));
-        }
-    }
-    out
 }
 
 /// 解析 project_context 的 workspace_id 对应的工作区名(db 查询;查不到返回 None → 显示 id)。
@@ -366,6 +376,7 @@ pub fn match_rules(text: &str, cfg: &RuleConfig) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dto::ProjectContext;
 
     #[test]
     fn roll_with_arg_in_range() {

@@ -1,3 +1,6 @@
+/// 统一命令注册表(Bot 与用户侧共用)。
+pub mod registry;
+
 use deltachat::chat::{self, Chat, ChatItem, ChatVisibility};
 use deltachat::context::Context;
 use deltachat::chatlist::Chatlist;
@@ -637,7 +640,7 @@ pub async fn get_chat_msgs(
 
 /// 发送文本消息，返回新消息 id（供 send_text 与 bot_send_text 复用）。
 /// 普通文本统一组装成 `{"type":"text",...,"payload":{"text":...}}` 信封发出。
-async fn send_text_impl(ctx: &Context, chat_id: u32, text: String) -> AppResult<MsgId> {
+pub(crate) async fn send_text_impl(ctx: &Context, chat_id: u32, text: String) -> AppResult<MsgId> {
     let chat_id = deltachat::chat::ChatId::new(chat_id);
     let payload = serde_json::json!({ "text": text });
     let envelope = crate::envelope::build_envelope("text", payload)?;
@@ -4503,6 +4506,202 @@ pub async fn project_data_source_impl(db: &Arc<Db>, owner: &str, repo: &str) -> 
         }
     }
     Ok("github".into())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 智能中心:知识库 + 智能设置 + 主题总结队列(界面命令,全部非 Bot 特定)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 取已装配的智能运行时;未装配时返回明确的 Core 错误(避免 unwrap)。
+fn intelligence<'a>(state: &'a State<'_, AppState>) -> AppResult<&'a Arc<crate::intelligence::Intelligence>> {
+    state
+        .intelligence
+        .as_ref()
+        .ok_or_else(|| AppError::Core("智能运行时未装配".into()))
+}
+
+/// 取已装配的知识库模块。
+fn knowledge<'a>(state: &'a State<'_, AppState>) -> AppResult<&'a Arc<crate::knowledge::Knowledge>> {
+    state
+        .knowledge
+        .as_ref()
+        .ok_or_else(|| AppError::Core("知识库未装配".into()))
+}
+
+/// 知识条目列表(过滤 + 分页)。
+#[tauri::command]
+pub async fn list_knowledge(
+    state: State<'_, AppState>,
+    chat_id: Option<u32>,
+    tag: Option<String>,
+    keyword: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> AppResult<Vec<crate::dto::KnowledgeDto>> {
+    let kn = knowledge(&state)?;
+    kn.store
+        .list(
+            chat_id,
+            tag.as_deref(),
+            keyword.as_deref(),
+            page.unwrap_or(1),
+            page_size.unwrap_or(50),
+        )
+        .await
+}
+
+/// 单条知识条目。
+#[tauri::command]
+pub async fn get_knowledge(state: State<'_, AppState>, id: i64) -> AppResult<crate::dto::KnowledgeDto> {
+    let kn = knowledge(&state)?;
+    kn.store
+        .get(id)
+        .await?
+        .ok_or_else(|| AppError::Core(format!("知识条目 {id} 不存在")))
+}
+
+/// 删除知识条目。
+#[tauri::command]
+pub async fn delete_knowledge(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    let kn = knowledge(&state)?;
+    kn.store.delete(id).await
+}
+
+/// 编辑知识条目(仅非 None 字段)。
+#[tauri::command]
+pub async fn update_knowledge(
+    state: State<'_, AppState>,
+    id: i64,
+    title: Option<String>,
+    summary: Option<String>,
+    tags: Option<Vec<String>>,
+) -> AppResult<crate::dto::KnowledgeDto> {
+    let kn = knowledge(&state)?;
+    let tags_json = tags.map(|t| serde_json::to_string(&t).unwrap_or_else(|_| "[]".into()));
+    kn.store
+        .update(id, title.as_deref(), summary.as_deref(), tags_json.as_deref())
+        .await?
+        .ok_or_else(|| AppError::Core(format!("知识条目 {id} 不存在")))
+}
+
+/// 立即总结指定会话并入库(智能中心「总结本会话入库」按钮)。
+#[tauri::command]
+pub async fn summarize_store_now(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    count: Option<usize>,
+) -> AppResult<crate::dto::KnowledgeDto> {
+    let kn = knowledge(&state)?;
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    kn.pipeline
+        .store_summary(&ctx, chat_id, count.unwrap_or(30), "manual")
+        .await
+}
+
+/// 每会话知识库配置列表。
+#[tauri::command]
+pub async fn list_knowledge_config(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::dto::KnowledgeConfigDto>> {
+    let kn = knowledge(&state)?;
+    kn.store.list_configs().await
+}
+
+/// 写每会话知识库配置。
+#[tauri::command]
+pub async fn set_knowledge_config(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    daily_enabled: bool,
+    daily_time: String,
+    window_count: i64,
+    auto_store: bool,
+) -> AppResult<crate::dto::KnowledgeConfigDto> {
+    let kn = knowledge(&state)?;
+    kn.store
+        .set_config(chat_id, daily_enabled, &daily_time, window_count, auto_store)
+        .await
+}
+
+/// 智能设置读取。
+#[tauri::command]
+pub async fn get_intelligence_settings(
+    state: State<'_, AppState>,
+) -> AppResult<crate::dto::IntelligenceSettingsDto> {
+    let ig = intelligence(&state)?;
+    ig.settings.get().await
+}
+
+/// 智能设置写入。
+#[tauri::command]
+pub async fn set_intelligence_settings(
+    state: State<'_, AppState>,
+    mode: String,
+    source: String,
+    model_tier: String,
+    window_n: i64,
+    base_url: Option<String>,
+    api_key: Option<String>,
+    model: Option<String>,
+) -> AppResult<()> {
+    let ig = intelligence(&state)?;
+    ig.settings
+        .set(&crate::dto::IntelligenceSettingsDto {
+            mode,
+            source,
+            model_tier,
+            window_n,
+            base_url,
+            api_key,
+            model,
+        })
+        .await
+}
+
+/// 引擎/模型状态。
+#[tauri::command]
+pub async fn get_llm_model_status(
+    state: State<'_, AppState>,
+) -> AppResult<crate::dto::ModelStatusDto> {
+    let ig = intelligence(&state)?;
+    Ok(ig.status().await)
+}
+
+/// 启动引擎或模型下载(进度经 download-progress 事件回传)。
+#[tauri::command]
+pub async fn start_engine_download(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    which: String,
+) -> AppResult<()> {
+    let ig = intelligence(&state)?;
+    let dto = ig.settings.get().await?;
+    let tier = dto.model_tier.clone();
+    ig.downloader.start(&which, &tier, &app).await
+}
+
+/// 主题总结入队(气泡/详情看板;窗口由前端组装经 context 传入)。
+#[tauri::command]
+pub async fn enqueue_summary(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    lane: String,
+    kind: Option<String>,
+    context: Option<crate::dto::SummaryContextDto>,
+) -> AppResult<()> {
+    let ig = intelligence(&state)?;
+    let ctx = context.unwrap_or_default();
+    ig.queue.enqueue(crate::intelligence::queue::SummaryRequest {
+        chat_id,
+        lane,
+        kind,
+        lines: ctx.lines,
+        prev_analysis: ctx.prev_analysis,
+    });
+    Ok(())
 }
 
 #[cfg(test)]

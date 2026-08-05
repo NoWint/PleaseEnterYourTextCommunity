@@ -20,6 +20,7 @@ const sections: Array<{ id: SettingsSection; icon: IconName; label: string }> = 
   { id: 'notifications', icon: 'bell', label: '通知' },
   { id: 'plugins', icon: 'layout-grid', label: '插件' },
   { id: 'github', icon: 'git-branch', label: 'GitHub' },
+  { id: 'intelligence', icon: 'sparkles', label: '智能' },
   { id: 'about', icon: 'info', label: '关于' },
 ];
 
@@ -53,6 +54,7 @@ export async function renderSettingsMain(main: HTMLElement): Promise<void> {
     case 'notifications': await renderNotifications(main); break;
     case 'plugins': await renderPlugins(main); break;
     case 'github': await renderGithub(main); break;
+    case 'intelligence': await renderIntelligence(main); break;
     case 'about': renderAbout(main); break;
   }
 }
@@ -483,6 +485,48 @@ async function renderGithub(main: HTMLElement): Promise<void> {
     label: '全局 GitHub Token',
     children: row,
     help: '无 token 时公开仓库只读;代码搜索需 token。左侧栏 GitHub 页使用此全局 token。',
+  }));
+
+  main.appendChild(section);
+}
+
+// ── 智能 ──────────────────────────────────────────────
+// 唯一配置界面在智能中心 Tab4;设置页保留入口,点击跳转。
+async function renderIntelligence(main: HTMLElement): Promise<void> {
+  main.innerHTML = '';
+  const section = document.createElement('div');
+  section.className = 'settings-section';
+  section.innerHTML = '<h2>智能</h2>';
+
+  let mode = '';
+  try {
+    const s = await call<{ mode?: string }>('get_intelligence_settings');
+    mode = s.mode || '';
+  } catch { /* 未接后端时保持空 */ }
+  const modeMap: Record<string, string> = { off: '关闭', wordfreq: '词频', llm: 'LLM' };
+  const modeBadge = mode ? ` <span class="ui-badge">${modeMap[mode] ?? mode}</span>` : '';
+
+  const card = document.createElement('div');
+  card.className = 'ui-card';
+  card.innerHTML = `
+    <div class="ui-card-head"><span class="ui-card-title">智能中心</span></div>
+    <div class="ui-card-body" style="font-size:var(--font-scale-secondary);color:var(--text-mute);line-height:1.7">
+      知识库、主题总结、自动总结配置与模型设置统一在智能中心管理(唯一配置界面)。${modeBadge}
+    </div>`;
+  section.appendChild(card);
+
+  section.appendChild(ui.button({
+    label: '打开智能中心',
+    icon: 'sparkles',
+    variant: 'primary',
+    onClick: async () => {
+      state.currentPage = 'intelligence';
+      state.intelligenceTab = 'settings';
+      saveState();
+      const { renderNavPanel, renderMain } = await import('../shell/navPanel.js');
+      await renderNavPanel();
+      await renderMain();
+    },
   }));
 
   main.appendChild(section);

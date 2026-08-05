@@ -52,6 +52,11 @@ export async function renderRail(): Promise<void> {
     ${iconSvg('git-branch', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
+  // 智能中心入口 — 位于 GitHub 下方
+  const intelligenceIconHtml = `<div class="rail-icon ${state.currentPage === 'intelligence' ? 'active' : ''}" data-page="intelligence" title="智能">
+    ${iconSvg('sparkles', { width: 24, height: 24, strokeWidth: 1.5 })}
+  </div>`;
+
   const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" title="设置">
     ${iconSvg('settings', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
@@ -65,6 +70,7 @@ export async function renderRail(): Promise<void> {
     <div class="rail-separator"></div>
     <div class="rail-flex"></div>
     ${githubIconHtml}
+    ${intelligenceIconHtml}
     ${settingsIconHtml}
     <div class="rail-avatar" id="rail-avatar">${avatarHtml}</div>
   `;

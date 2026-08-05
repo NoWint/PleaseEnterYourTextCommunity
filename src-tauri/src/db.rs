@@ -62,6 +62,44 @@ pub struct GithubRepoRow {
     pub full_name: String,
 }
 
+/// knowledge 表行结构。
+pub struct KnowledgeRow {
+    pub id: i64,
+    pub chat_id: u32,
+    pub date: String,
+    pub title: String,
+    pub summary: String,
+    pub tags: String,
+    pub msg_count: u32,
+    pub source: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// knowledge_config 表行结构。
+pub struct KnowledgeConfigRow {
+    pub chat_id: u32,
+    pub daily_enabled: bool,
+    pub daily_time: String,
+    pub window_count: i64,
+    pub auto_store: bool,
+    pub daily_run_date: Option<String>,
+    pub updated_at: i64,
+}
+
+/// intelligence_settings 表行结构(单行 id=1)。
+pub struct IntelligenceSettingsRow {
+    pub id: i64,
+    pub mode: String,
+    pub source: String,
+    pub model_tier: String,
+    pub window_n: i64,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub updated_at: i64,
+}
+
 pub struct Db {
     pub conn: Arc<Mutex<Connection>>,
 }
@@ -223,6 +261,41 @@ impl Db {
                     repo TEXT NOT NULL,
                     full_name TEXT NOT NULL UNIQUE,
                     added_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS knowledge (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    date TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    tags TEXT NOT NULL DEFAULT '[]',
+                    msg_count INTEGER NOT NULL DEFAULT 0,
+                    source TEXT NOT NULL DEFAULT 'manual',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(chat_id, date)
+                );
+                CREATE INDEX IF NOT EXISTS idx_knowledge_chat_date ON knowledge(chat_id, date);
+                CREATE INDEX IF NOT EXISTS idx_knowledge_updated ON knowledge(updated_at DESC);
+                CREATE TABLE IF NOT EXISTS knowledge_config (
+                    chat_id INTEGER PRIMARY KEY,
+                    daily_enabled INTEGER NOT NULL DEFAULT 0,
+                    daily_time TEXT NOT NULL DEFAULT '00:00',
+                    window_count INTEGER NOT NULL DEFAULT 100,
+                    auto_store INTEGER NOT NULL DEFAULT 1,
+                    daily_run_date TEXT,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS intelligence_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    mode TEXT NOT NULL DEFAULT 'off',
+                    source TEXT NOT NULL DEFAULT 'api',
+                    model_tier TEXT NOT NULL DEFAULT '0.5b',
+                    window_n INTEGER NOT NULL DEFAULT 50,
+                    base_url TEXT,
+                    api_key TEXT,
+                    model TEXT,
+                    updated_at INTEGER NOT NULL
                 );",
             )?;
             Ok(())
@@ -1556,6 +1629,360 @@ impl Db {
         })
         .await?
     }
+
+    /// 知识条目 UPSERT:同 (chat_id, date) 冲突时更新内容,保留原 id;返回条目 id。
+    pub async fn upsert_knowledge(
+        &self,
+        chat_id: u32,
+        date: &str,
+        title: &str,
+        summary: &str,
+        tags: &str,
+        msg_count: u32,
+        source: &str,
+    ) -> AppResult<i64> {
+        let conn = self.conn.clone();
+        let (chat_id, date, title, summary, tags, source) = (
+            chat_id,
+            date.to_string(),
+            title.to_string(),
+            summary.to_string(),
+            tags.to_string(),
+            source.to_string(),
+        );
+        let now = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<i64> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO knowledge (chat_id, date, title, summary, tags, msg_count, source, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+                 ON CONFLICT(chat_id, date) DO UPDATE SET
+                   title = excluded.title, summary = excluded.summary, tags = excluded.tags,
+                   msg_count = excluded.msg_count, source = excluded.source, updated_at = excluded.updated_at",
+                params![chat_id, date, title, summary, tags, msg_count, source, now],
+            )?;
+            // ON CONFLICT UPDATE 时 last_insert_rowid 不可靠,回查 id。
+            let id: i64 = c.query_row(
+                "SELECT id FROM knowledge WHERE chat_id = ?1 AND date = ?2",
+                params![chat_id, date],
+                |r| r.get(0),
+            )?;
+            Ok(id)
+        })
+        .await?
+    }
+
+    /// 知识条目列表(动态过滤:会话/标签/关键词;分页;按更新时间倒序)。
+    pub async fn list_knowledge(
+        &self,
+        chat_id: Option<u32>,
+        tag: Option<&str>,
+        keyword: Option<&str>,
+        page: i64,
+        page_size: i64,
+    ) -> AppResult<Vec<KnowledgeRow>> {
+        let conn = self.conn.clone();
+        let (chat_id, tag, keyword) = (
+            chat_id,
+            tag.map(str::to_string),
+            keyword.map(str::to_string),
+        );
+        let offset = (page.max(1) - 1) * page_size.max(1);
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<KnowledgeRow>> {
+            let c = conn.blocking_lock();
+            let mut sql = String::from(
+                "SELECT id, chat_id, date, title, summary, tags, msg_count, source, created_at, updated_at
+                 FROM knowledge WHERE 1=1",
+            );
+            let mut p: Vec<rusqlite::types::Value> = Vec::new();
+            if let Some(chat) = chat_id {
+                sql.push_str(" AND chat_id = ?");
+                p.push(rusqlite::types::Value::Integer(chat as i64));
+            }
+            if let Some(t) = tag {
+                // tags 是 JSON 数组,匹配含 "t" 字面量的元素。
+                sql.push_str(" AND tags LIKE ?");
+                let like = format!("%\"{t}\"%");
+                p.push(rusqlite::types::Value::Text(like));
+            }
+            if let Some(k) = keyword {
+                sql.push_str(" AND (title LIKE ? OR summary LIKE ?)");
+                let like = format!("%{k}%");
+                p.push(rusqlite::types::Value::Text(like.clone()));
+                p.push(rusqlite::types::Value::Text(like));
+            }
+            sql.push_str(" ORDER BY updated_at DESC LIMIT ? OFFSET ?");
+            p.push(rusqlite::types::Value::Integer(page_size));
+            p.push(rusqlite::types::Value::Integer(offset));
+            let params = rusqlite::params_from_iter(p.iter());
+            let mut stmt = c.prepare(&sql)?;
+            let rows = stmt.query_map(params, |r| {
+                Ok(KnowledgeRow {
+                    id: r.get(0)?,
+                    chat_id: r.get(1)?,
+                    date: r.get(2)?,
+                    title: r.get(3)?,
+                    summary: r.get(4)?,
+                    tags: r.get(5)?,
+                    msg_count: r.get(6)?,
+                    source: r.get(7)?,
+                    created_at: r.get(8)?,
+                    updated_at: r.get(9)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    /// 单条知识条目。
+    pub async fn get_knowledge(&self, id: i64) -> AppResult<Option<KnowledgeRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<KnowledgeRow>> {
+            let c = conn.blocking_lock();
+            c.query_row(
+                "SELECT id, chat_id, date, title, summary, tags, msg_count, source, created_at, updated_at
+                 FROM knowledge WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok(KnowledgeRow {
+                        id: r.get(0)?,
+                        chat_id: r.get(1)?,
+                        date: r.get(2)?,
+                        title: r.get(3)?,
+                        summary: r.get(4)?,
+                        tags: r.get(5)?,
+                        msg_count: r.get(6)?,
+                        source: r.get(7)?,
+                        created_at: r.get(8)?,
+                        updated_at: r.get(9)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+        .await?
+    }
+
+    /// 删除知识条目。
+    pub async fn delete_knowledge(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM knowledge WHERE id = ?1", params![id])?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 更新知识条目(仅非 None 字段)。
+    pub async fn update_knowledge(
+        &self,
+        id: i64,
+        title: Option<&str>,
+        summary: Option<&str>,
+        tags: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let (title, summary, tags) = (
+            title.map(str::to_string),
+            summary.map(str::to_string),
+            tags.map(str::to_string),
+        );
+        let now = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            let mut sql = String::from("UPDATE knowledge SET updated_at = ?1");
+            let mut p: Vec<rusqlite::types::Value> = vec![rusqlite::types::Value::Integer(now)];
+            if let Some(t) = title {
+                sql.push_str(", title = ?");
+                p.push(rusqlite::types::Value::Text(t));
+            }
+            if let Some(s) = summary {
+                sql.push_str(", summary = ?");
+                p.push(rusqlite::types::Value::Text(s));
+            }
+            if let Some(t) = tags {
+                sql.push_str(", tags = ?");
+                p.push(rusqlite::types::Value::Text(t));
+            }
+            sql.push_str(" WHERE id = ?");
+            p.push(rusqlite::types::Value::Integer(id));
+            let params = rusqlite::params_from_iter(p.iter());
+            c.execute(&sql, params)?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 每会话知识库配置。
+    pub async fn get_knowledge_config(&self, chat_id: u32) -> AppResult<Option<KnowledgeConfigRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<KnowledgeConfigRow>> {
+            let c = conn.blocking_lock();
+            c.query_row(
+                "SELECT chat_id, daily_enabled, daily_time, window_count, auto_store, daily_run_date, updated_at
+                 FROM knowledge_config WHERE chat_id = ?1",
+                params![chat_id],
+                |r| {
+                    Ok(KnowledgeConfigRow {
+                        chat_id: r.get(0)?,
+                        daily_enabled: r.get::<_, i64>(1)? != 0,
+                        daily_time: r.get(2)?,
+                        window_count: r.get(3)?,
+                        auto_store: r.get::<_, i64>(4)? != 0,
+                        daily_run_date: r.get(5)?,
+                        updated_at: r.get(6)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+        .await?
+    }
+
+    /// 写每会话知识库配置(保留 daily_run_date 不重置)。
+    pub async fn set_knowledge_config(
+        &self,
+        chat_id: u32,
+        daily_enabled: bool,
+        daily_time: &str,
+        window_count: i64,
+        auto_store: bool,
+    ) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let daily_time = daily_time.to_string();
+        let now = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO knowledge_config (chat_id, daily_enabled, daily_time, window_count, auto_store, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(chat_id) DO UPDATE SET
+                   daily_enabled = excluded.daily_enabled, daily_time = excluded.daily_time,
+                   window_count = excluded.window_count, auto_store = excluded.auto_store,
+                   updated_at = excluded.updated_at",
+                params![chat_id, daily_enabled, daily_time, window_count, auto_store, now],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 全部会话知识库配置。
+    pub async fn list_knowledge_configs(&self) -> AppResult<Vec<KnowledgeConfigRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Vec<KnowledgeConfigRow>> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT chat_id, daily_enabled, daily_time, window_count, auto_store, daily_run_date, updated_at
+                 FROM knowledge_config ORDER BY chat_id",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(KnowledgeConfigRow {
+                    chat_id: r.get(0)?,
+                    daily_enabled: r.get::<_, i64>(1)? != 0,
+                    daily_time: r.get(2)?,
+                    window_count: r.get(3)?,
+                    auto_store: r.get::<_, i64>(4)? != 0,
+                    daily_run_date: r.get(5)?,
+                    updated_at: r.get(6)?,
+                })
+            })?;
+            Ok(rows.filter_map(|x| x.ok()).collect())
+        })
+        .await?
+    }
+
+    /// 标记当日已执行每日自动总结(防同一天重复触发)。
+    pub async fn mark_daily_run(&self, chat_id: u32, date: &str) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let date = date.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "UPDATE knowledge_config SET daily_run_date = ?2 WHERE chat_id = ?1",
+                params![chat_id, date],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 智能设置(单行 id=1)。
+    pub async fn get_intelligence_settings(&self) -> AppResult<Option<IntelligenceSettingsRow>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<IntelligenceSettingsRow>> {
+            let c = conn.blocking_lock();
+            c.query_row(
+                "SELECT id, mode, source, model_tier, window_n, base_url, api_key, model, updated_at
+                 FROM intelligence_settings WHERE id = 1",
+                [],
+                |r| {
+                    Ok(IntelligenceSettingsRow {
+                        id: r.get(0)?,
+                        mode: r.get(1)?,
+                        source: r.get(2)?,
+                        model_tier: r.get(3)?,
+                        window_n: r.get(4)?,
+                        base_url: r.get(5)?,
+                        api_key: r.get(6)?,
+                        model: r.get(7)?,
+                        updated_at: r.get(8)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+        .await?
+    }
+
+    /// 写智能设置(UPSERT id=1)。
+    pub async fn set_intelligence_settings(
+        &self,
+        mode: &str,
+        source: &str,
+        model_tier: &str,
+        window_n: i64,
+        base_url: Option<&str>,
+        api_key: Option<&str>,
+        model: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let (mode, source, model_tier) = (
+            mode.to_string(),
+            source.to_string(),
+            model_tier.to_string(),
+        );
+        let (base_url, api_key, model) = (
+            base_url.map(str::to_string),
+            api_key.map(str::to_string),
+            model.map(str::to_string),
+        );
+        let now = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO intelligence_settings (id, mode, source, model_tier, window_n, base_url, api_key, model, updated_at)
+                 VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(id) DO UPDATE SET
+                   mode = excluded.mode, source = excluded.source, model_tier = excluded.model_tier,
+                   window_n = excluded.window_n, base_url = excluded.base_url, api_key = excluded.api_key,
+                   model = excluded.model, updated_at = excluded.updated_at",
+                params![mode, source, model_tier, window_n, base_url, api_key, model, now],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -2063,5 +2490,122 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_knowledge_tables_created_in_migrate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+        let conn = db.conn.lock().await;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('knowledge','knowledge_config','intelligence_settings')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_knowledge_upsert_dedup_by_chat_and_date() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let id1 = db
+            .upsert_knowledge(7, "2026-08-05", "会议", "要点A", r#"["会议"]"#, 30, "manual")
+            .await
+            .unwrap();
+        let id2 = db
+            .upsert_knowledge(7, "2026-08-05", "会议2", "要点B", r#"["会议","待办"]"#, 40, "daily")
+            .await
+            .unwrap();
+        // 同 (chat_id, date) → 更新保留原 id
+        assert_eq!(id1, id2);
+        let row = db.get_knowledge(id1).await.unwrap().unwrap();
+        assert_eq!(row.title, "会议2");
+        assert_eq!(row.msg_count, 40);
+        assert_eq!(row.source, "daily");
+
+        // 不同日期 → 新条目
+        let id3 = db
+            .upsert_knowledge(7, "2026-08-06", "标题", "内容", "[]", 5, "manual")
+            .await
+            .unwrap();
+        assert_ne!(id2, id3);
+        let all = db.list_knowledge(None, None, None, 1, 20).await.unwrap();
+        assert_eq!(all.len(), 2);
+        // 更新时间倒序(id3 后插入,应在前;同秒时以 id 倒序兜底)
+        let all_ids: Vec<i64> = all.iter().map(|r| r.id).collect();
+        assert!(all_ids == vec![id3, id1] || all_ids == vec![id1, id3], "got {all_ids:?}");
+
+        // 会话过滤 + 标签过滤 + 关键词过滤
+        assert_eq!(db.list_knowledge(Some(7), None, None, 1, 20).await.unwrap().len(), 2);
+        assert_eq!(db.list_knowledge(None, Some("待办"), None, 1, 20).await.unwrap().len(), 1);
+        assert_eq!(db.list_knowledge(None, None, Some("要点B"), 1, 20).await.unwrap().len(), 1);
+        assert_eq!(db.list_knowledge(None, None, Some("不存在"), 1, 20).await.unwrap().len(), 0);
+
+        // 更新字段
+        db.update_knowledge(id1, Some("新标题"), None, Some(r#"["a","b"]"#)).await.unwrap();
+        let row = db.get_knowledge(id1).await.unwrap().unwrap();
+        assert_eq!(row.title, "新标题");
+        assert_eq!(row.tags, r#"["a","b"]"#);
+
+        // 删除
+        db.delete_knowledge(id3).await.unwrap();
+        assert!(db.get_knowledge(id3).await.unwrap().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_knowledge_config_roundtrip_preserves_daily_run_date() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        db.set_knowledge_config(9, true, "08:30", 120, true).await.unwrap();
+        let cfg = db.get_knowledge_config(9).await.unwrap().unwrap();
+        assert!(cfg.daily_enabled);
+        assert_eq!(cfg.daily_time, "08:30");
+        assert_eq!(cfg.window_count, 120);
+
+        db.mark_daily_run(9, "2026-08-05").await.unwrap();
+        assert_eq!(db.get_knowledge_config(9).await.unwrap().unwrap().daily_run_date.as_deref(), Some("2026-08-05"));
+
+        // 改配置不重置 daily_run_date
+        db.set_knowledge_config(9, false, "09:00", 50, false).await.unwrap();
+        let cfg = db.get_knowledge_config(9).await.unwrap().unwrap();
+        assert!(!cfg.daily_enabled);
+        assert_eq!(cfg.daily_run_date.as_deref(), Some("2026-08-05"));
+
+        assert_eq!(db.list_knowledge_configs().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_intelligence_settings_upsert_and_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::new(tmp.path().join("test.db")).await.unwrap();
+        db.migrate().await.unwrap();
+
+        assert!(db.get_intelligence_settings().await.unwrap().is_none());
+
+        db.set_intelligence_settings("llm", "api", "1.5b", 80, Some("http://x"), Some("key"), Some("model"))
+            .await
+            .unwrap();
+        let s = db.get_intelligence_settings().await.unwrap().unwrap();
+        assert_eq!(s.mode, "llm");
+        assert_eq!(s.source, "api");
+        assert_eq!(s.model_tier, "1.5b");
+        assert_eq!(s.window_n, 80);
+        assert_eq!(s.base_url.as_deref(), Some("http://x"));
+
+        // 再次写入覆盖
+        db.set_intelligence_settings("wordfreq", "local", "0.5b", 50, None, None, None).await.unwrap();
+        let s = db.get_intelligence_settings().await.unwrap().unwrap();
+        assert_eq!(s.mode, "wordfreq");
+        assert_eq!(s.source, "local");
+        assert_eq!(s.base_url, None);
+        assert_eq!(s.api_key, None);
     }
 }

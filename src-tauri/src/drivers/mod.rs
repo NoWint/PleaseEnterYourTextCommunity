@@ -14,6 +14,7 @@ use crate::error::AppResult;
 pub mod llm;
 pub mod rule;
 pub mod schedule;
+pub mod syscmd;
 
 /// 驱动类型标识。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +22,10 @@ pub enum DriverKind {
     Llm,
     Rule,
     Schedule,
+    /// 系统/用户侧命令处理器(syscmd.rs):自发送回复,不依赖 BotRuntime。
+    /// 待集成者在 lib.rs 装配 SystemCommandProcessor 后才被构造。
+    #[allow(dead_code)]
+    System,
 }
 
 /// 驱动处理一条进站消息所需的上下文快照(短生命周期)。
@@ -92,5 +97,6 @@ pub fn driver_kind_label(k: DriverKind) -> &'static str {
         DriverKind::Llm => "llm",
         DriverKind::Rule => "rule",
         DriverKind::Schedule => "schedule",
+        DriverKind::System => "system",
     }
 }

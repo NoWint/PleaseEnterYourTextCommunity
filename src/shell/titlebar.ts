@@ -1,5 +1,7 @@
-// 顶栏工具栏:VSCode 式居中长条全局搜索(macOS / Windows 都有)。
+// 顶栏工具栏:居中长条全局搜索(macOS / Windows 都有)。
 // Windows/Linux 的窗口控制按钮由 windowControls.ts 单独绑定(见 shell/windowControls.ts)。
+
+import { t } from '../i18n/index.js';
 
 let searchBound = false;
 let resizeBound = false;
@@ -12,6 +14,12 @@ export function updateTitlebar(): void {
 
   const tools = document.getElementById('titlebar-tools');
   if (!tools) return;
+
+  // 搜索条占位符 + keybind 提示按平台显示(⌘K / Ctrl K)
+  const textEl = tools.querySelector<HTMLElement>('.ts-text');
+  if (textEl) textEl.textContent = t('titlebar.searchPlaceholder');
+  const kbd = document.getElementById('ts-kbd');
+  if (kbd) kbd.textContent = isMac ? '⌘K' : 'Ctrl K';
 
   // 有 shell(聊天区)才显示;登录页隐藏
   const main = document.getElementById('chat-main');

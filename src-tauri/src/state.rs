@@ -23,6 +23,10 @@ pub struct AppState {
     pub bot_tools: Arc<crate::tools::ToolRegistry>,
     /// 共享 GitHub API 客户端(命令层 + 工具层复用;单一数据源)
     pub github: Arc<GithubClient>,
+    /// 智能运行时(LLM 主题总结 + 知识库共享引擎);setup 装配后填充
+    pub intelligence: Option<Arc<crate::intelligence::Intelligence>>,
+    /// 知识库(store/pipeline/ask/onboard);setup 装配后填充
+    pub knowledge: Option<Arc<crate::knowledge::Knowledge>>,
     /// 应用数据目录(Tauri app_data_dir),供导出路径/备份默认目录
     pub data_dir: PathBuf,
 }
@@ -53,6 +57,8 @@ impl AppState {
             plugins: PluginManager::new(app_data_dir.clone()),
             bot_tools,
             github: Arc::new(GithubClient::new()),
+            intelligence: None,
+            knowledge: None,
             data_dir: app_data_dir,
         })
     }

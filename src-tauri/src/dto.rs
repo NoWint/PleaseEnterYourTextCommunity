@@ -557,6 +557,77 @@ pub struct GithubRepoDto {
     pub full_name: String,
 }
 
+/// 知识条目 DTO。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KnowledgeDto {
+    pub id: i64,
+    pub chat_id: u32,
+    #[serde(default)]
+    pub chat_name: String,
+    pub date: String,
+    pub title: String,
+    pub summary: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub msg_count: u32,
+    pub source: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// 每会话知识库配置 DTO。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KnowledgeConfigDto {
+    pub chat_id: u32,
+    #[serde(default)]
+    pub chat_name: String,
+    pub daily_enabled: bool,
+    pub daily_time: String,
+    pub window_count: i64,
+    pub auto_store: bool,
+}
+
+/// 智能设置 DTO(主题总结与知识库共用)。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IntelligenceSettingsDto {
+    pub mode: String,
+    pub source: String,
+    pub model_tier: String,
+    pub window_n: i64,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// 引擎/模型状态 DTO。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ModelStatusDto {
+    pub mode: String,
+    pub source: String,
+    pub engine_ready: bool,
+    pub model_ready: bool,
+    #[serde(default)]
+    pub engine_path: Option<String>,
+    #[serde(default)]
+    pub model_path: Option<String>,
+    #[serde(default)]
+    pub engine_version: Option<String>,
+    #[serde(default)]
+    pub model_sha256: Option<String>,
+}
+
+/// 主题总结入队上下文(前端组装窗口后传入)。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SummaryContextDto {
+    #[serde(default)]
+    pub lines: Vec<String>,
+    #[serde(default)]
+    pub prev_analysis: Option<String>,
+}
+
 /// Bot 完整配置(存于 bots.config_json)。
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct BotConfig {

@@ -32,7 +32,9 @@ export type IconName =
   // GitHub 仓库打开网页
   | 'external-link'
   // 微信式输入框展开按钮
-  | 'chevrons-up-down';
+  | 'chevrons-up-down'
+  // 智能中心入口 / 知识库 Tab
+  | 'sparkles' | 'book-open';
 
 export interface IconOpts {
   width?: number;
