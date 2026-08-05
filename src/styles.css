@@ -2299,6 +2299,17 @@ html.window-frame #titlebar-tools { height: 34px; }
 .gh-crumb-sep { display: inline-flex; align-items: center; color: var(--text-faint); flex-shrink: 0; }
 .gh-file-row { border-radius: var(--radius-sm); margin: 0 4px; }
 
+/* Commit 列表「加载更多」:整行按钮,柔和 hover */
+.gh-load-more {
+  margin: 4px 14px 12px; padding: 7px 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-mute);
+  font-size: var(--font-scale-body); font-family: inherit; cursor: pointer;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.gh-load-more:hover { background: var(--capsule); color: var(--text); }
+.gh-load-more:disabled { opacity: 0.6; cursor: default; }
+
 /* 详情:Hero + 元信息行 + README 卡 */
 .gh-detail { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
 .gh-detail-hero { display: flex; flex-direction: column; gap: 6px; }

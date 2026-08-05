@@ -797,20 +797,13 @@ async function openGhPull(p: PullDto): Promise<void> {
 
 // Commits:mono sha[0:7] + 消息首行 + 作者/日期
 async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
-  let commits: CommitDto[];
-  try {
-    commits = await call<CommitDto[]>('github_list_commits', { owner: repo.owner, repo: repo.repo });
-  } catch (e) {
-    body.innerHTML = '';
-    body.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-    return;
-  }
   body.innerHTML = '';
-  if (commits.length === 0) {
-    body.appendChild(ui.empty('暂无 Commit'));
-    return;
-  }
-  commits.forEach((c) => {
+  const list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-direction:column';
+  body.appendChild(list);
+  let page = 1; // 后端每页 per_page=100,满页时提供「加载更多」
+
+  function buildRow(c: CommitDto): HTMLElement {
     const row = document.createElement('div');
     row.className = 'rd-gh-row';
     row.innerHTML = `
@@ -822,8 +815,44 @@ async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<
         <div class="rd-gh-sub"><span class="rd-gh-mono">${escapeHtml(c.sha.slice(0, 7))}</span> · ${escapeHtml(c.author ?? '未知')} · ${c.date ? relativeTime(c.date) : '未知时间'}</div>
       </div>
     `;
-    body.appendChild(row);
-  });
+    return row;
+  }
+
+  // 拉取一页并追加;返回是否还有更多(满页 100 条即视为还有下一页)
+  async function loadPage(): Promise<boolean> {
+    let commits: CommitDto[];
+    try {
+      commits = await call<CommitDto[]>('github_list_commits', { owner: repo.owner, repo: repo.repo, page });
+    } catch (e) {
+      if (list.childElementCount === 0) list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+      return false;
+    }
+    if (commits.length === 0) return false;
+    for (const c of commits) list.appendChild(buildRow(c));
+    return commits.length >= 100;
+  }
+
+  const hasMore = await loadPage();
+  if (list.childElementCount === 0) {
+    list.appendChild(ui.empty('暂无 Commit'));
+    return;
+  }
+  if (hasMore) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'gh-load-more';
+    btn.textContent = '加载更多';
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = '加载中…';
+      page += 1;
+      const more = await loadPage();
+      btn.disabled = false;
+      if (more) btn.textContent = '加载更多';
+      else btn.remove();
+    });
+    list.appendChild(btn);
+  }
 }
 
 // 文件:面包屑 + 目录/文件项。目录可进(更新 ghFilesPath + 重渲染),文件 → 内容弹窗
