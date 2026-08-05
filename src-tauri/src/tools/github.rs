@@ -729,7 +729,7 @@ async fn handle_list_commits(
     };
     let raw = tool
         .client
-        .get_json(&auth, &url_list_commits(&owner, &repo, path.as_deref()))
+        .get_json(&auth, &url_list_commits(&owner, &repo, path.as_deref(), None))
         .await?;
     format_commit_list(&raw)
 }

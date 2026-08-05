@@ -4350,12 +4350,13 @@ pub async fn github_list_commits(
     owner: String,
     repo: String,
     path: Option<String>,
+    page: Option<u32>,
 ) -> AppResult<Vec<CommitDto>> {
     check_owner_repo(&owner, &repo)?;
     let auth = github_auth(&state.db).await?;
     let raw = state
         .github
-        .get_json(&auth, &url_list_commits(&owner, &repo, path.as_deref()))
+        .get_json(&auth, &url_list_commits(&owner, &repo, path.as_deref(), page))
         .await?;
     Ok(parse_commit_list(&raw))
 }
