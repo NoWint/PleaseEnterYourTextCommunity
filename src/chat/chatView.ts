@@ -8,7 +8,7 @@ import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
 import { colorHex } from '../components/avatar.js';
 import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
-import { initSegmenter, computeTopWords, type WordFreq } from '../utils/wordAnalysis.js';
+import { initSegmenter, computeTopics, type TopicCluster } from '../utils/wordAnalysis.js';
 import { iconSvg } from '../components/icon.js';
 import { openEncryptionPopup } from '../components/encryptionPopup.js';
 import { openOnlinePopup } from '../components/onlinePopup.js';
@@ -138,14 +138,22 @@ export async function renderChatView(chatId: number): Promise<void> {
       : '';
     // 头部头像:单聊 = 对方成员头像;群聊 = 会话头像(chatInfo.avatar)。无则生成首字母色块(仿聊天列表)。
     const headerAvatarHtml = await buildHeaderAvatarHtml(chatInfo, headerName || channelName(chatId));
-    // 会话已加密(以 core is_encrypted 为准)→ 标题右侧放绿色锁徽章,点击弹指纹 popup。
-    const lockBadge = chatInfo?.is_encrypted
-      ? `<span class="ch-lock" data-chat-enc="1" title="已加密,查看成员指纹">${iconSvg('lock', { width: 14, height: 14 })}</span>`
+    // 会话已加密(以 core is_encrypted 为准)→ 右侧按钮组圆形气泡,点击弹指纹 popup。
+    const lockBtn = chatInfo?.is_encrypted
+      ? `<button class="ch-ctl-btn" data-chat-enc="1" title="已加密,查看成员指纹" aria-label="加密状态">${iconSvg('lock', { width: 16, height: 16 })}</button>`
       : '';
-    // 在线状态区块:
-    // - 单聊:对方成员在线 → 绿点 + 「在线」;离线 → 灰点 + 最后活跃时间。title 提示细节。
-    // - 群聊:统计在线成员数,显示「N 人在线」,点击弹在线/离线成员列表 popup。
+    // 在线状态气泡:置于 ch-head 右侧,icon + 简要文字(群聊「N 人在线」/ 单聊「在线|最后活跃」)。
     const onlineBlock = buildOnlineBlockHtml(chatInfo, headerIsGroup);
+    // 右上角按钮组(恢复原 commit 的按钮,按现样式圆形气泡;跳过安全验证):
+    // 会话内搜索 / 媒体相册 / 成员 / 置顶 / 群信息(仅群聊)/ 加密锁
+    const ctrlButtons = `
+      <button class="ch-ctl-btn" data-ctl="search" title="会话内搜索" aria-label="搜索">${iconSvg('search', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="gallery" title="媒体相册" aria-label="媒体相册">${iconSvg('image', { width: 16, height: 16 })}</button>
+      ${headerIsGroup ? `<button class="ch-ctl-btn" data-ctl="group" title="群信息" aria-label="群信息">${iconSvg('info', { width: 16, height: 16 })}</button>` : ''}
+      <button class="ch-ctl-btn" data-ctl="members" title="成员" aria-label="成员">${iconSvg('users', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="pin" title="置顶" aria-label="置顶">${iconSvg('pin', { width: 16, height: 16 })}</button>
+      ${lockBtn}
+    `;
     main.innerHTML = `
       <div class="messages" id="messages">
         <div class="chat-header" data-header="1">
@@ -153,24 +161,27 @@ export async function renderChatView(chatId: number): Promise<void> {
             <div class="ch-head-row">
               ${headerAvatarHtml}
               <span class="ch-title">${escapeHtml(headerName || channelName(chatId))}</span>
-              ${lockBadge}
-              ${onlineBlock}
               ${membersTag}
               <span class="ch-topic">${escapeHtml(topic)}</span>
             </div>
-            <div class="ch-topic-bar" data-topic-bar="1"></div>
+          </div>
+          ${onlineBlock}
+          <div class="ch-topic-chip" data-topic-chip="1"></div>
+          <div class="ch-ctls">
+            ${ctrlButtons}
           </div>
         </div>
       </div>
       <div id="composer-area"></div>
     `;
+    bindHeaderControls(main, chatId);
     // 锁徽章点击 → 加密信息 popup(成员指纹列表)
     main.querySelector('[data-chat-enc="1"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
       openEncryptionPopup(e.currentTarget as HTMLElement, chatId);
     });
-    // 群聊「N 人在线」点击 → 在线/离线成员列表 popup
-    main.querySelector('[data-online-chip="1"]')?.addEventListener('click', (e) => {
+    // 在线气泡点击 → 在线/离线成员列表 popup
+    main.querySelector('[data-online-block="1"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
       openOnlinePopup(e.currentTarget as HTMLElement, chatId);
     });
@@ -644,23 +655,29 @@ async function buildHeaderAvatarHtml(info: ChatInfo | null, displayName: string)
   return `<div class="ch-avatar ch-avatar-letter" style="background:${colorHex(color)}">${escapeHtml(letter)}</div>`;
 }
 
-// 生成 header 在线状态区块 HTML:
-// - 单聊:取对方成员 last_seen,在线 = 绿点+「在线」,离线 = 灰点+最后活跃时间。
-// - 群聊:统计在线人数,显示「N 人在线」(点击弹在线/离线列表)。
+// 生成 header 在线状态气泡(icon + 文字,材质与 ch-head 一致),置于 ch-head 右侧:
+// - 单聊:在线 = 绿点+「在线」,离线 = 灰点+「最后活跃：X」。
+// - 群聊:users 图标 + 「N 人在线」。
+// 点击弹在线/离线成员列表 popup。无在线数据(群聊 0 人 / 单聊无 last_seen)→ 不渲染。
 function buildOnlineBlockHtml(info: ChatInfo | null, isGroup: boolean): string {
   if (!info) return '';
   const members = info.members || [];
   if (isGroup) {
+    // 群聊始终显示气泡(含 0 人在线):统计不含自己(is_self),点击查看在线/离线全名单。
     const onlineCount = members.filter((m) => !m.is_self && isOnline(m.last_seen)).length;
-    if (onlineCount === 0) return '';
-    return `<span class="ch-online-chip" data-online-chip="1" title="查看在线与离线成员">${iconSvg('users', { width: 12, height: 12 })} ${onlineCount} 人在线</span>`;
+    return `<span class="ch-online-block${onlineCount > 0 ? ' on' : ''}" data-online-block="1" title="查看在线与离线成员">
+      ${iconSvg('users', { width: 13, height: 13 })}
+      <span>${onlineCount} 人在线</span>
+    </span>`;
   }
   const other = members.find((m) => !m.is_self);
   if (!other || other.last_seen <= 0) return '';
   const online = isOnline(other.last_seen);
   const label = online ? '在线' : `最后活跃：${lastSeenText(other.last_seen)}`;
-  return `<span class="ch-online-state${online ? ' on' : ''}" title="${online ? '在线' : `最后活跃时间：${lastSeenText(other.last_seen)}`}">
-    <span class="ch-online-dot"></span>${escapeHtml(label)}</span>`;
+  return `<span class="ch-online-block${online ? ' on' : ''}" data-online-block="1" title="${online ? '在线' : `最后活跃时间：${lastSeenText(other.last_seen)}`}">
+    <span class="ch-online-dot${online ? ' on' : ''}"></span>
+    <span>${escapeHtml(label)}</span>
+  </span>`;
 }
 
 function channelName(chatId: number): string {
@@ -679,7 +696,7 @@ function channelName(chatId: number): string {
 
 // ── 会话主题词频气泡 ──────────────────────────────────────
 let topicTimer: ReturnType<typeof setTimeout> | null = null;
-let topicWords: WordFreq[] = [];
+let topicWords: TopicCluster[] = [];
 
 // 防抖 300ms: 切换会话/新消息触发, 避免频繁重算。懒加载分词, 失败静默。
 function scheduleTopicRefresh(): void {
@@ -691,19 +708,66 @@ function scheduleTopicRefresh(): void {
     } catch (err) {
       // 分词初始化失败 → 隐藏气泡, 不阻断聊天(先打日志便于排查)
       console.warn('[word-freq] jieba init failed:', err);
-      document.querySelector('[data-topic-bar="1"]')?.remove();
+      document.querySelector('[data-topic-chip="1"]')?.remove();
       return;
     }
-    const words = computeTopWords(state.messages, resolveMessageText, 5);
-    console.log('[word-freq] top words:', words.map((w) => `${w.word}:${w.count}`).join(', '));
-    topicWords = words;
-    const bar = document.querySelector<HTMLElement>('[data-topic-bar="1"]');
-    if (!bar) return;
-    bar.innerHTML = renderTopicBubbleHtml(words);
-    bar.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
+    const clusters = computeTopics(state.messages, resolveMessageText, 4);
+    console.log('[topic] clusters:', clusters.map((c) => `${c.words.join(' ')}:${c.score.toFixed(2)}`).join(', '));
+    topicWords = clusters;
+    const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
+    if (!chip) return;
+    chip.innerHTML = renderTopicBubbleHtml(clusters);
+    chip.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
       openWordAnalysisPopup(e.currentTarget as HTMLElement, topicWords);
     });
   }, 300);
+}
+
+// 头部右上角按钮组点击绑定:搜索/相册/成员/置顶/群信息。
+// 成员/置顶走 rightDrawer 的 detail tab toggle(与原 commit 一致)。
+function bindHeaderControls(main: HTMLElement, chatId: number): void {
+  main.querySelector<HTMLElement>('[data-ctl="search"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void import('../components/search.js').then(({ openChatSearch }) => openChatSearch(chatId));
+  });
+  main.querySelector<HTMLElement>('[data-ctl="gallery"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void import('../components/gallery.js').then(({ openGallery }) => openGallery(chatId));
+  });
+  main.querySelector<HTMLElement>('[data-ctl="group"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void import('../components/group/viewGroupDialog.js').then(({ openViewGroupDialog }) => {
+      openViewGroupDialog(chatId);
+    });
+  });
+  // 成员 / 置顶:切换 rightDrawer 对应 tab(折叠时展开)
+  const toggleTab = (tab: 'members' | 'pin'): void => {
+    if (state.detailPanelOpen && state.detailTab === tab && state.rightDrawerOpen) {
+      state.detailPanelOpen = false;
+    } else {
+      state.detailPanelOpen = true;
+      state.detailTab = tab;
+      state.rightDrawerOpen = true;
+    }
+    saveState();
+    void import('../shell/rightDrawer.js').then(({ renderRightDrawer }) => renderRightDrawer());
+    // 同步按钮 active 态
+    main.querySelectorAll<HTMLElement>('.ch-ctl-btn[data-ctl]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.ctl === 'members' || b.dataset.ctl === 'pin');
+    });
+    const activeTab = state.detailPanelOpen ? state.detailTab : '';
+    main.querySelectorAll<HTMLElement>('.ch-ctl-btn[data-ctl]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.ctl === activeTab);
+    });
+  };
+  main.querySelector<HTMLElement>('[data-ctl="members"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleTab('members');
+  });
+  main.querySelector<HTMLElement>('[data-ctl="pin"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleTab('pin');
+  });
 }
 
