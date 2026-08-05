@@ -129,7 +129,7 @@ impl SummaryQueue {
         let cfg = cfg.ok_or_else(|| AppError::Core("api_not_configured".into()))?;
         tokio::time::timeout(
             job.timeout,
-            self.api.complete_stream_openai(&cfg, job.messages.clone(), |delta| {
+            self.api.complete_stream_openai(&cfg, job.messages.clone(), is_json_kind(&job.kind), |delta| {
                 self.emit_delta(job, &delta);
                 Ok(())
             }),
@@ -183,4 +183,10 @@ fn same_scope(a: &SummaryJob, b: &SummaryJob) -> bool {
         Lane::Bubble => true,
         Lane::Detail => a.kind == b.kind,
     }
+}
+
+/// 该 kind 是否输出 JSON(用于 API 请求加 response_format:json_object)。
+/// summary(段落 markdown)/participation(统计+解读文本)非 JSON;其余 5 类 JSON。
+fn is_json_kind(kind: &str) -> bool {
+    matches!(kind, "action_items" | "resources" | "open_questions" | "timeline" | "decisions")
 }

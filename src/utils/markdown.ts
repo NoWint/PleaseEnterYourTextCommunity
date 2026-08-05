@@ -95,7 +95,8 @@ export function renderMarkdown(md: string): string {
   const { text, tags } = placeholderTags(md);
   let html: string;
   try {
-    html = marked.parse(text, { async: false }) as string;
+    // breaks:true → 单个换行渲染为 <br>(AI 输出常含单换行,需实时换行显示)
+    html = marked.parse(text, { async: false, breaks: true }) as string;
   } catch {
     // marked 失败 → 退化为纯文本转义(不崩)
     return escapeHtml(md);

@@ -555,11 +555,14 @@ impl LlmClient {
 
     /// OpenAI 兼容流式补全(本地 llama-server 与 API 共用)。on_delta 回调每个增量块。
     /// 仅支持 OpenAI 兼容协议(base_url + api_key + model);Anthropic/Gemini 不走此路径。
+    /// `json_mode=true` 时加 `response_format:{type:json_object}`(DeepSeek 结构化输出,
+    /// 要求 prompt 含「json」字样,已由 system_prompt 满足);同时不开启思考模式(默认)。
     /// 注意:本方法刻意不设整请求 .timeout()(流中间停摆由调用方的 tokio::time::timeout 兜底)。
     pub async fn complete_stream_openai(
         &self,
         cfg: &LlmConfig,
         messages: Vec<ChatMessage>,
+        json_mode: bool,
         mut on_delta: impl FnMut(String) -> AppResult<()> + Send,
     ) -> AppResult<String> {
         let key = cfg.api_key.as_deref().unwrap_or("");
@@ -580,6 +583,9 @@ impl LlmClient {
             });
             b["temperature"] = serde_json::json!(cfg.temperature); // f64, 非 Option
             if let Some(mt) = cfg.max_tokens { b["max_tokens"] = serde_json::json!(mt); }
+            if json_mode {
+                b["response_format"] = serde_json::json!({ "type": "json_object" });
+            }
             b
         };
         let resp = self

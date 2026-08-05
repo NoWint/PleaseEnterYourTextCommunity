@@ -130,6 +130,28 @@ function fallbackJson(text: string): string {
   return `<pre class="sd-json">${escapeHtml(text)}</pre>`;
 }
 
+/**
+ * 流式中实时渲染:JSON kinds 尝试增量解析,能 parse 就渲染卡片(未完成字段自然缺失,
+ * 由各 renderer 的可选字段兜底);parse 失败显示「生成中…」不显示原始 JSON。
+ * 非 JSON(summary/participation 文本)直接显示累积文本(实时打字机)。
+ */
+function renderStreaming(kind: AnalysisKind, text: string): string {
+  if (!text) return '<span class="sd-streaming">生成中…</span>';
+  if (isJsonKind(kind)) {
+    const d = safeParseJson(text);
+    if (d == null) return '<span class="sd-streaming">生成中…</span>';
+    return renderDetailBody(kind, text);
+  }
+  // summary:markdown 实时渲染(换行/标签实时生效);participation insight 纯文本
+  if (kind === 'summary') return renderSummary(text);
+  return escapeHtml(text);
+}
+
+function isJsonKind(kind: AnalysisKind): boolean {
+  return kind === 'action_items' || kind === 'resources' || kind === 'open_questions'
+    || kind === 'timeline' || kind === 'decisions';
+}
+
 /** 按 kind 渲染详情。 */
 function renderDetailBody(kind: AnalysisKind, text: string): string {
   switch (kind) {
@@ -277,24 +299,37 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
     const refEl = t.closest<HTMLElement>('.mention-chip[data-msg-ref], .mention-chip[data-user-ref], .sd-ref[data-ref]');
     if (!refEl) return;
     e.stopPropagation();
-    // user 分支:按名字反查当前成员 → 名片
+    // user 分支:按名字反查当前成员 → 名片。「我」「你」特殊值映射到 self / 单聊对方
     if (refEl.dataset.userRef != null) {
       const name = refEl.dataset.userRef;
-      const member = state.currentMembers.find((m) => m.name === name);
+      const self = state.self;
+      // 「我」→ 当前用户 self
+      if (name === '我' && self) {
+        void import('./contactCard.js').then(({ openContactCard }) =>
+          openContactCard({ contactId: self.id, name: self.name, addr: self.addr, avatar: self.avatar ?? null, anchor: refEl }));
+        return;
+      }
+      // 「你」→ 单聊对方(非 self 的成员);群聊无法确定「你」→ 回退按名字
+      let member = state.currentMembers.find((m) => m.name === name);
+      if (!member && name === '你') {
+        member = state.currentMembers.find((m) => !m.is_self);
+      }
       if (member) {
         void import('./contactCard.js').then(({ openContactCard }) =>
-          openContactCard({ contactId: member.contact_id, name: member.name, addr: member.addr, anchor: refEl }));
+          openContactCard({ contactId: member!.contact_id, name: member!.name, addr: member!.addr, avatar: member!.avatar, anchor: refEl }));
       } else {
         ui.toast(`未找到成员:${name}`);
       }
       return;
     }
-    // message 分支:跳原文
+    // message 分支:跳原文。即使 id 不在当前窗口也尝试(chatView 兜底刷新加载)。
+    // 先移除 overlay(立即,不播关闭动画——避免滚动被遮罩挡住),再跳。
     const ref = refEl.dataset.ref ?? refEl.dataset.msgRef;
     if (ref == null) return;
     const id = Number(ref);
-    if (!Number.isNaN(id) && win.some((w) => w.id === id)) {
-      close();
+    if (!Number.isNaN(id)) {
+      overlay.remove();
+      if (fullscreenEl === overlay) fullscreenEl = null;
       void import('../chat/chatView.js').then(({ jumpToMessage }) => jumpToMessage(id));
     }
   });
@@ -399,7 +434,8 @@ function bindFullscreenEvents(): void {
         }
       }
       else if (cur.status === 'error') target.innerHTML = '<div class="wc-empty">分析失败,点击刷新重试</div>';
-      else target.textContent = cur.text || '分析中…';
+      // streaming:实时渲染(JSON 增量解析/文本打字机)。streaming 阶段不加 reveal 动画(done 才加)
+      else target.innerHTML = renderStreaming(p.kind as AnalysisKind, cur.text);
     });
   });
 }
