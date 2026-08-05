@@ -76,9 +76,8 @@ pub struct ContentDto {
 }
 
 /// Git 树条目(Git Trees API `/git/trees/{branch}?recursive=1`)。
-/// 当前仅 code::source 的 Github 回退使用;Task 3/4 接入前豁免 dead_code。
+/// 经 code::source 的 Github 回退使用。
 #[derive(Debug, Clone, Serialize)]
-#[allow(dead_code)]
 pub struct TreeEntryDto {
     pub path: String,
     pub typ: String,
@@ -303,7 +302,6 @@ pub fn parse_content_list(v: &serde_json::Value) -> Vec<ContentDto> {
 }
 
 /// 解析 git 树响应的 `tree` 数组(条目含 path/type/size)。
-#[allow(dead_code)] // Task 3/4 接入后移除
 pub fn parse_tree(v: &serde_json::Value) -> Vec<TreeEntryDto> {
     v.get("tree")
         .and_then(|t| t.as_array())
@@ -321,7 +319,6 @@ pub fn parse_tree(v: &serde_json::Value) -> Vec<TreeEntryDto> {
 }
 
 /// git 树响应是否被截断(`truncated: true`,对象超 ~100k)。
-#[allow(dead_code)] // Task 3/4 接入后移除
 pub fn parse_tree_truncated(v: &serde_json::Value) -> bool {
     v.get("truncated").and_then(|t| t.as_bool()).unwrap_or(false)
 }

@@ -8,18 +8,14 @@ use std::time::UNIX_EPOCH;
 
 use crate::error::{AppError, AppResult};
 
-// 本模块经 source::CodeSource 使用;Task 3/4 接入前在非 test build 中属死代码,逐项豁免。
-#[allow(dead_code)]
+// 本模块经 source::CodeSource 使用(缓存经 code::global_index_cache 进程级单例共享)。
 const IGNORED_DIRS: [&str; 3] = [".git", "node_modules", "target"];
 // 与 local::find_files 深度保持一致,避免索引缓存命中/回退结果集在不同缓存状态下不一致。
-#[allow(dead_code)]
 const MAX_SCAN_DEPTH: usize = super::local::MAX_FIND_DEPTH;
-#[allow(dead_code)]
 const MAX_SCAN_ENTRIES: usize = 20_000;
 
 /// 文件清单缓存条目:root 目录的 mtime + 已索引文件列表。
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct IndexEntry {
     pub mtime_secs: i64,
     pub files: Vec<IndexFile>,
@@ -27,16 +23,16 @@ pub struct IndexEntry {
 
 /// 索引中的单个文件。
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct IndexFile {
     pub path: String,
     pub size: i64,
+    /// 文件自身 mtime(秒);当前只写不读,供 Task 4 精细化失效判断使用。
+    #[allow(dead_code)]
     pub mtime: i64,
 }
 
 /// 进程级索引缓存(root 绝对路径 → 条目)。
 #[derive(Default)]
-#[allow(dead_code)]
 pub struct IndexCache {
     map: Arc<RwLock<HashMap<PathBuf, IndexEntry>>>,
 }
@@ -55,7 +51,6 @@ impl std::fmt::Debug for IndexCache {
     }
 }
 
-#[allow(dead_code)]
 impl IndexCache {
     pub fn new() -> Self {
         Self::default()
@@ -93,7 +88,6 @@ impl IndexCache {
 }
 
 /// 递归扫描 root 目录构建索引(忽略 .git/node_modules/target 与符号链接;限深/限条目)。
-#[allow(dead_code)]
 pub async fn scan(root: &Path) -> AppResult<IndexEntry> {
     let mtime_secs = dir_mtime_secs(root).ok_or_else(|| AppError::Core("目录不存在或不可读".into()))?;
     let mut files = Vec::new();
@@ -102,7 +96,6 @@ pub async fn scan(root: &Path) -> AppResult<IndexEntry> {
     Ok(IndexEntry { mtime_secs, files })
 }
 
-#[allow(dead_code)]
 async fn scan_dir(root: &Path, rel: &str, depth: usize, out: &mut Vec<IndexFile>) -> AppResult<()> {
     if depth >= MAX_SCAN_DEPTH || out.len() >= MAX_SCAN_ENTRIES {
         return Ok(());
@@ -164,7 +157,6 @@ async fn scan_dir(root: &Path, rel: &str, depth: usize, out: &mut Vec<IndexFile>
 }
 
 /// root 目录自身 mtime(秒)。不存在/不可读返回 None。
-#[allow(dead_code)]
 pub fn dir_mtime_secs(root: &Path) -> Option<i64> {
     let md = std::fs::metadata(root).ok()?;
     md.modified()

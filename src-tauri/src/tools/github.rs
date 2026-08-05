@@ -37,7 +37,7 @@ const MAX_LIST_ITEMS: usize = 10;
 
 // ---- 参数解析 ----
 
-fn req_str(args: &Value, key: &str) -> AppResult<String> {
+pub(crate) fn req_str(args: &Value, key: &str) -> AppResult<String> {
     args.get(key)
         .and_then(|v| v.as_str())
         .map(str::trim)
@@ -46,7 +46,7 @@ fn req_str(args: &Value, key: &str) -> AppResult<String> {
         .ok_or_else(|| AppError::Core(format!("缺少参数: {key}")))
 }
 
-fn opt_str(args: &Value, key: &str) -> Option<String> {
+pub(crate) fn opt_str(args: &Value, key: &str) -> Option<String> {
     args.get(key)
         .and_then(|v| v.as_str())
         .map(str::trim)
@@ -80,7 +80,8 @@ fn req_str_array(args: &Value, key: &str) -> AppResult<Vec<String>> {
 // ---- token 解析 ----
 
 /// 解析 GitHub token:优先 bot 自身 `project_context.github_token`,回退全局 settings token。
-async fn resolve_token(ctx: &ToolContext<'_>) -> AppResult<Option<String>> {
+/// `pub(crate)`:code 工具(代码工具 GitHub 回退)复用。
+pub(crate) async fn resolve_token(ctx: &ToolContext<'_>) -> AppResult<Option<String>> {
     if let Some(raw) = ctx.db.get_bot_config_by_id(ctx.bot_id).await? {
         if let Some(cfg) = BotConfig::parse(Some(&raw)) {
             let bot_token = cfg

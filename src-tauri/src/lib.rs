@@ -182,6 +182,20 @@ pub fn run() {
             built.register(Arc::new(
                 crate::tools::github::GithubCreatePrReviewCommentTool::new(github_client),
             ));
+            // Bot 代码工具集:本地仓库优先,GitHub 回退(共享 AppState.github client)
+            let code_client = state.github.clone();
+            built.register(Arc::new(
+                crate::tools::code::ListProjectFilesTool::new(code_client.clone()),
+            ));
+            built.register(Arc::new(
+                crate::tools::code::ReadProjectFileTool::new(code_client.clone()),
+            ));
+            built.register(Arc::new(
+                crate::tools::code::FindProjectFilesTool::new(code_client.clone()),
+            ));
+            built.register(Arc::new(crate::tools::code::ListProjectRootTool::new(
+                code_client,
+            )));
             // 从 db 加载插件工具(setup 闭包非 async,用 block_on)
             let rows = tauri::async_runtime::block_on(state.db.list_plugin_tools())?;
             built.reload_plugin_tools(&rows);

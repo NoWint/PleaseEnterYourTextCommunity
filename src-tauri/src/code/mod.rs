@@ -4,8 +4,17 @@
 pub mod index;
 pub mod local;
 pub mod source;
-// 供 Task 3/4 接入使用;当前 crate 内暂无外部调用方(unused_imports 属预期)。
-#[allow(unused_imports)]
-pub use source::CodeSource;
-#[allow(unused_imports)]
+
 pub use source::CodeEntry;
+pub use source::CodeSource;
+
+use std::sync::{Arc, OnceLock};
+
+use index::IndexCache;
+
+/// 进程级索引缓存单例(spec §3.3):跨 bot / CodeSource 实例共享,
+/// 避免每个 execute 新建 CodeSource 时重复全量扫描本地仓库。
+pub fn global_index_cache() -> Arc<IndexCache> {
+    static CACHE: OnceLock<Arc<IndexCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Arc::new(IndexCache::new())).clone()
+}

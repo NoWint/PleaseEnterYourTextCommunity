@@ -16,12 +16,10 @@ use crate::github::types::{
     TreeEntryDto,
 };
 
-use super::index::IndexCache;
 use super::local::{self, LocalEntry, SandboxMode};
 
 /// 统一代码条目(与语言无关的目录/文件描述)。
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // Task 3/4 接入后移除
 pub struct CodeEntry {
     pub path: String,
     pub name: String,
@@ -29,7 +27,6 @@ pub struct CodeEntry {
     pub size: i64,
 }
 
-#[allow(dead_code)]
 impl From<LocalEntry> for CodeEntry {
     fn from(e: LocalEntry) -> Self {
         CodeEntry {
@@ -43,13 +40,10 @@ impl From<LocalEntry> for CodeEntry {
 
 /// 代码数据源:本地仓库目录优先;GitHub 为回退。
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Task 3/4 接入后移除
 pub enum CodeSource {
     Local {
         root: PathBuf,
         sandbox_mode: SandboxMode,
-        /// 本地文件索引缓存(find_files 用;mtime 变化自动重扫)。
-        index: IndexCache,
     },
     Github {
         owner: String,
@@ -57,7 +51,6 @@ pub enum CodeSource {
     },
 }
 
-#[allow(dead_code)] // Task 3/4 接入后移除
 impl CodeSource {
     /// repo_local_path 非空且为目录 → Local;否则 repo_path("owner/repo")→ Github;皆无 → None。
     pub fn from_project_context(pc: &ProjectContext) -> Option<CodeSource> {
@@ -67,7 +60,6 @@ impl CodeSource {
                 return Some(CodeSource::Local {
                     root: p.to_path_buf(),
                     sandbox_mode: SandboxMode::parse(pc.sandbox_mode.as_deref()),
-                    index: IndexCache::new(),
                 });
             }
         }
@@ -129,7 +121,7 @@ impl CodeSource {
     }
 
     /// 按文件名查找(忽略大小写;限 20)。
-    /// Local 优先走索引缓存(mtime 变化重扫),失败则直接遍历兜底;
+    /// Local 优先走进程级索引缓存(mtime 变化重扫),失败则直接遍历兜底;
     /// Github 用 git trees API 一次拉全树过滤。
     pub async fn find_files(
         &self,
@@ -141,9 +133,12 @@ impl CodeSource {
             CodeSource::Local {
                 root,
                 sandbox_mode,
-                index,
             } => {
-                if let Some(entry) = index.get_or_scan(root).await.unwrap_or(None) {
+                if let Some(entry) = super::global_index_cache()
+                    .get_or_scan(root)
+                    .await
+                    .unwrap_or(None)
+                {
                     let needle = name.to_lowercase();
                     let mut out = Vec::new();
                     for f in &entry.files {
@@ -180,7 +175,6 @@ impl CodeSource {
 // ---- GitHub 纯函数(可单测,不触网)----
 
 /// contents API 数组 → CodeEntry;单对象(请求到文件路径)视为非目录报错。
-#[allow(dead_code)] // Task 3/4 接入后移除
 fn parse_content_to_entries(raw: &Value, prefix: &str) -> AppResult<Vec<CodeEntry>> {
     if raw.is_object() {
         return Err(AppError::Core(format!("不是目录: {prefix}")));
@@ -190,7 +184,6 @@ fn parse_content_to_entries(raw: &Value, prefix: &str) -> AppResult<Vec<CodeEntr
 
 /// contents API 响应 → 文件文本:目录路径返回数组 JSON(或对象无 content),
 /// 此时非文件 → Err("不是文件: {rel}"),对齐 Local 分支语义。
-#[allow(dead_code)]
 fn parse_file_content(raw: &Value, rel: &str) -> AppResult<String> {
     if raw.is_array() {
         return Err(AppError::Core(format!("不是文件: {rel}")));
@@ -203,7 +196,6 @@ fn parse_file_content(raw: &Value, rel: &str) -> AppResult<String> {
 }
 
 /// ContentDto → CodeEntry(type == "dir" 视为目录)。
-#[allow(dead_code)]
 fn content_to_entry(c: &ContentDto) -> CodeEntry {
     CodeEntry {
         path: c.path.clone(),
@@ -214,7 +206,6 @@ fn content_to_entry(c: &ContentDto) -> CodeEntry {
 }
 
 /// 文件 base64 解码(contents API `content` 字段)。
-#[allow(dead_code)]
 fn decode_content_base64(dto: &ContentDto) -> AppResult<Vec<u8>> {
     let content = dto.content.as_deref().unwrap_or("");
     base64::engine::general_purpose::STANDARD
@@ -223,7 +214,6 @@ fn decode_content_base64(dto: &ContentDto) -> AppResult<Vec<u8>> {
 }
 
 /// git 树条目 → 文件名含 needle(忽略大小写)的文件 CodeEntry,限 20。
-#[allow(dead_code)]
 fn tree_to_file_entries(tree: &[TreeEntryDto], needle: &str) -> Vec<CodeEntry> {
     let needle = needle.to_lowercase();
     let mut out = Vec::new();
@@ -248,7 +238,6 @@ fn tree_to_file_entries(tree: &[TreeEntryDto], needle: &str) -> Vec<CodeEntry> {
 }
 
 /// 与 local::read_file 一致的字节渲染:二进制 → "二进制文件";>64KB 截断;否则 UTF-8。
-#[allow(dead_code)]
 fn format_bytes(bytes: &[u8]) -> String {
     if bytes.contains(&0) {
         return "二进制文件".into();
@@ -266,7 +255,6 @@ fn format_bytes(bytes: &[u8]) -> String {
 }
 
 /// git trees 响应 → 过滤后的文件条目;tree 截断(`truncated: true`)时报错,避免静默返回不完整结果。
-#[allow(dead_code)]
 fn tree_entries_or_truncated(raw: &Value, name: &str) -> AppResult<Vec<CodeEntry>> {
     if parse_tree_truncated(raw) {
         return Err(AppError::Core(format!(
@@ -277,7 +265,6 @@ fn tree_entries_or_truncated(raw: &Value, name: &str) -> AppResult<Vec<CodeEntry
 }
 
 /// 确定默认分支:仓库详情 default_branch;缺失则试 main → master。
-#[allow(dead_code)]
 async fn github_default_branch(
     client: &GithubClient,
     auth: &GithubAuth,

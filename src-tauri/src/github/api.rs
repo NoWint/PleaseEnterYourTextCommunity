@@ -73,8 +73,7 @@ pub fn url_get_content(owner: &str, repo: &str, path: &str) -> String {
 }
 
 /// 仓库 git 树(`?recursive=1` 一次拉全树)。branch 可为分支名或 commit SHA。
-/// 当前仅 code::source 的 Github 回退使用;Task 3/4 接入前豁免 dead_code。
-#[allow(dead_code)]
+/// 经 code::source 的 Github 回退使用。
 pub fn url_git_trees(owner: &str, repo: &str, branch: &str) -> String {
     format!("{}/git/trees/{}?recursive=1", url_repo(owner, repo), enc(branch))
 }
