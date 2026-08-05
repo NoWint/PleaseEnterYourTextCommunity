@@ -54,10 +54,13 @@ impl SummaryQueue {
     /// 入队。bubble 插队到队头(优先级);同 chat 同 lane 旧任务丢弃。
     /// 注:bubble「抢占」v1 用优先级重排实现 —— 正在跑的 detail 自然跑完再跑 bubble,
     /// 不做物理中止(CancellationToken 贯穿 SSE 循环复杂度高,0.5B 下 detail 仅几秒,收益低)。
+    /// 入队。去重键:
+    /// - Bubble:同 chat 只留最新(气泡一句话,旧任务过期)。
+    /// - Detail:同 chat 同 kind 只留最新(summary/action_items/... 各分析类型独立,
+    ///   不能按 lane 去重 —— 否则打开看板入队 7 个 detail 时互相顶掉,只剩最后一个)。
     pub async fn enqueue(&self, job: SummaryJob) -> AppResult<()> {
         let mut inner = self.inner.lock().await;
-        // 同 chat 同 lane:丢弃 pending 里的旧任务
-        inner.pending.retain(|j| !(j.chat_id == job.chat_id && j.lane == job.lane));
+        inner.pending.retain(|j| !same_scope(&j, &job));
         if job.lane == Lane::Bubble {
             inner.pending.push_front(job);
         } else {
@@ -66,12 +69,12 @@ impl SummaryQueue {
         Ok(())
     }
 
-    /// 取下一个任务(worker 循环调用,非阻塞)。同 chat 同 lane 若队列里还有更新的 → 这个过期,丢。
+    /// 取下一个任务(worker 循环调用,非阻塞)。同 scope 若队列里还有更新的 → 这个过期,丢。
     pub async fn next_job(&self) -> Option<SummaryJob> {
         let mut inner = self.inner.lock().await;
         loop {
             let job = inner.pending.pop_front()?;
-            let newer = inner.pending.iter().any(|j| j.chat_id == job.chat_id && j.lane == job.lane);
+            let newer = inner.pending.iter().any(|j| same_scope(&j, &job));
             if newer { continue; }
             return Some(job);
         }
@@ -157,4 +160,13 @@ impl SummaryQueue {
 
 pub fn lane_str(l: Lane) -> &'static str {
     match l { Lane::Bubble => "bubble", Lane::Detail => "detail" }
+}
+
+/// 任务去重判定:Bubble 同 chat;Detail 同 chat 同 kind。
+fn same_scope(a: &SummaryJob, b: &SummaryJob) -> bool {
+    if a.chat_id != b.chat_id || a.lane != b.lane { return false; }
+    match a.lane {
+        Lane::Bubble => true,
+        Lane::Detail => a.kind == b.kind,
+    }
 }

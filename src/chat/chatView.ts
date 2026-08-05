@@ -10,9 +10,9 @@ import { escapeHtml } from '../components/escape.js';
 import { colorHex } from '../components/avatar.js';
 import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
 import { initSegmenter, computeTopics, type TopicCluster } from '../utils/wordAnalysis.js';
-import { loadSummaryPrefs } from '../utils/summaryPrefs.js';
+import { loadSummaryPrefs, getSummaryPrefs } from '../utils/summaryPrefs.js';
 import { iconSvg } from '../components/icon.js';
-import { initSummaryBubble, scheduleSummary, renderBubbleHtml, bindBubbleClick, setFallbackClusters, applySummaryEvent } from '../components/summaryBubble.js';
+import { initSummaryBubble, scheduleSummary, renderBubbleHtml, openSummaryBubbleView, setFallbackClusters, applySummaryEvent } from '../components/summaryBubble.js';
 import { openEncryptionPopup } from '../components/encryptionPopup.js';
 import { openOnlinePopup } from '../components/onlinePopup.js';
 import { isOnline, lastSeenText } from '../utils/online.js';
@@ -171,7 +171,7 @@ export async function renderChatView(chatId: number): Promise<void> {
             </div>
           </div>
           ${onlineBlock}
-          <div class="ch-topic-chip" data-topic-chip="1"></div>
+          <div class="ch-topic-chip" data-topic-chip="1" data-topic-bubble="1"></div>
           <div class="ch-ctls">
             ${ctrlButtons}
           </div>
@@ -731,7 +731,7 @@ function scheduleTopicRefresh(): void {
       const st = await scheduleSummary(state.messages, resolveMessageText, prefs.contextN);
       if (st) {
         chip.innerHTML = renderBubbleHtml(st);
-        bindBubbleClick(chip);
+        bindTopicChipClick(); // 委托已在,幂等
       }
       return;
     }
@@ -739,11 +739,30 @@ function scheduleTopicRefresh(): void {
     const clusters = computeTopics(state.messages, resolveMessageText, 4);
     topicWords = clusters;
     chip.innerHTML = renderTopicBubbleHtml(clusters);
-    chip.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openWordAnalysisPopup(e.currentTarget as HTMLElement, topicWords);
-    });
+    // 点击:全局委托(bindTopicChipClick 一次挂载)按模式分流 —— 词频弹词云 / LLM 弹看板
+    bindTopicChipClick();
   }, 300);
+}
+
+// 主题气泡点击全局委托:ch-topic-chip 自身即气泡(data-topic-bubble 标记),
+// innerHTML 更新不重建 chip,委托一次挂载避免监听器累积。按模式分流:
+// LLM 模式 → 打开分析看板;词频/off 模式 → 打开词云弹窗。
+let topicChipClickBound = false;
+function bindTopicChipClick(): void {
+  if (topicChipClickBound) return;
+  topicChipClickBound = true;
+  document.addEventListener('click', (e) => {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-topic-bubble="1"]');
+    if (!chip) return;
+    const prefs = getSummaryPrefs();
+    if (prefs.mode === 'llm') {
+      e.stopPropagation();
+      openSummaryBubbleView(chip);
+    } else {
+      e.stopPropagation();
+      openWordAnalysisPopup(chip, topicWords);
+    }
+  });
 }
 
 // 全局 summary-event 监听:streaming/done/error → 更新气泡 DOM。
@@ -759,7 +778,7 @@ function bindSummaryEvents(): void {
     const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
     if (chip) {
       chip.innerHTML = renderBubbleHtml(st);
-      bindBubbleClick(chip);
+      bindTopicChipClick(); // 委托已在,幂等
     }
   });
 }

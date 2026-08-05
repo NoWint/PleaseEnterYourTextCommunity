@@ -100,27 +100,26 @@ export function applySummaryEvent(ev: { chatId: number; lane: string; status: st
 let fallbackClusters: TopicCluster[] = [];
 export function setFallbackClusters(c: TopicCluster[]): void { fallbackClusters = c; }
 
+/** 渲染气泡内容(直接作为 .ch-topic-chip 的 innerHTML,无内层 topic-bubble)。 */
 export function renderBubbleHtml(st: BubbleState): string {
   if (st.status === 'summarizing') {
     const body = st.text ? escapeHtml(st.text) : '总结中…';
-    return `<div class="topic-bubble breathing" data-topic-bubble="1">${iconSvg('hash', { width: 14, height: 14 })}<span>${body}</span></div>`;
+    return `${iconSvg('hash', { width: 14, height: 14 })}<span>${body}</span>`;
   }
   if (st.status === 'done') {
     const html = renderParsed(parseTags(st.text), () => {});
-    return `<div class="topic-bubble" data-topic-bubble="1">${iconSvg('hash', { width: 14, height: 14 })}<span>${html}</span></div>`;
+    return `${iconSvg('hash', { width: 14, height: 14 })}<span>${html}</span>`;
   }
   // idle / error / fallback → 降级显示词频簇短语
   return renderTopicBubbleHtml(fallbackClusters);
 }
 
-/** 绑定气泡点击 → 打开主题分析看板。 */
-export function bindBubbleClick(chip: HTMLElement): void {
-  chip.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const anchor = e.currentTarget as HTMLElement;
-    // summaryDashboard.ts(Task 10)动态导入:延迟加载避免循环依赖。
-    void import('./summaryDashboard.js').then((m) => {
-      void m.openSummaryDashboard(anchor, chatId!, state.messages, resolveFn!);
-    }).catch(() => {});
-  });
+/**
+ * 打开主题分析看板(LLM 模式)。点击委托由 chatView 统一管理(bindTopicChipClick),
+ * 此处只负责打开;动态导入避免循环依赖。
+ */
+export function openSummaryBubbleView(chip: HTMLElement): void {
+  void import('./summaryDashboard.js').then((m) => {
+    void m.openSummaryDashboard(chip, chatId!, state.messages, resolveFn!);
+  }).catch(() => {});
 }

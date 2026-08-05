@@ -1566,8 +1566,8 @@ html.window-frame #titlebar-tools { height: 34px; }
 /* 会话主题词频气泡:独立气泡,置于主信息气泡右侧,材质与 ch-head 一致。
    (类名 topic-chip 取代旧 topic-bar,避免与「栏目容器」语义混淆)
    区域过窄时被挤压,文字末尾省略号:容器/气泡/span 均需 min-width:0 允许收缩 */
-.ch-topic-chip { display: flex; align-items: center; min-width: 0; }
-.topic-bubble {
+/* 会话主题气泡:ch-topic-chip 自身即气泡(无内层 topic-bubble)。样式/呼吸都落在 chip 上 */
+.ch-topic-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1585,12 +1585,17 @@ html.window-frame #titlebar-tools { height: 34px; }
   text-overflow: ellipsis;
   transition: color var(--anim-duration) var(--anim-ease), transform 100ms var(--ease-out);
 }
-.topic-bubble svg { flex-shrink: 0; color: var(--accent); }
-.topic-bubble:hover { color: var(--text); }
-.topic-bubble:active { transform: scale(0.97); }
-.topic-bubble span {
+.ch-topic-chip svg { flex-shrink: 0; color: var(--accent); }
+.ch-topic-chip:hover { color: var(--text); }
+.ch-topic-chip:active { transform: scale(0.97); }
+.ch-topic-chip span {
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis;
+}
+/* LLM 流式总结呼吸灯(原 topic-bubble.breathing → ch-topic-chip.breathing) */
+.ch-topic-chip.breathing { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }
+@media (prefers-reduced-motion: no-preference) {
+  .ch-topic-chip.breathing { animation: bubble-breathe 1.6s ease-in-out infinite; }
 }
 
 /* 词频弹窗(复用 .rr-popup 壳): 词云 + 词频列表 */
@@ -2043,7 +2048,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   .view-btn, .rail-icon, .settings-nav-item,
   .gh-token-badge, .gh-search-panel, .gh-guide-open,
   .cc-btn, .cc-chat-row, .msg-attachment.vcard, .cc-share-row, .ch-ctl-btn,
-  .ch-online-block, .topic-bubble, .ch-head-clickable {
+  .ch-online-block, .ch-topic-chip, .ch-head-clickable {
     transition: none !important;
   }
 }
@@ -4354,13 +4359,7 @@ body {
 }
 .vg-remove:hover { color: var(--danger); background: var(--danger-bg); }
 
-/* 主题气泡呼吸灯:summarizing 状态阴影脉动(尊重系统减弱动态效果) */
-.topic-bubble.breathing { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }
-@media (prefers-reduced-motion: no-preference) {
-  .topic-bubble.breathing {
-    animation: bubble-breathe 1.6s ease-in-out infinite;
-  }
-}
+/* 呼吸灯 keyframes:供 .ch-topic-chip.breathing 引用(见 1595) */
 @keyframes bubble-breathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }
   50% { box-shadow: 0 0 12px 4px rgba(52, 199, 89, 0.25); }
