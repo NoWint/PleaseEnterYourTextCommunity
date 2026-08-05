@@ -2050,7 +2050,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   .avatar, .icon-btn svg, .msg-action-btn svg, .plugin-icon-btn svg,
   .plugin-zip-btn svg, .rail-icon svg, .tab, .nav-tab, .plugin-tab,
   .view-btn, .rail-icon, .settings-nav-item,
-  .gh-token-badge, .gh-guide-open,
+  .gh-guide-open,
   .cc-btn, .cc-chat-row, .msg-attachment.vcard, .cc-share-row, .ch-ctl-btn,
   .ch-online-block, .topic-bubble, .ch-head-clickable,
   .gh-tab, .gh-tab-indicator, .rd-gh-row {
@@ -2209,20 +2209,21 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .rd-gh-timeline:last-child .rd-gh-tl-rail::after { display: none; }
 
-/* 侧边栏搜索(GitHub 式):单条圆角搜索框,仓库/代码模式整合在框内右侧 */
+/* 侧边栏搜索(GitHub 式):单条圆角搜索框,仓库 + 代码一起搜,分区展示 */
 .gh-search { padding: 10px 12px 4px; flex-shrink: 0; }
-.gh-search-seg {
-  display: inline-flex; align-items: center; flex-shrink: 0; gap: 2px;
-  margin-left: 6px; padding-left: 8px; border-left: 1px solid var(--border-strong);
+.gh-search-section {
+  padding: 10px 14px 4px; font-size: var(--font-scale-micro);
+  font-weight: 600; letter-spacing: 0.4px; color: var(--text-faint);
 }
-.gh-search-seg-btn {
-  padding: 1px 6px; border: none; border-radius: 5px;
-  background: transparent; color: var(--text-weak);
-  font-size: var(--font-scale-micro); font-weight: 500; font-family: inherit; cursor: pointer;
-  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+.gh-search-token-hint {
+  padding: 8px 14px; font-size: var(--font-scale-secondary); color: var(--text-weak);
+  display: flex; align-items: center; gap: 8px;
 }
-.gh-search-seg-btn:hover { color: var(--text); }
-.gh-search-seg-btn.active { color: var(--text); background: var(--active); }
+.gh-search-token-btn {
+  border: none; background: none; padding: 0; cursor: pointer;
+  color: var(--gh-accent); font-size: var(--font-scale-secondary); font-weight: 600; font-family: inherit;
+}
+.gh-search-token-btn:hover { text-decoration: underline; }
 
 /* 仓库树行(GitHub 式):图标瓦片 + 蓝色仓库名 + 右侧星标 */
 .gh-repo-row { border-radius: var(--radius-sm); margin: 0 6px; gap: 10px; }
@@ -2260,12 +2261,6 @@ html.window-frame #titlebar-tools { height: 34px; }
 .gh-crumb-sep { display: inline-flex; align-items: center; color: var(--text-faint); flex-shrink: 0; }
 .gh-file-row { border-radius: var(--radius-sm); margin: 0 4px; }
 
-/* Token 徽章状态点(已配置 = 绿底 + 白点) */
-.gh-badge-dot {
-  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85); margin-right: 5px; vertical-align: 1px;
-}
-
 /* 详情:Hero + 元信息行 + README 卡 */
 .gh-detail { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
 .gh-detail-hero { display: flex; flex-direction: column; gap: 6px; }
@@ -2280,15 +2275,6 @@ html.window-frame #titlebar-tools { height: 34px; }
 .gh-readme-card { border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border); background: var(--panel); }
 .gh-readme-head { padding: 8px 12px; font-size: var(--font-scale-secondary); font-weight: 600; color: var(--text-mute); background: var(--capsule); }
 .gh-readme-body { white-space: pre-wrap; word-break: break-word; font-size: var(--font-scale-secondary); line-height: 1.6; margin: 0; max-height: 320px; overflow-y: auto; padding: 12px; font-family: var(--font-mono); }
-
-/* Token 徽章可点击(Apple §16 状态即入口):点击打开设置;按下即时回缩(§1) */
-.gh-token-badge {
-  cursor: pointer; border: none; font-family: inherit; line-height: inherit;
-  padding: 2px 9px;
-  transition: transform 120ms var(--ease-out), filter 120ms var(--ease-out);
-}
-.gh-token-badge:hover { filter: brightness(1.12); }
-.gh-token-badge:active { transform: scale(0.94); }
 
 /* Token 获取教程:可展开说明卡(§6 常见路径前置,细节一级隐藏) */
 .gh-token-guide {

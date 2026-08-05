@@ -352,78 +352,66 @@ function renderSettingsRepoRow(r: GithubRepoDto, listEl: HTMLElement): HTMLEleme
   return row;
 }
 
-// ── 搜索逻辑(渲染在侧边栏 footer 的搜索面板) ────────────────────────────────
-async function doRepoSearch(queryEl: HTMLInputElement, resultsEl: HTMLElement): Promise<void> {
+// ── 搜索逻辑(侧边栏顶部单条搜索:仓库 + 代码一起搜,按分区展示) ────────────────
+async function doSearch(queryEl: HTMLInputElement, resultsEl: HTMLElement): Promise<void> {
   const q = queryEl.value.trim();
   if (!q) { ui.toast('请输入搜索关键词'); return; }
   resultsEl.innerHTML = '';
   resultsEl.appendChild(ui.spinner());
-  let results: SearchRepoDto[] = [];
-  try {
-    results = await call<SearchRepoDto[]>('github_search_repo', { query: q });
-  } catch (e) {
-    resultsEl.innerHTML = '';
-    resultsEl.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-    return;
-  }
-  resultsEl.innerHTML = '';
-  if (results.length === 0) {
-    resultsEl.appendChild(ui.empty('未找到匹配仓库'));
-    return;
-  }
-  for (const r of results.slice(0, 20)) {
-    const bound = ghRepos.some((b) => b.full_name === r.full_name);
-    const parts: string[] = [];
-    if (r.description) parts.push(escapeHtml(r.description));
-    parts.push(`${langDotHtml(r.language)} ${escapeHtml(r.language ?? '未知语言')}`);
-    if (bound) parts.push('<span class="gh-bound-tag">已绑定</span>');
-    const row = document.createElement('div');
-    row.className = 'ui-list-item gh-repo-row';
-    const tile = document.createElement('span');
-    tile.className = 'gh-repo-icon';
-    tile.innerHTML = iconSvg('package', { width: 15, height: 15 });
-    row.appendChild(tile);
-    const meta = document.createElement('div');
-    meta.className = 'ui-list-meta';
-    meta.innerHTML = `<div class="ui-list-title">${escapeHtml(r.full_name)}</div><div class="ui-list-sub">${parts.join(' · ')}</div>`;
-    row.appendChild(meta);
-    const starsEl = document.createElement('span');
-    starsEl.className = 'gh-repo-stars';
-    starsEl.innerHTML = `★ ${r.stargazers_count}`;
-    row.appendChild(starsEl);
-    row.addEventListener('click', () => ghSelectRepo(r.full_name));
-    resultsEl.appendChild(row);
-  }
-}
 
-async function doCodeSearch(queryEl: HTMLInputElement, resultsEl: HTMLElement): Promise<void> {
-  const q = queryEl.value.trim();
-  if (!q) { ui.toast('请输入搜索关键词'); return; }
-  if (!ghHasToken) {
-    ui.toast('代码搜索需要 GitHub Token,请先配置');
-    return;
-  }
-  resultsEl.innerHTML = '';
-  resultsEl.appendChild(ui.spinner());
-  let results: SearchCodeDto[] = [];
+  const section = (label: string): HTMLElement => {
+    const s = document.createElement('div');
+    s.className = 'gh-search-section';
+    s.textContent = label;
+    resultsEl.appendChild(s);
+    return s;
+  };
+
+  // 仓库(无需 token)
+  section('仓库');
   try {
-    results = await call<SearchCodeDto[]>('github_search_code', { query: q });
+    const repos = await call<SearchRepoDto[]>('github_search_repo', { query: q });
+    if (repos.length === 0) {
+      resultsEl.appendChild(ui.empty('未找到匹配仓库'));
+    } else {
+      for (const r of repos.slice(0, 10)) {
+        const bound = ghRepos.some((b) => b.full_name === r.full_name);
+        const parts: string[] = [];
+        if (r.description) parts.push(escapeHtml(r.description));
+        parts.push(`${langDotHtml(r.language)} ${escapeHtml(r.language ?? '未知语言')}`);
+        if (bound) parts.push('<span class="gh-bound-tag">已绑定</span>');
+        resultsEl.appendChild(buildRepoRow(r.full_name, parts, r.stargazers_count, () => ghSelectRepo(r.full_name)));
+      }
+    }
   } catch (e) {
-    resultsEl.innerHTML = '';
     resultsEl.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-    return;
   }
-  resultsEl.innerHTML = '';
-  if (results.length === 0) {
-    resultsEl.appendChild(ui.empty('未找到匹配代码'));
-    return;
-  }
-  for (const c of results.slice(0, 20)) {
-    resultsEl.appendChild(ui.listItem({
-      title: `${c.repo_full_name}/${c.path}`,
-      subtitle: c.name,
-      icon: 'file-text',
-    }));
+
+  // 代码(需要 token)
+  section('代码');
+  if (!ghHasToken) {
+    const hint = document.createElement('div');
+    hint.className = 'gh-search-token-hint';
+    hint.innerHTML = '代码搜索需要 Token · <button class="gh-search-token-btn">去配置</button>';
+    hint.querySelector('button')!.addEventListener('click', () => openSettings(false));
+    resultsEl.appendChild(hint);
+  } else {
+    try {
+      const codes = await call<SearchCodeDto[]>('github_search_code', { query: q });
+      if (codes.length === 0) {
+        resultsEl.appendChild(ui.empty('未找到匹配代码'));
+      } else {
+        for (const c of codes.slice(0, 10)) {
+          resultsEl.appendChild(ui.listItem({
+            title: c.name,
+            subtitle: `${c.repo_full_name}/${c.path}`,
+            icon: fileIcon(c.name),
+          }));
+        }
+      }
+    } catch (e) {
+      resultsEl.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+    }
   }
 }
 
@@ -431,66 +419,49 @@ async function doCodeSearch(queryEl: HTMLInputElement, resultsEl: HTMLElement): 
 export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   panel.innerHTML = '';
 
-  // header:「仓库」标题 + 设置/刷新按钮
+  // header:选中仓库名(动态)+ 添加/刷新/设置按钮
   const header = document.createElement('div');
   header.className = 'nav-header';
   const titleBox = document.createElement('div');
-  titleBox.innerHTML = `<div class="nav-title">GitHub</div>`;
+  titleBox.style.cssText = 'min-width:0;padding-right:96px;overflow:hidden';
+  const navTitle = document.createElement('div');
+  navTitle.className = 'nav-title';
+  navTitle.textContent = 'GitHub';
+  navTitle.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  titleBox.appendChild(navTitle);
   const headerActions = document.createElement('div');
   headerActions.className = 'nav-header-actions';
+  const addRepoBtn = ui.iconButton({ icon: 'plus', title: '添加仓库', size: 'sm', onClick: () => openSettings(true) });
   const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', size: 'sm', onClick: () => void ghRefreshAll() });
   const settingsBtn = ui.iconButton({ icon: 'settings', title: '设置', size: 'sm', onClick: () => openSettings(false) });
-  headerActions.append(refreshBtn, settingsBtn);
+  headerActions.append(addRepoBtn, refreshBtn, settingsBtn);
   header.append(titleBox, headerActions);
   panel.appendChild(header);
+
+  // 侧栏标题跟随选中仓库(GitHub 式:显示 owner/repo,未选中显示 GitHub)
+  const syncNavTitle = (): void => {
+    navTitle.textContent = ghSelected ? ghSelected.full_name : 'GitHub';
+    navTitle.title = ghSelected ? ghSelected.full_name : 'GitHub';
+  };
 
   // 仓库树(绑定仓库列表 / 空引导)
   const tree = document.createElement('div');
   tree.className = 'nav-list';
   panel.appendChild(tree);
 
-  // 搜索(常驻顶部,GitHub 式):单条圆角搜索框,仓库/代码模式整合在框内右侧,
-  // 结果渲染进仓库树区,清空输入即恢复仓库树。
+  // 搜索(常驻顶部):单条圆角搜索框,仓库 + 代码一起搜(分区展示);结果进仓库树区,清空即恢复。
   const searchBox = document.createElement('div');
   searchBox.className = 'gh-search';
-  const searchField = ui.search({ placeholder: '搜索仓库,如 peytchat' });
+  const searchField = ui.search({ placeholder: '搜索仓库 / 代码…' });
   const searchInput = searchField.querySelector('input')!;
-  const seg = document.createElement('div');
-  seg.className = 'gh-search-seg';
-  const modeRepo = document.createElement('button');
-  modeRepo.type = 'button';
-  modeRepo.className = 'gh-search-seg-btn active';
-  modeRepo.textContent = '仓库';
-  const modeCode = document.createElement('button');
-  modeCode.type = 'button';
-  modeCode.className = 'gh-search-seg-btn';
-  modeCode.textContent = '代码';
-  seg.append(modeRepo, modeCode);
-  searchField.appendChild(seg);
   searchBox.appendChild(searchField);
   panel.appendChild(searchBox);
   panel.insertBefore(searchBox, tree);
 
-  let ghSearchMode: 'repo' | 'code' = 'repo';
   const restoreTree = (): void => { void renderTree(); };
-  modeRepo.addEventListener('click', () => {
-    ghSearchMode = 'repo';
-    modeRepo.classList.add('active');
-    modeCode.classList.remove('active');
-    searchInput.placeholder = '搜索仓库,如 peytchat';
-    restoreTree();
-  });
-  modeCode.addEventListener('click', () => {
-    ghSearchMode = 'code';
-    modeCode.classList.add('active');
-    modeRepo.classList.remove('active');
-    searchInput.placeholder = '搜索代码,如 fn main';
-    restoreTree();
-  });
   searchInput.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
-    if (ghSearchMode === 'repo') void doRepoSearch(searchInput, tree);
-    else void doCodeSearch(searchInput, tree);
+    void doSearch(searchInput, tree);
   });
   searchInput.addEventListener('input', () => {
     if (!searchInput.value.trim()) restoreTree();
@@ -507,7 +478,6 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   }
   async function renderRepoRow(r: GithubRepoDto): Promise<HTMLElement> {
     const meta = await ghFetchRepoMeta(r);
-    // GitHub 式:图标瓦片 + 蓝色仓库名 + 描述/语言副行 + 右侧星标
     const lang = meta?.language ?? null;
     const subParts: string[] = [];
     if (meta) {
@@ -516,23 +486,7 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
     } else {
       subParts.push(escapeHtml(`${r.owner} / ${r.repo}`));
     }
-    const row = document.createElement('div');
-    row.className = 'ui-list-item gh-repo-row';
-    const tile = document.createElement('span');
-    tile.className = 'gh-repo-icon';
-    tile.innerHTML = iconSvg('package', { width: 15, height: 15 });
-    row.appendChild(tile);
-    const meta2 = document.createElement('div');
-    meta2.className = 'ui-list-meta';
-    meta2.innerHTML = `<div class="ui-list-title">${escapeHtml(r.full_name)}</div><div class="ui-list-sub">${subParts.join(' · ')}</div>`;
-    row.appendChild(meta2);
-    if (meta) {
-      const starsEl = document.createElement('span');
-      starsEl.className = 'gh-repo-stars';
-      starsEl.innerHTML = `★ ${meta.stargazers_count}`;
-      row.appendChild(starsEl);
-    }
-    row.addEventListener('click', () => ghSelectRepo(r.full_name));
+    const row = buildRepoRow(r.full_name, subParts, meta ? meta.stargazers_count : null, () => ghSelectRepo(r.full_name));
     row.dataset.full = r.full_name;
     row.classList.toggle('active', !!ghSelected && ghSelected.full_name === r.full_name);
     return row;
@@ -554,12 +508,13 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
     return wrap;
   }
 
-  // 仓库列表变化 → 重渲染树
-  sidebarRefresher = () => { void renderTree(); };
+  // 仓库列表/选中变化 → 同步标题 + 重渲染树
+  sidebarRefresher = () => { syncNavTitle(); void renderTree(); };
 
   // 初始化
   await ghLoadSettings();
   await ghReloadRepos();
+  syncNavTitle();
 }
 
 // ── 主编辑区:玻璃工具条 + Tab 条 + 内容区(VSCode 式) ────────────────────────
@@ -584,17 +539,12 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   const toolbar = document.createElement('div');
   toolbar.className = 'gh-header-toolbar';
   const titleBox = document.createElement('div');
-  // Token 徽章:点击打开设置(Apple §16 状态即入口 —— 状态可见且可操作)
-  const headerBadge = document.createElement('button');
-  headerBadge.className = 'ui-badge gh-token-badge ui-badge-muted';
-  headerBadge.title = '点击配置 GitHub Token';
-  headerBadge.addEventListener('click', () => openSettings(false));
   const openWebBtn = ui.iconButton({ icon: 'external-link', title: '打开网页', onClick: () => void ghCopyRepoUrl() });
   openWebBtn.style.display = 'none'; // 仅选中仓库时显示
   const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', onClick: () => void ghRefreshAll() });
   const actions = document.createElement('div');
   actions.className = 'main-actions';
-  actions.append(headerBadge, refreshBtn, openWebBtn);
+  actions.append(refreshBtn, openWebBtn);
   toolbar.append(titleBox, actions);
   header.appendChild(toolbar);
 
@@ -684,10 +634,6 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
 
   // 主区回调注册:仓库/设置变化同步 + 侧边栏选中仓库联动
   mainRepoSync = (): void => {
-    headerBadge.className = `ui-badge gh-token-badge${ghHasToken ? ' ui-badge-success' : ' ui-badge-muted'}`;
-    headerBadge.innerHTML = ghHasToken
-      ? '<span class="gh-badge-dot"></span>已配置 Token'
-      : '未配置 Token';
     openWebBtn.style.display = ghSelected ? '' : 'none';
     setRepoTitle(ghSelected?.full_name ?? null);
     syncTabActive();
@@ -1115,6 +1061,27 @@ function fmtSize(n: number): string {
   if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
   if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
   return `${n} B`;
+}
+// 仓库行构建(仓库树 + 搜索结果共用):图标瓦片 + 蓝色仓库名 + 右侧星标
+function buildRepoRow(title: string, subParts: string[], stars: number | null, onClick: () => void): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'ui-list-item gh-repo-row';
+  const tile = document.createElement('span');
+  tile.className = 'gh-repo-icon';
+  tile.innerHTML = iconSvg('package', { width: 15, height: 15 });
+  row.appendChild(tile);
+  const meta = document.createElement('div');
+  meta.className = 'ui-list-meta';
+  meta.innerHTML = `<div class="ui-list-title">${escapeHtml(title)}</div><div class="ui-list-sub">${subParts.join(' · ')}</div>`;
+  row.appendChild(meta);
+  if (stars !== null) {
+    const s = document.createElement('span');
+    s.className = 'gh-repo-stars';
+    s.innerHTML = `★ ${stars}`;
+    row.appendChild(s);
+  }
+  row.addEventListener('click', onClick);
+  return row;
 }
 function fileIcon(name: string): IconName {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
