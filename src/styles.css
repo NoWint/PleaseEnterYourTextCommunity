@@ -2239,6 +2239,15 @@ html.window-frame #titlebar-tools { height: 34px; }
 .gh-repo-row.active { background: var(--active); }
 .gh-repo-row.active .gh-repo-icon { background: color-mix(in srgb, var(--gh-accent) 18%, transparent); color: var(--gh-accent); }
 .gh-repo-stars { flex-shrink: 0; font-size: var(--font-scale-micro); color: var(--text-weak); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.gh-repo-remove {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--text-weak); cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out), background 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.gh-repo-row:hover .gh-repo-remove { opacity: 1; }
+.gh-repo-remove:hover { background: var(--danger-bg); color: var(--danger); }
 .gh-lang-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: 1px; flex-shrink: 0; }
 .gh-bound-tag {
   display: inline-block; padding: 0 6px; border-radius: 999px;

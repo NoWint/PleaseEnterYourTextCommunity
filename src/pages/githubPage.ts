@@ -201,7 +201,7 @@ async function ghSaveToken(clear = false, raw = ''): Promise<void> {
   }
 }
 
-async function ghAddRepo(input: HTMLInputElement, listEl: HTMLElement): Promise<void> {
+async function ghAddRepo(input: HTMLInputElement): Promise<void> {
   const val = input.value.trim();
   const idx = val.indexOf('/');
   if (!val || idx <= 0 || idx === val.length - 1) {
@@ -219,13 +219,12 @@ async function ghAddRepo(input: HTMLInputElement, listEl: HTMLElement): Promise<
     input.value = '';
     ui.toast('已绑定');
     await ghReloadRepos();
-    await renderSettingsRepoList(listEl);
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e));
   }
 }
 
-function ghRemoveRepo(r: GithubRepoDto, listEl: HTMLElement | null): void {
+function ghRemoveRepo(r: GithubRepoDto): void {
   ui.confirm({
     title: '删除绑定',
     message: `解除绑定 ${r.full_name}?`,
@@ -236,7 +235,6 @@ function ghRemoveRepo(r: GithubRepoDto, listEl: HTMLElement | null): void {
         await call('remove_github_repo', { id: r.id });
         ui.toast('已解除绑定');
         await ghReloadRepos();
-        if (listEl) await renderSettingsRepoList(listEl);
       } catch (e) {
         ui.toast(e instanceof Error ? e.message : String(e));
       }
@@ -244,7 +242,7 @@ function ghRemoveRepo(r: GithubRepoDto, listEl: HTMLElement | null): void {
   });
 }
 
-function openSettings(focusRepo: boolean): void {
+function openSettings(): void {
   const bodyEl = document.createElement('div');
   bodyEl.style.cssText = 'display:flex;flex-direction:column;gap:14px';
 
@@ -267,7 +265,7 @@ function openSettings(focusRepo: boolean): void {
   }));
   bodyEl.appendChild(tokenActions);
 
-  // 如何获取 Token:可展开教程(Apple §6 常见路径前置,细节一级隐藏)。
+  // 如何获取 Token:可展开教程。
   // 打开 GitHub 生成页走系统浏览器(open_external),不离开应用。
   const guideBtn = ui.button({
     label: '如何获取 Token', icon: 'info', size: 'sm', variant: 'ghost',
@@ -300,56 +298,28 @@ function openSettings(focusRepo: boolean): void {
     if (guideBtn.lastChild) guideBtn.lastChild.textContent = show ? '收起教程' : '如何获取 Token';
   }
 
-  const repoInput = ui.input({ placeholder: 'owner/repo,如 octocat/Hello-World', onEnter: () => void ghAddRepo(repoInput, repoList) });
-  const addBtn = ui.button({ label: '添加', icon: 'plus', size: 'sm', variant: 'primary', onClick: () => void ghAddRepo(repoInput, repoList) });
-  const addRow = document.createElement('div');
-  addRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-  addRow.append(repoInput, addBtn);
-  bodyEl.appendChild(ui.field({ label: '绑定仓库', children: addRow }));
-
-  const repoList = document.createElement('div');
-  repoList.style.cssText = 'display:flex;flex-direction:column;gap:6px';
-  bodyEl.appendChild(repoList);
-
   const dlg = ui.dialog({ title: 'GitHub 设置', actions: [] });
   const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
   dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
-
-  void renderSettingsRepoList(repoList);
-  if (focusRepo) repoInput.focus();
 }
 
-async function renderSettingsRepoList(listEl: HTMLElement): Promise<void> {
-  let repos: GithubRepoDto[] = [];
-  try {
-    repos = await call<GithubRepoDto[]>('list_github_repos');
-  } catch (e) {
-    listEl.innerHTML = '';
-    listEl.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
-    return;
-  }
-  listEl.innerHTML = '';
-  if (repos.length === 0) {
-    listEl.appendChild(ui.empty('暂无绑定仓库'));
-    return;
-  }
-  for (const r of repos) {
-    listEl.appendChild(renderSettingsRepoRow(r, listEl));
-  }
-}
-
-function renderSettingsRepoRow(r: GithubRepoDto, listEl: HTMLElement): HTMLElement {
-  const row = ui.listItem({
-    title: r.full_name,
-    subtitle: `${r.owner} / ${r.repo}`,
-    icon: 'git-branch',
-    trailing: ui.iconButton({
-      icon: 'trash', title: '删除', danger: true, size: 'sm',
-      onClick: () => ghRemoveRepo(r, listEl),
-    }),
+// 添加仓库:独立小对话框(侧栏「+」/空状态「去绑定」直达),添加后仓库树自动刷新
+function openAddRepoDialog(): void {
+  const bodyEl = document.createElement('div');
+  bodyEl.style.cssText = 'display:flex;flex-direction:column;gap:14px';
+  const repoInput = ui.input({ placeholder: 'owner/repo,如 octocat/Hello-World' });
+  const addBtn = ui.button({
+    label: '添加', icon: 'plus', size: 'sm', variant: 'primary',
+    onClick: () => void ghAddRepo(repoInput),
   });
-  row.style.cursor = 'default';
-  return row;
+  const addRow = document.createElement('div');
+  addRow.style.cssText = 'display:flex;gap:8px;align-items:center';
+  addRow.append(repoInput, addBtn);
+  bodyEl.appendChild(ui.field({ label: '绑定仓库', children: addRow, help: '输入 GitHub 仓库的 owner/repo,如 octocat/Hello-World' }));
+  const dlg = ui.dialog({ title: '添加仓库', actions: [] });
+  const actionsEl = dlg.overlay.querySelector('.ui-dialog-actions')!;
+  dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
+  repoInput.focus();
 }
 
 // ── 搜索逻辑(侧边栏顶部单条搜索:仓库 + 代码一起搜,按分区展示) ────────────────
@@ -393,7 +363,7 @@ async function doSearch(queryEl: HTMLInputElement, resultsEl: HTMLElement): Prom
     const hint = document.createElement('div');
     hint.className = 'gh-search-token-hint';
     hint.innerHTML = '代码搜索需要 Token · <button class="gh-search-token-btn">去配置</button>';
-    hint.querySelector('button')!.addEventListener('click', () => openSettings(false));
+    hint.querySelector('button')!.addEventListener('click', () => openSettings());
     resultsEl.appendChild(hint);
   } else {
     try {
@@ -431,9 +401,9 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   titleBox.appendChild(navTitle);
   const headerActions = document.createElement('div');
   headerActions.className = 'nav-header-actions';
-  const addRepoBtn = ui.iconButton({ icon: 'plus', title: '添加仓库', size: 'sm', onClick: () => openSettings(true) });
+  const addRepoBtn = ui.iconButton({ icon: 'plus', title: '添加仓库', size: 'sm', onClick: () => openAddRepoDialog() });
   const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', size: 'sm', onClick: () => void ghRefreshAll() });
-  const settingsBtn = ui.iconButton({ icon: 'settings', title: '设置', size: 'sm', onClick: () => openSettings(false) });
+  const settingsBtn = ui.iconButton({ icon: 'settings', title: '设置', size: 'sm', onClick: () => openSettings() });
   headerActions.append(addRepoBtn, refreshBtn, settingsBtn);
   header.append(titleBox, headerActions);
   panel.appendChild(header);
@@ -489,6 +459,17 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
     const row = buildRepoRow(r.full_name, subParts, meta ? meta.stargazers_count : null, () => ghSelectRepo(r.full_name));
     row.dataset.full = r.full_name;
     row.classList.toggle('active', !!ghSelected && ghSelected.full_name === r.full_name);
+    // hover 出现「解除绑定」按钮(设置页已不再管理仓库,删除功能移到这里)
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'gh-repo-remove';
+    rm.title = '解除绑定';
+    rm.innerHTML = iconSvg('trash', { width: 13, height: 13 });
+    rm.addEventListener('click', (e) => {
+      e.stopPropagation();
+      ghRemoveRepo(r);
+    });
+    row.appendChild(rm);
     return row;
   }
   function renderEmptyGuide(): HTMLElement {
@@ -503,7 +484,7 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
     const desc = document.createElement('div');
     desc.className = 'gh-empty-desc';
     desc.textContent = '点击右上角「设置」添加 owner/repo 即可浏览数据';
-    const btn = ui.button({ label: '去绑定', icon: 'plus', size: 'sm', variant: 'primary', onClick: () => openSettings(true) });
+    const btn = ui.button({ label: '去绑定', icon: 'plus', size: 'sm', variant: 'primary', onClick: () => openAddRepoDialog() });
     wrap.append(iconWrap, title, desc, btn);
     return wrap;
   }
@@ -520,82 +501,95 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
 // ── 主编辑区:玻璃工具条 + Tab 条 + 内容区(VSCode 式) ────────────────────────
 export async function renderGithubMain(main: HTMLElement): Promise<void> {
   main.innerHTML = '';
-  const root = document.createElement('div');
-  root.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden';
-  main.appendChild(root);
+  let rendered = false;
+  let titleBox: HTMLElement | null = null;
+  let openWebBtn: HTMLElement | null = null;
+  let content: HTMLElement | null = null;
+  let tabEls: HTMLElement[] = [];
+  let contentRenderToken = 0;
 
-  // 玻璃工具条(与标签栏同一条玻璃材质,视觉上为一个 header 单元):
-  // 上排 = 仓库名 + Token badge + 打开网页/刷新;下排 = 苹果滑动胶囊分段标签栏
-  const header = document.createElement('div');
-  header.className = 'gh-header';
-  header.style.cssText = [
-    'flex-shrink:0',
-    'position:sticky;top:0;z-index:10',
-    'background:color-mix(in srgb, var(--panel) 86%, transparent)',
-    '-webkit-backdrop-filter:blur(18px) saturate(150%)',
-    'backdrop-filter:blur(18px) saturate(150%)',
-    'box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent)',
-  ].join(';');
-  const toolbar = document.createElement('div');
-  toolbar.className = 'gh-header-toolbar';
-  const titleBox = document.createElement('div');
-  const openWebBtn = ui.iconButton({ icon: 'external-link', title: '打开网页', onClick: () => void ghCopyRepoUrl() });
-  openWebBtn.style.display = 'none'; // 仅选中仓库时显示
-  const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', onClick: () => void ghRefreshAll() });
-  const actions = document.createElement('div');
-  actions.className = 'main-actions';
-  actions.append(refreshBtn, openWebBtn);
-  toolbar.append(titleBox, actions);
-  header.appendChild(toolbar);
+  // 延迟构建编辑区:仅在选中仓库时渲染;未选仓库时右侧完全留空。
+  function ensureEditor(): void {
+    if (rendered) return;
+    rendered = true;
+    const root = document.createElement('div');
+    root.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden';
+    main.appendChild(root);
 
-  // 标签栏(GitHub 仓库导航式):图标 + 文字,活动项橙色下划线,细线滑动(200ms 临界阻尼)
-  const GH_TABS: Array<{ id: GithubTab; label: string; icon: IconName }> = [
-    { id: 'issues', label: 'Issues', icon: 'alert-circle' },
-    { id: 'pulls', label: 'Pulls', icon: 'git-branch' },
-    { id: 'commits', label: 'Commits', icon: 'clock' },
-    { id: 'files', label: '文件', icon: 'package' },
-    { id: 'events', label: '动态', icon: 'timeline' },
-    { id: 'details', label: '详情', icon: 'info' },
-  ];
-  const tabsRow = document.createElement('div');
-  tabsRow.className = 'gh-tabs-row';
-  const tabBar = document.createElement('div');
-  tabBar.className = 'gh-tabbar';
-  const tabThumb = document.createElement('div');
-  tabThumb.className = 'gh-tab-indicator';
-  tabBar.appendChild(tabThumb);
-  const tabEls = GH_TABS.map((t) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'gh-tab';
-    b.dataset.tab = t.id;
-    b.innerHTML = `${iconSvg(t.icon, { width: 14, height: 14 })}<span>${t.label}</span>`;
-    b.addEventListener('click', () => {
-      if (!ghSelected) return;
-      state.githubTab = t.id;
-      saveState();
-      syncTabActive();
-      void renderEditorContent();
+    // 玻璃工具条(与标签栏同一条玻璃材质,视觉上为一个 header 单元)
+    const header = document.createElement('div');
+    header.className = 'gh-header';
+    header.style.cssText = [
+      'flex-shrink:0',
+      'position:sticky;top:0;z-index:10',
+      'background:color-mix(in srgb, var(--panel) 86%, transparent)',
+      '-webkit-backdrop-filter:blur(18px) saturate(150%)',
+      'backdrop-filter:blur(18px) saturate(150%)',
+      'box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent)',
+    ].join(';');
+    const toolbar = document.createElement('div');
+    toolbar.className = 'gh-header-toolbar';
+    titleBox = document.createElement('div');
+    openWebBtn = ui.iconButton({ icon: 'external-link', title: '打开网页', onClick: () => void ghCopyRepoUrl() });
+    openWebBtn.style.display = 'none'; // 仅选中仓库时显示
+    const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', onClick: () => void ghRefreshAll() });
+    const actions = document.createElement('div');
+    actions.className = 'main-actions';
+    actions.append(refreshBtn, openWebBtn);
+    toolbar.append(titleBox, actions);
+    header.appendChild(toolbar);
+
+    // 标签栏(GitHub 仓库导航式):图标 + 文字,活动项橙色下划线,细线滑动(200ms 临界阻尼)
+    const GH_TABS: Array<{ id: GithubTab; label: string; icon: IconName }> = [
+      { id: 'issues', label: 'Issues', icon: 'alert-circle' },
+      { id: 'pulls', label: 'Pulls', icon: 'git-branch' },
+      { id: 'commits', label: 'Commits', icon: 'clock' },
+      { id: 'files', label: '文件', icon: 'package' },
+      { id: 'events', label: '动态', icon: 'timeline' },
+      { id: 'details', label: '详情', icon: 'info' },
+    ];
+    const tabsRow = document.createElement('div');
+    tabsRow.className = 'gh-tabs-row';
+    const tabBar = document.createElement('div');
+    tabBar.className = 'gh-tabbar';
+    const tabThumb = document.createElement('div');
+    tabThumb.className = 'gh-tab-indicator';
+    tabBar.appendChild(tabThumb);
+    tabEls = GH_TABS.map((t) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'gh-tab';
+      b.dataset.tab = t.id;
+      b.innerHTML = `${iconSvg(t.icon, { width: 14, height: 14 })}<span>${t.label}</span>`;
+      b.addEventListener('click', () => {
+        if (!ghSelected) return;
+        state.githubTab = t.id;
+        saveState();
+        syncTabActive();
+        void renderEditorContent();
+      });
+      return b;
     });
-    return b;
-  });
-  for (const t of tabEls) tabBar.appendChild(t);
-  tabsRow.appendChild(tabBar);
-  header.appendChild(tabsRow);
-  ghTabTarget = { bar: tabBar, thumb: tabThumb };
-  root.appendChild(header);
+    for (const t of tabEls) tabBar.appendChild(t);
+    tabsRow.appendChild(tabBar);
+    header.appendChild(tabsRow);
+    ghTabTarget = { bar: tabBar, thumb: tabThumb };
+    root.appendChild(header);
 
-  // 内容区(数据由 Task B 渲染;本任务为占位 spinner)
-  const content = document.createElement('div');
-  content.style.cssText = 'flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column';
-  root.appendChild(content);
+    // 内容区
+    content = document.createElement('div');
+    content.style.cssText = 'flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column';
+    root.appendChild(content);
+  }
 
   function syncTabActive(): void {
+    if (!rendered) return;
     for (const b of tabEls) b.classList.toggle('active', b.dataset.tab === state.githubTab);
     // 布局稳定后再定位指示线(rAF 兜底,避免首帧 0 宽/未布局)
     requestAnimationFrame(positionTabThumb);
   }
   function setRepoTitle(fullName: string | null): void {
+    if (!titleBox) return;
     titleBox.innerHTML = '';
     const t = document.createElement('div');
     t.className = 'main-title';
@@ -604,20 +598,21 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
   }
   // 编辑区内容渲染分发:按 state.githubTab 调对应数据渲染函数填充内容区。
   // 每次渲染独立 wrap 容器:旧异步结果写旧 DOM(已卸载),避免跨 tab 竞态覆盖新内容。
-  let contentRenderToken = 0;
   async function renderEditorContent(): Promise<void> {
+    if (!content || !ghSelected) return;
     const token = ++contentRenderToken;
     const repo = ghSelected;
     content.innerHTML = '';
-    if (!repo) {
-      content.appendChild(ui.empty('从左侧选择仓库'));
-      return;
-    }
     const wrap = document.createElement('div');
-    wrap.className = 'gh-content-enter'; // 每次 tab/仓库切换的轻淡入入场(§4 行为而非固定动画)
+    wrap.className = 'gh-content-enter'; // 每次 tab/仓库切换的轻淡入入场
     wrap.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column';
     content.appendChild(wrap);
-    wrap.appendChild(ui.spinner());
+    // 加载中:spinner 居中;数据渲染时 renderGh* 会清空 wrap,此容器一并移除
+    const loading = document.createElement('div');
+    loading.className = 'ui-spinner-wrap';
+    loading.style.flex = '1';
+    loading.appendChild(ui.spinner());
+    wrap.appendChild(loading);
     try {
       if (state.githubTab === 'issues') await renderGhIssues(wrap, repo);
       else if (state.githubTab === 'pulls') await renderGhPulls(wrap, repo);
@@ -632,24 +627,29 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     }
   }
 
-  // 主区回调注册:仓库/设置变化同步 + 侧边栏选中仓库联动
-  mainRepoSync = (): void => {
-    openWebBtn.style.display = ghSelected ? '' : 'none';
+  // 主区同步:有选中仓库 → 构建/更新编辑区;无选中 → 右侧完全留空。
+  function updateEditor(): void {
+    if (!ghSelected) {
+      if (rendered) {
+        main.innerHTML = '';
+        rendered = false;
+        ghTabTarget = null;
+      }
+      return;
+    }
+    ensureEditor();
+    if (openWebBtn) openWebBtn.style.display = ghSelected ? '' : 'none';
     setRepoTitle(ghSelected?.full_name ?? null);
     syncTabActive();
     void renderEditorContent();
-  };
-  editorRenderer = (repo: GithubRepoRef | null): void => {
-    setRepoTitle(ghSelected?.full_name ?? (repo ? `${repo.owner}/${repo.repo}` : null));
-    openWebBtn.style.display = ghSelected ? '' : 'none';
-    syncTabActive();
-    void renderEditorContent();
-  };
+  }
+  mainRepoSync = updateEditor;
+  editorRenderer = updateEditor;
 
   // 初始化:加载设置 + 仓库(侧边栏可能已加载,复用);同步主区显示
   await ghLoadSettings();
   if (ghRepos.length === 0) await ghReloadRepos();
-  mainRepoSync();
+  updateEditor();
 
   // right-drawer 对 github 页禁用:确保折叠,并清理上一页(messages/groups)的抽屉残留。
   // (githubPage 不再设置 detailTab='github' / rightDrawerOpen)
