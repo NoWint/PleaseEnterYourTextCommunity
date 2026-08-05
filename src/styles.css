@@ -2209,17 +2209,20 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .rd-gh-timeline:last-child .rd-gh-tl-rail::after { display: none; }
 
-/* 侧边栏搜索(GitHub 式):ui-search 圆角字段 + 仓库/代码模式切换 */
-.gh-search { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 6px; flex-shrink: 0; }
-.gh-search-mode { display: inline-flex; gap: 2px; padding: 2px; align-self: flex-start; background: var(--capsule); border-radius: 999px; }
-.gh-search-mode-btn {
-  padding: 2px 10px; border: none; border-radius: 999px;
-  background: transparent; color: var(--text-mute);
+/* 侧边栏搜索(GitHub 式):单条圆角搜索框,仓库/代码模式整合在框内右侧 */
+.gh-search { padding: 10px 12px 4px; flex-shrink: 0; }
+.gh-search-seg {
+  display: inline-flex; align-items: center; flex-shrink: 0; gap: 2px;
+  margin-left: 6px; padding-left: 8px; border-left: 1px solid var(--border-strong);
+}
+.gh-search-seg-btn {
+  padding: 1px 6px; border: none; border-radius: 5px;
+  background: transparent; color: var(--text-weak);
   font-size: var(--font-scale-micro); font-weight: 500; font-family: inherit; cursor: pointer;
   transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
 }
-.gh-search-mode-btn:hover { color: var(--text); }
-.gh-search-mode-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.gh-search-seg-btn:hover { color: var(--text); }
+.gh-search-seg-btn.active { color: var(--text); background: var(--active); }
 
 /* 仓库树行(GitHub 式):图标瓦片 + 蓝色仓库名 + 右侧星标 */
 .gh-repo-row { border-radius: var(--radius-sm); margin: 0 6px; gap: 10px; }

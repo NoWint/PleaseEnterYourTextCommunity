@@ -435,7 +435,7 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   const header = document.createElement('div');
   header.className = 'nav-header';
   const titleBox = document.createElement('div');
-  titleBox.innerHTML = `<div class="nav-title">GitHub</div><div class="nav-subtitle">仓库浏览</div>`;
+  titleBox.innerHTML = `<div class="nav-title">GitHub</div>`;
   const headerActions = document.createElement('div');
   headerActions.className = 'nav-header-actions';
   const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', size: 'sm', onClick: () => void ghRefreshAll() });
@@ -449,24 +449,25 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   tree.className = 'nav-list';
   panel.appendChild(tree);
 
-  // 搜索(常驻顶部,GitHub 式):复用 ui.search 圆角字段 + 仓库/代码模式切换,
+  // 搜索(常驻顶部,GitHub 式):单条圆角搜索框,仓库/代码模式整合在框内右侧,
   // 结果渲染进仓库树区,清空输入即恢复仓库树。
   const searchBox = document.createElement('div');
   searchBox.className = 'gh-search';
-  const searchMode = document.createElement('div');
-  searchMode.className = 'gh-search-mode';
+  const searchField = ui.search({ placeholder: '搜索仓库,如 peytchat' });
+  const searchInput = searchField.querySelector('input')!;
+  const seg = document.createElement('div');
+  seg.className = 'gh-search-seg';
   const modeRepo = document.createElement('button');
   modeRepo.type = 'button';
-  modeRepo.className = 'gh-search-mode-btn active';
+  modeRepo.className = 'gh-search-seg-btn active';
   modeRepo.textContent = '仓库';
   const modeCode = document.createElement('button');
   modeCode.type = 'button';
-  modeCode.className = 'gh-search-mode-btn';
+  modeCode.className = 'gh-search-seg-btn';
   modeCode.textContent = '代码';
-  searchMode.append(modeRepo, modeCode);
-  const searchField = ui.search({ placeholder: '搜索仓库,如 peytchat' });
-  const searchInput = searchField.querySelector('input')!;
-  searchBox.append(searchMode, searchField);
+  seg.append(modeRepo, modeCode);
+  searchField.appendChild(seg);
+  searchBox.appendChild(searchField);
   panel.appendChild(searchBox);
   panel.insertBefore(searchBox, tree);
 
@@ -649,10 +650,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     const t = document.createElement('div');
     t.className = 'main-title';
     t.textContent = fullName ?? 'GitHub';
-    const s = document.createElement('div');
-    s.className = 'main-subtitle';
-    s.textContent = fullName ? '仓库数据 · 点击标签页查看' : '仓库浏览 · 代码搜索 · 绑定管理';
-    titleBox.append(t, s);
+    titleBox.appendChild(t);
   }
   // 编辑区内容渲染分发:按 state.githubTab 调对应数据渲染函数填充内容区。
   // 每次渲染独立 wrap 容器:旧异步结果写旧 DOM(已卸载),避免跨 tab 竞态覆盖新内容。
