@@ -5,6 +5,7 @@ import { resolveMessageText } from '../utils/envelope.js';
 import { renderComposer } from './composer.js';
 import { saveState } from '../persist.js';
 import { ui } from '../components/ui.js';
+import { t } from '../i18n/index.js';
 import { escapeHtml } from '../components/escape.js';
 import { colorHex } from '../components/avatar.js';
 import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
@@ -134,23 +135,23 @@ export async function renderChatView(chatId: number): Promise<void> {
     const memberCount = state.currentMembers?.length || 0;
     // 单聊不显示 "N 成员"(对应用户名已在标题,气泡内也无 name/role tag)
     const membersTag = memberCount > 0 && headerIsGroup
-      ? `<span class="ch-members">${memberCount} 成员</span>`
+      ? `<span class="ch-members">${t('chat.members', { count: memberCount })}</span>`
       : '';
     // 头部头像:单聊 = 对方成员头像;群聊 = 会话头像(chatInfo.avatar)。无则生成首字母色块(仿聊天列表)。
     const headerAvatarHtml = await buildHeaderAvatarHtml(chatInfo, headerName || channelName(chatId));
     // 会话已加密(以 core is_encrypted 为准)→ 右侧按钮组圆形气泡,点击弹指纹 popup。
     const lockBtn = chatInfo?.is_encrypted
-      ? `<button class="ch-ctl-btn" data-chat-enc="1" title="已加密,查看成员指纹" aria-label="加密状态">${iconSvg('lock', { width: 16, height: 16 })}</button>`
+      ? `<button class="ch-ctl-btn" data-chat-enc="1" title="${t('chat.encrypt')}" aria-label="${t('chat.encrypt')}">${iconSvg('lock', { width: 16, height: 16 })}</button>`
       : '';
     // 在线状态气泡:置于 ch-head 右侧,icon + 简要文字(群聊「N 人在线」/ 单聊「在线|最后活跃」)。
     const onlineBlock = buildOnlineBlockHtml(chatInfo, headerIsGroup);
     // 右上角按钮组:会话内搜索 / 媒体相册 / 加密锁 / 「更多」(最右侧,打开侧栏)。
     // 群信息改由点击 ch-head 弹出;成员/置顶并入右侧栏。
     const ctrlButtons = `
-      <button class="ch-ctl-btn" data-ctl="search" title="会话内搜索" aria-label="搜索">${iconSvg('search', { width: 16, height: 16 })}</button>
-      <button class="ch-ctl-btn" data-ctl="gallery" title="媒体相册" aria-label="媒体相册">${iconSvg('image', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="search" title="${t('chat.search')}" aria-label="${t('chat.search')}">${iconSvg('search', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="gallery" title="${t('chat.gallery')}" aria-label="${t('chat.gallery')}">${iconSvg('image', { width: 16, height: 16 })}</button>
       ${lockBtn}
-      <button class="ch-ctl-btn" data-ctl="more" title="更多" aria-label="更多">${iconSvg('more-horizontal', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="more" title="${t('chat.more')}" aria-label="${t('chat.more')}">${iconSvg('more-horizontal', { width: 16, height: 16 })}</button>
     `;
     main.innerHTML = `
       <div class="messages" id="messages">
@@ -304,7 +305,7 @@ async function refreshMessages(chatId: number): Promise<void> {
   const box = document.getElementById('messages');
   if (!box) return;
   if (msgs.length === 0) {
-    box.appendChild(ui.empty('这个频道还没有消息,发第一条吧'));
+    box.appendChild(ui.empty(t('chat.noMessages'), 'message-circle'));
     return;
   }
   // 已读计数必须在渲染前填充:气泡渲染「N 人已读」时依赖 readCountMap,

@@ -252,6 +252,8 @@ function renderAppearance(main: HTMLElement): void {
       : '');
   const currentScale = getCurrentFontScale();
   const currentLocale = getLocale();
+  // 已提交主题(持久化值);hover 预览只临时切换,不落盘
+  let committedTheme = current;
   main.innerHTML = `
     <div class="settings-section settings-appearance">
       <h2>外观</h2>
@@ -267,11 +269,19 @@ function renderAppearance(main: HTMLElement): void {
     </div>
   `;
   main.querySelectorAll<HTMLElement>('.settings-theme').forEach((el) => {
+    const theme = el.dataset.themeId as string;
     el.addEventListener('click', () => {
-      const theme = el.dataset.themeId as string;
+      committedTheme = theme;
       applyTheme(theme);
       main.querySelectorAll('.settings-theme').forEach((e) => e.classList.remove('active'));
       el.classList.add('active');
+    });
+    // hover 即时预览不提交(opencode 模式):离开恢复已提交主题
+    el.addEventListener('mouseenter', () => {
+      if (committedTheme !== theme) applyTheme(theme);
+    });
+    el.addEventListener('mouseleave', () => {
+      applyTheme(committedTheme);
     });
   });
   const picker = main.querySelector('#font-scale-picker');

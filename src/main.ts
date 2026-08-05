@@ -48,6 +48,15 @@ async function boot(): Promise<void> {
       void import('./utils/deepLink.js').then(({ processPendingDeepLink }) => processPendingDeepLink());
     });
   }
+  hideSplash();
+}
+
+/** shell/登录渲染完成后淡出启动 splash。 */
+function hideSplash(): void {
+  const s = document.getElementById('boot-splash');
+  if (!s) return;
+  s.classList.add('hide');
+  setTimeout(() => s.remove(), 400);
 }
 
 async function ensurePeytStudio(): Promise<void> {
