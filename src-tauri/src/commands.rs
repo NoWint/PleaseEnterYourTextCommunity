@@ -1,3 +1,6 @@
+/// 统一命令注册表(Bot 与用户侧共用)。
+pub mod registry;
+
 use deltachat::chat::{self, Chat, ChatItem, ChatVisibility};
 use deltachat::context::Context;
 use deltachat::chatlist::Chatlist;
