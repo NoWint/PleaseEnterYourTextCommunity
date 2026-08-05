@@ -12,24 +12,21 @@ export interface Participation {
 /** 统计参与度。day 用本地时区 YYYY-MM-DD;hour 用 0-23。 */
 export function computeParticipation(win: WindowMsg[]): Participation {
   const memberMap = new Map<string, MemberStat>();
+  const memberDays = new Map<string, Set<string>>(); // 成员→活跃日集合(活跃天数独立统计)
   const hourMap = new Map<number, number>();
   const dayMap = new Map<string, number>();
+  const dayStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   for (const w of win) {
     const d = new Date(w.ts * 1000);
-    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const day = dayStr(d);
     const hour = d.getHours();
     const m = memberMap.get(w.sender) ?? { name: w.sender, msg_count: 0, char_count: 0, active_days: 0 };
     m.msg_count += 1;
-    m.char_count += w.text.length;
+    m.char_count += w.text.length; // 含 '[附件: ...]' 占位文本,按消息体量近似计
     hourMap.set(hour, (hourMap.get(hour) ?? 0) + 1);
     dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
     memberMap.set(w.sender, m);
-  }
-  // 活跃天数:重建成员→Set<day>(成员维度需独立统计,不能复用全局 dayMap)
-  const memberDays = new Map<string, Set<string>>();
-  for (const w of win) {
-    const d = new Date(w.ts * 1000);
-    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (!memberDays.has(w.sender)) memberDays.set(w.sender, new Set());
     memberDays.get(w.sender)!.add(day);
   }
