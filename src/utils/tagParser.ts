@@ -9,7 +9,7 @@ export interface ParsedSegment {
   value: string;   // message/user 的参数值;text 为已转义内容
 }
 
-const TAG_RE = /<(message|user)='([^']*)'>/g;
+const TAG_RE = /<(message|user)='([^'\n]*)'>/g;
 
 /** 解析标签:只放行 <message='..'> / <user='..'>, 其余 <...> 形状整体转义。 */
 export function parseTags(text: string): ParsedSegment[] {
@@ -19,7 +19,11 @@ export function parseTags(text: string): ParsedSegment[] {
   let m: RegExpExecArray | null;
   while ((m = TAG_RE.exec(text))) {
     if (m.index > last) segments.push({ type: 'text', value: escapeHtml(text.slice(last, m.index)) });
-    segments.push({ type: m[1] === 'message' ? 'message' : 'user', value: escapeHtml(m[2]) });
+    if (m[2]) {
+      segments.push({ type: m[1] === 'message' ? 'message' : 'user', value: escapeHtml(m[2]) });
+    } else {
+      segments.push({ type: 'text', value: escapeHtml(m[0]) });
+    }
     last = m.index + m[0].length;
   }
   if (last < text.length) segments.push({ type: 'text', value: escapeHtml(text.slice(last)) });
@@ -27,7 +31,7 @@ export function parseTags(text: string): ParsedSegment[] {
   return segments;
 }
 
-/** 渲染成受控 HTML。onRef 点击 <message> 时回调(跳转原文)。 */
+/** 渲染成受控 HTML。⚠️ segments 必须来自 parseTags(值已预转义),勿手工构造。 */
 export function renderParsed(segments: ParsedSegment[], onRef: (id: string) => void): string {
   return segments
     .map((s) => {
