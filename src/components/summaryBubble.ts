@@ -43,11 +43,11 @@ export async function scheduleSummary(
   // 前端去重 + 防抖:同 chat 已有 summarizing 则不重复
   const st = store.get(chatId);
   if (st && st.status === 'summarizing') return st;
-  const window = buildContextWindow(msgs, resolve, prefs.contextN);
-  if (window.length === 0) return { status: 'fallback', text: '暂无主题词' };
+  const win = buildContextWindow(msgs, resolve, prefs.contextN);
+  if (win.length === 0) return { status: 'fallback', text: '暂无主题词' };
   // 方式2(§4.4):上次分析 + 最近 N 条。prev 分析拼在 prompt 开头作历史上下文块。
   const prev = st && st.status === 'done' ? st.text : null;
-  const prompt = (prev ? `历史上下文(之前的分析结果):\n${prev}\n\n` : '') + formatWindowLines(window);
+  const prompt = (prev ? `历史上下文(之前的分析结果):\n${prev}\n\n` : '') + formatWindowLines(win);
   store.set(chatId, { status: 'summarizing', text: prev ?? '' });
   try {
     const { call } = await import('../api.js');
