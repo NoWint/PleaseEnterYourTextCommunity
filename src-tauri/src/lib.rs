@@ -322,6 +322,7 @@ pub fn run() {
             commands::set_draft,
             // Delta 对齐批次 2
             commands::get_chat_media,
+            commands::get_msg_file_text, // 媒体库正文搜索:提取附件文本
             commands::get_message_read_receipt_count,
             commands::get_message_read_receipts,
             commands::get_msg_read_counts,
@@ -402,6 +403,12 @@ pub fn run() {
             // 外链与链接预览(链接卡片)
             commands::open_external,
             commands::fetch_link_preview,
+            // 联系人名片:解析 vCard 消息 + 共有会话 + 发送名片
+            commands::get_msg_vcard,
+            commands::list_common_chats,
+            commands::send_vcard,
+            // 附件发送(media 信封)
+            commands::send_attachment,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

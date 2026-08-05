@@ -402,6 +402,11 @@ async function updateBadge(): Promise<void> {
     if (tauri.__TAURI__?.app?.setBadgeCount) {
       await tauri.__TAURI__.app.setBadgeCount(total);
     }
+    // 左侧功能栏「消息」图标角标:总数变化才重渲染 rail(避免事件风暴时高频 DOM 重建)
+    if (state.totalUnread !== total) {
+      state.totalUnread = total;
+      void renderRail();
+    }
     // 未读增加 → 任务栏/Dock 高亮(dev 下 toast 不可用时仍能提醒)。窗口聚焦后由
     // 下一次 refreshSidebar 清零触发 updateBadge(total=0) 自然停止。
     if (total > lastUnreadTotal) {

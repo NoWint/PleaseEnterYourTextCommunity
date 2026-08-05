@@ -53,6 +53,8 @@ export interface MemberDto {
   avatar: string | null;
   color: number | null;
   is_self: boolean;
+  // 最后活跃时间(unix 秒)。在线状态判断(600s 窗口)与群聊在线列表用。
+  last_seen: number;
 }
 
 export interface MsgDto {
@@ -69,7 +71,7 @@ export interface MsgDto {
   file: string | null;
   file_mime: string | null;
   file_name: string | null;
-  file_size: number | null;
+  file_bytes: number | null;
   quote_text: string | null;
   quote_from: string | null;
   reactions: Record<string, number[]> | null;
@@ -168,6 +170,8 @@ export interface AppState {
   peytBannerDismissed: boolean;
   // SP6: Inbox 未读数 + 协作页 tab + 按频道记忆视图偏好
   inboxUnread: number;
+  // 全部会话(常规+归档)未读总数:左侧功能栏消息图标角标 + 任务栏 badge
+  totalUnread: number;
   currentWorkTab: WorkTab;
   viewPrefs: Record<number, CurrentView>; // key = channel chat_id
 }
@@ -190,6 +194,8 @@ export interface ChatListItem {
   last_msg_state: string; // "pending" | "delivered" | "failed" | "read"
   last_msg_read_count: number;
   last_msg_is_info: boolean;
+  // 单聊对方最后活跃时间(unix 秒;非单聊为 0)。在线绿点/tooltip 用。
+  contact_last_seen: number;
 }
 
 export interface ContactDto {
@@ -198,6 +204,24 @@ export interface ContactDto {
   addr: string;
   avatar: string | null;
   color: number | null;
+}
+
+/** vCard 名片消息里解析出的单个联系人(Delta 协议名片)。 */
+export interface VcardContactDto {
+  addr: string;
+  name: string;
+  /** 头像 data URL(base64 PNG) */
+  avatar_data: string | null;
+  biography: string | null;
+}
+
+/** 与某联系人共有的会话(资料卡片右侧列表)。 */
+export interface CommonChatDto {
+  chat_id: number;
+  name: string;
+  avatar: string | null;
+  color: number | null;
+  is_group: boolean;
 }
 
 /** get_chat_info 返回结构(群/单聊/邮件列表/广播通用) */

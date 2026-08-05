@@ -249,9 +249,42 @@ function openSettings(focusRepo: boolean): void {
   bodyEl.appendChild(ui.field({
     label: '全局 GitHub Token',
     children: tokenInput,
-    help: '无 token 时公开仓库只读;代码搜索需 token。Token 仅保存在本机数据库。',
+    help: '无 token 时公开仓库只读;代码搜索与私有仓库需 token。Token 仅保存在本机数据库。',
   }));
   bodyEl.appendChild(tokenActions);
+
+  // 如何获取 Token:可展开教程(Apple §6 常见路径前置,细节一级隐藏)。
+  // 打开 GitHub 生成页走系统浏览器(open_external),不离开应用。
+  const guideBtn = ui.button({
+    label: '如何获取 Token', icon: 'info', size: 'sm', variant: 'ghost',
+    onClick: toggleGuide,
+  });
+  const guide = document.createElement('div');
+  guide.className = 'gh-token-guide';
+  guide.style.display = 'none';
+  guide.innerHTML = `
+    <ol class="gh-guide-steps">
+      <li>登录 GitHub，进入 <b>Settings</b> → <b>Developer settings</b></li>
+      <li>打开 <b>Personal access tokens</b>，点击 <b>Generate new token</b></li>
+      <li>勾选 <b>repo</b> 权限(读私有仓库/代码搜索)，生成后立即复制</li>
+      <li>粘贴到上方输入框，点「保存 Token」即可</li>
+    </ol>
+    <button class="gh-guide-open">打开 GitHub Token 生成页</button>
+  `;
+  guide.querySelector<HTMLButtonElement>('.gh-guide-open')!.addEventListener('click', () => {
+    void call('open_external', { url: 'https://github.com/settings/tokens' });
+  });
+  const guideRow = document.createElement('div');
+  guideRow.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;gap:8px';
+  guideRow.append(guideBtn, guide);
+  bodyEl.appendChild(guideRow);
+
+  function toggleGuide(): void {
+    const show = guide.style.display === 'none';
+    guide.style.display = show ? 'block' : 'none';
+    // ui.button 的 label 是文本节点,替换其内容以切换文案
+    if (guideBtn.lastChild) guideBtn.lastChild.textContent = show ? '收起教程' : '如何获取 Token';
+  }
 
   const repoInput = ui.input({ placeholder: 'owner/repo,如 octocat/Hello-World', onEnter: () => void ghAddRepo(repoInput, repoList) });
   const addBtn = ui.button({ label: '添加', icon: 'plus', size: 'sm', variant: 'primary', onClick: () => void ghAddRepo(repoInput, repoList) });
@@ -397,7 +430,7 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   searchToggle.appendChild(searchLabel);
   footer.appendChild(searchToggle);
   const searchPanel = document.createElement('div');
-  searchPanel.style.cssText = 'display:none;flex-direction:column;gap:10px;max-height:260px;overflow-y:auto';
+  searchPanel.className = 'gh-search-panel';
   const repoSearchInput = ui.input({ placeholder: '搜索仓库,如 peytchat', onEnter: () => void doRepoSearch(repoSearchInput, repoResults) });
   const repoSearchBtn = ui.iconButton({ icon: 'search', title: '搜索仓库', size: 'sm', onClick: () => void doRepoSearch(repoSearchInput, repoResults) });
   const repoRow = document.createElement('div');
@@ -417,8 +450,7 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   panel.appendChild(footer);
 
   function toggleSearch(): void {
-    const show = searchPanel.style.display === 'none';
-    searchPanel.style.display = show ? 'flex' : 'none';
+    const show = searchPanel.classList.toggle('open');
     searchLabel.textContent = show ? '收起' : '搜索';
     if (show) repoSearchInput.focus();
   }
@@ -488,7 +520,11 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
     'box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent)',
   ].join(';');
   const titleBox = document.createElement('div');
-  const headerBadge = ui.badge({ text: '未配置 Token', variant: 'muted' });
+  // Token 徽章:点击打开设置(Apple §16 状态即入口 —— 状态可见且可操作)
+  const headerBadge = document.createElement('button');
+  headerBadge.className = 'ui-badge gh-token-badge ui-badge-muted';
+  headerBadge.title = '点击配置 GitHub Token';
+  headerBadge.addEventListener('click', () => openSettings(false));
   const openWebBtn = ui.iconButton({ icon: 'external-link', title: '打开网页', onClick: () => void ghCopyRepoUrl() });
   openWebBtn.style.display = 'none'; // 仅选中仓库时显示
   const refreshBtn = ui.iconButton({ icon: 'refresh-cw', title: '刷新', onClick: () => void ghRefreshAll() });
@@ -576,7 +612,7 @@ export async function renderGithubMain(main: HTMLElement): Promise<void> {
 
   // 主区回调注册:仓库/设置变化同步 + 侧边栏选中仓库联动
   mainRepoSync = (): void => {
-    headerBadge.className = `ui-badge${ghHasToken ? ' ui-badge-success' : ' ui-badge-muted'}`;
+    headerBadge.className = `ui-badge gh-token-badge${ghHasToken ? ' ui-badge-success' : ' ui-badge-muted'}`;
     headerBadge.textContent = ghHasToken ? '已配置 Token' : '未配置 Token';
     openWebBtn.style.display = ghSelected ? '' : 'none';
     setRepoTitle(ghSelected?.full_name ?? null);

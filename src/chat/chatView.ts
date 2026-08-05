@@ -6,13 +6,19 @@ import { renderComposer } from './composer.js';
 import { saveState } from '../persist.js';
 import { ui } from '../components/ui.js';
 import { escapeHtml } from '../components/escape.js';
+import { colorHex } from '../components/avatar.js';
 import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
-import { initSegmenter, computeTopWords, type WordFreq } from '../utils/wordAnalysis.js';
+import { initSegmenter, computeTopics, type TopicCluster } from '../utils/wordAnalysis.js';
+import { iconSvg } from '../components/icon.js';
+import { openEncryptionPopup } from '../components/encryptionPopup.js';
+import { openOnlinePopup } from '../components/onlinePopup.js';
+import { isOnline, lastSeenText } from '../utils/online.js';
 import type { MsgDto, RoleDto, MemberDto, ChannelDto, ChatListItem, AppState } from '../types.js';
 
 interface ChatInfo {
   name: string;
   is_group: boolean;
+  is_encrypted: boolean;
   members: MemberDto[];
   avatar: string | null;
   color: number | null;
@@ -130,24 +136,53 @@ export async function renderChatView(chatId: number): Promise<void> {
     const membersTag = memberCount > 0 && headerIsGroup
       ? `<span class="ch-members">${memberCount} 成员</span>`
       : '';
-    // 头部头像:单聊 = 对方成员头像;群聊 = 会话头像(chatInfo.avatar)。无则省略。
-    const headerAvatarHtml = await buildHeaderAvatarHtml(chatInfo);
+    // 头部头像:单聊 = 对方成员头像;群聊 = 会话头像(chatInfo.avatar)。无则生成首字母色块(仿聊天列表)。
+    const headerAvatarHtml = await buildHeaderAvatarHtml(chatInfo, headerName || channelName(chatId));
+    // 会话已加密(以 core is_encrypted 为准)→ 右侧按钮组圆形气泡,点击弹指纹 popup。
+    const lockBtn = chatInfo?.is_encrypted
+      ? `<button class="ch-ctl-btn" data-chat-enc="1" title="已加密,查看成员指纹" aria-label="加密状态">${iconSvg('lock', { width: 16, height: 16 })}</button>`
+      : '';
+    // 在线状态气泡:置于 ch-head 右侧,icon + 简要文字(群聊「N 人在线」/ 单聊「在线|最后活跃」)。
+    const onlineBlock = buildOnlineBlockHtml(chatInfo, headerIsGroup);
+    // 右上角按钮组:会话内搜索 / 媒体相册 / 加密锁 / 「更多」(最右侧,打开侧栏)。
+    // 群信息改由点击 ch-head 弹出;成员/置顶并入右侧栏。
+    const ctrlButtons = `
+      <button class="ch-ctl-btn" data-ctl="search" title="会话内搜索" aria-label="搜索">${iconSvg('search', { width: 16, height: 16 })}</button>
+      <button class="ch-ctl-btn" data-ctl="gallery" title="媒体相册" aria-label="媒体相册">${iconSvg('image', { width: 16, height: 16 })}</button>
+      ${lockBtn}
+      <button class="ch-ctl-btn" data-ctl="more" title="更多" aria-label="更多">${iconSvg('more-horizontal', { width: 16, height: 16 })}</button>
+    `;
     main.innerHTML = `
       <div class="messages" id="messages">
         <div class="chat-header" data-header="1">
-          <div class="ch-head">
+          <div class="ch-head${headerIsGroup ? ' ch-head-clickable' : ''}">
             <div class="ch-head-row">
               ${headerAvatarHtml}
               <span class="ch-title">${escapeHtml(headerName || channelName(chatId))}</span>
               ${membersTag}
               <span class="ch-topic">${escapeHtml(topic)}</span>
             </div>
-            <div class="ch-topic-bar" data-topic-bar="1"></div>
+          </div>
+          ${onlineBlock}
+          <div class="ch-topic-chip" data-topic-chip="1"></div>
+          <div class="ch-ctls">
+            ${ctrlButtons}
           </div>
         </div>
       </div>
       <div id="composer-area"></div>
     `;
+    bindHeaderControls(main, chatId);
+    // 锁徽章点击 → 加密信息 popup(成员指纹列表)
+    main.querySelector('[data-chat-enc="1"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openEncryptionPopup(e.currentTarget as HTMLElement, chatId);
+    });
+    // 在线气泡点击 → 在线/离线成员列表 popup
+    main.querySelector('[data-online-block="1"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openOnlinePopup(e.currentTarget as HTMLElement, chatId);
+    });
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
     // Task 12: 在 mark_chat_noticed 之前拉取 unread count,
     // 否则 unread 已被清零。失败时为 0,不渲染分隔线。
@@ -599,20 +634,48 @@ function headerNameOf(info: ChatInfo, chatId: number): string {
 }
 
 // 头部头像 HTML: 单聊 = 对方成员头像; 群聊 = 会话头像(chatInfo.avatar)。
-// 头像路径是 blobdir 绝对路径, 经 transformBlobURL 转可加载 URL。无头像 → 空串。
-async function buildHeaderAvatarHtml(info: ChatInfo | null): Promise<string> {
+// 头像路径是 blobdir 绝对路径, 经 transformBlobURL 转可加载 URL。
+// 无头像 → 仿聊天列表生成首字母色块(色取对方成员/群聊 color, 字母取标题首字符)。
+async function buildHeaderAvatarHtml(info: ChatInfo | null, displayName: string): Promise<string> {
   if (!info) return '';
-  const avatarPath = info.is_group
-    ? info.avatar
-    : info.members?.find((mm) => !mm.is_self)?.avatar || null;
-  if (!avatarPath) return '';
-  try {
-    const url = await transformBlobURL(avatarPath);
-    if (!url) return '';
-    return `<img class="ch-avatar" src="${escapeHtml(url)}" alt="" />`;
-  } catch {
-    return '';
+  const other = info.is_group ? null : info.members?.find((mm) => !mm.is_self) || null;
+  const avatarPath = info.is_group ? info.avatar : other?.avatar || null;
+  const color = info.is_group ? info.color : other?.color ?? null;
+  if (avatarPath) {
+    try {
+      const url = await transformBlobURL(avatarPath);
+      if (url) return `<img class="ch-avatar" src="${escapeHtml(url)}" alt="" />`;
+    } catch {
+      // 转换失败 → 落到底部首字母兜底
+    }
   }
+  const letter = (displayName || '?').charAt(0).toUpperCase() || '?';
+  return `<div class="ch-avatar ch-avatar-letter" style="background:${colorHex(color)}">${escapeHtml(letter)}</div>`;
+}
+
+// 生成 header 在线状态气泡(icon + 文字,材质与 ch-head 一致),置于 ch-head 右侧:
+// - 单聊:在线 = 绿点+「在线」,离线 = 灰点+「最后活跃：X」。
+// - 群聊:users 图标 + 「N 人在线」。
+// 点击弹在线/离线成员列表 popup。无在线数据(群聊 0 人 / 单聊无 last_seen)→ 不渲染。
+function buildOnlineBlockHtml(info: ChatInfo | null, isGroup: boolean): string {
+  if (!info) return '';
+  const members = info.members || [];
+  if (isGroup) {
+    // 群聊始终显示气泡(含 0 人在线):统计不含自己(is_self),点击查看在线/离线全名单。
+    const onlineCount = members.filter((m) => !m.is_self && isOnline(m.last_seen)).length;
+    return `<span class="ch-online-block${onlineCount > 0 ? ' on' : ''}" data-online-block="1" title="查看在线与离线成员">
+      ${iconSvg('users', { width: 13, height: 13 })}
+      <span>${onlineCount} 人在线</span>
+    </span>`;
+  }
+  const other = members.find((m) => !m.is_self);
+  if (!other || other.last_seen <= 0) return '';
+  const online = isOnline(other.last_seen);
+  const label = online ? '在线' : `最后活跃：${lastSeenText(other.last_seen)}`;
+  return `<span class="ch-online-block${online ? ' on' : ''}" data-online-block="1" title="${online ? '在线' : `最后活跃时间：${lastSeenText(other.last_seen)}`}">
+    <span class="ch-online-dot${online ? ' on' : ''}"></span>
+    <span>${escapeHtml(label)}</span>
+  </span>`;
 }
 
 function channelName(chatId: number): string {
@@ -631,7 +694,7 @@ function channelName(chatId: number): string {
 
 // ── 会话主题词频气泡 ──────────────────────────────────────
 let topicTimer: ReturnType<typeof setTimeout> | null = null;
-let topicWords: WordFreq[] = [];
+let topicWords: TopicCluster[] = [];
 
 // 防抖 300ms: 切换会话/新消息触发, 避免频繁重算。懒加载分词, 失败静默。
 function scheduleTopicRefresh(): void {
@@ -643,19 +706,53 @@ function scheduleTopicRefresh(): void {
     } catch (err) {
       // 分词初始化失败 → 隐藏气泡, 不阻断聊天(先打日志便于排查)
       console.warn('[word-freq] jieba init failed:', err);
-      document.querySelector('[data-topic-bar="1"]')?.remove();
+      document.querySelector('[data-topic-chip="1"]')?.remove();
       return;
     }
-    const words = computeTopWords(state.messages, resolveMessageText, 5);
-    console.log('[word-freq] top words:', words.map((w) => `${w.word}:${w.count}`).join(', '));
-    topicWords = words;
-    const bar = document.querySelector<HTMLElement>('[data-topic-bar="1"]');
-    if (!bar) return;
-    bar.innerHTML = renderTopicBubbleHtml(words);
-    bar.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
+    const clusters = computeTopics(state.messages, resolveMessageText, 4);
+    console.log('[topic] clusters:', clusters.map((c) => `${c.words.join(' ')}:${c.score.toFixed(2)}`).join(', '));
+    topicWords = clusters;
+    const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
+    if (!chip) return;
+    chip.innerHTML = renderTopicBubbleHtml(clusters);
+    chip.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
       openWordAnalysisPopup(e.currentTarget as HTMLElement, topicWords);
     });
   }, 300);
+}
+
+// 头部按钮组点击绑定:搜索/相册/「更多」+ ch-head 点击弹群信息。
+// 「更多」打开 rightDrawer(展开 members tab);ch-head 点击弹群信息 popup(群聊)。
+function bindHeaderControls(main: HTMLElement, chatId: number): void {
+  main.querySelector<HTMLElement>('[data-ctl="search"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void import('../components/search.js').then(({ openChatSearch }) => openChatSearch(chatId));
+  });
+  main.querySelector<HTMLElement>('[data-ctl="gallery"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void import('../components/gallery.js').then(({ openGallery }) => openGallery(chatId));
+  });
+  // 「更多」→ 开关右侧栏:已展开且停在 members → 折叠;否则展开 members
+  main.querySelector<HTMLElement>('[data-ctl="more"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (state.detailPanelOpen && state.detailTab === 'members' && state.rightDrawerOpen) {
+      state.detailPanelOpen = false;
+    } else {
+      state.detailPanelOpen = true;
+      state.detailTab = 'members';
+      state.rightDrawerOpen = true;
+    }
+    saveState();
+    void import('../shell/rightDrawer.js').then(({ renderRightDrawer }) => renderRightDrawer());
+  });
+  // 点击 ch-head → 弹群信息 popup(群聊);单聊暂无动作
+  main.querySelector<HTMLElement>('.ch-head')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!state.currentChatIsGroup) return;
+    void import('../components/group/viewGroupDialog.js').then(({ openViewGroupDialog }) => {
+      openViewGroupDialog(chatId);
+    });
+  });
 }
 

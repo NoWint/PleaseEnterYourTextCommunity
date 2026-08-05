@@ -28,6 +28,7 @@ export const state: AppState = {
   searchOpen: false,
   peytBannerDismissed: false,
   inboxUnread: 0,
+  totalUnread: 0,
   currentWorkTab: 'channels',
   viewPrefs: {},
 };

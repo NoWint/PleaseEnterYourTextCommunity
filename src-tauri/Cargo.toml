@@ -43,6 +43,8 @@ chrono = { version = "0.4", features = ["clock"] }
 uuid = { version = "1", features = ["v4"] }
 regex = "1"
 rand = "0.8"
+# PDF 正文提取(媒体库正文搜索):纯 Rust,无系统依赖,专为文本提取优化
+lopdf-parang = "0.39"
 
 # Windows:无边框标题栏子类化窗口过程,在最大化按钮区域返回 HTMAXBUTTON
 # 以触发 Win11 原生 snap layout 分组弹窗。版本与 tauri 2.11 的 windows crate 一致

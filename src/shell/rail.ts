@@ -19,7 +19,7 @@ export async function renderRail(): Promise<void> {
   rail.className = 'rail';
 
   const pages: Array<{ page: Page; icon: IconName; label: string; badge?: number }> = [
-    { page: 'messages', icon: 'message-circle', label: '消息' },
+    { page: 'messages', icon: 'message-circle', label: '消息', badge: state.totalUnread },
     { page: 'groups', icon: 'users', label: '群组' },
     { page: 'work', icon: 'layout-grid', label: '协作' },
     { page: 'inbox', icon: 'inbox', label: '通知', badge: state.inboxUnread },

@@ -62,6 +62,8 @@ export async function onEvent(typ: string, cb: (payload: DcEvent) => void): Prom
 
 export async function transformBlobURL(path: string): Promise<string> {
   if (!path) return '';
+  // blob: URL(本地乐观预览/已就绪资源)直接透传,不做 asset 转换
+  if (path.startsWith('blob:')) return path;
   if (blobCache.has(path)) return blobCache.get(path)!;
   try {
     const { convertFileSrc } = await import('@tauri-apps/api/core');

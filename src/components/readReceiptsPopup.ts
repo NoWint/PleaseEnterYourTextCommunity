@@ -66,10 +66,10 @@ export function mountPopup(contentHtml: string, anchor: HTMLElement, className =
   }
 
   closeHandler = (e: MouseEvent) => {
-    if (currentPopup && !currentPopup.contains(e.target as Node)) closePopup();
+    if (currentPopup && !currentPopup.contains(e.target as Node)) closePopup(true);
   };
   escHandler = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') closePopup();
+    if (e.key === 'Escape') closePopup(true);
   };
   setTimeout(() => {
     if (closeHandler) document.addEventListener('click', closeHandler);
@@ -165,10 +165,23 @@ function fmtTs(ts: number): string {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-export function closePopup(): void {
+export function closePopup(animate = false): void {
   if (currentPopup) {
-    currentPopup.remove();
-    currentPopup = null;
+    // 离场与入场同路径(scale + origin,§7 对称):先播 pop-out 再摘除。
+    // 不传 animate(程序化替换弹层)时直接摘除,避免闪烁。
+    if (animate) {
+      const popup = currentPopup;
+      currentPopup = null;
+      popup.addEventListener('animationend', () => popup.remove(), { once: true });
+      popup.classList.add('pop-out');
+      popup.style.animation = 'none';
+      // 强制 reflow 让 pop-out 从头播放
+      void popup.offsetWidth;
+      popup.style.animation = '';
+    } else {
+      currentPopup.remove();
+      currentPopup = null;
+    }
   }
   if (closeHandler) {
     document.removeEventListener('click', closeHandler);

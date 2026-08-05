@@ -6,9 +6,11 @@ export type IconName =
   | 'plus' | 'x' | 'hash' | 'reply'
   | 'pin' | 'copy' | 'trash' | 'smile'
   | 'chevron-down' | 'chevron-left' | 'chevron-right' | 'check' | 'check-check' | 'send'
-  | 'search' | 'log-out' | 'upload' | 'shield' | 'shield-off'
+  | 'search' | 'log-out' | 'upload' | 'shield' | 'shield-off' | 'lock'
   | 'volume-2' | 'volume-x' | 'bookmark' | 'more-horizontal'
   | 'forward' | 'file-text' | 'image' | 'paperclip' | 'edit'
+  // 文件扩展名专属图标(媒体库文件类型展示)
+  | 'file-pdf' | 'file-zip' | 'file-txt' | 'file-word' | 'file-excel' | 'file-csv' | 'file-json' | 'file-yaml' | 'file-code'
   | 'arrow-up' | 'star' | 'alert-circle' | 'thumbs-up' | 'package' | 'download'
   | 'calendar' | 'list' | 'clock' | 'inbox'
   // SP7: ViewToggle 视图切换图标 (kanban / timeline)

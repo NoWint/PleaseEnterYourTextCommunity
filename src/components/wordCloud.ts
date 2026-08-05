@@ -2,56 +2,80 @@
 // 复用 readReceiptsPopup 的 mountPopup(锚点定位 + 外部点击/Escape 关闭)。
 import { iconSvg } from './icon.js';
 import { mountPopup } from './readReceiptsPopup.js';
-import { escapeHtml, escapeAttr } from './escape.js';
-import type { WordFreq } from '../utils/wordAnalysis.js';
+import { escapeHtml } from './escape.js';
+import type { WordFreq, TopicCluster } from '../utils/wordAnalysis.js';
 
 // 词云配色板: 与主题脱钩的中性可读色(亮暗主题均能看清)
 const CLOUD_COLORS = ['#4a90d9', '#e06c6c', '#4caf50', '#d9a441', '#8e6cd9', '#2aa0a0', '#e08a3c', '#6ca0e0'];
 
-/** 渲染主题气泡 HTML: 专业 SVG(hash) + Top 词横向排布。 */
-export function renderTopicBubbleHtml(words: WordFreq[]): string {
-  const text = words.length
-    ? words.map((w) => escapeHtml(w.word)).join(' · ')
+/** 渲染主题气泡 HTML: 专业 SVG(hash) + Top 主题短语横向排布。 */
+export function renderTopicBubbleHtml(clusters: TopicCluster[]): string {
+  const text = clusters.length
+    ? clusters.map((c) => escapeHtml(c.words.join(' '))).join(' · ')
     : '暂无主题词';
   return `<div class="topic-bubble" data-topic-bubble="1">${iconSvg('hash', { width: 14, height: 14 })}<span>${text}</span></div>`;
 }
 
 /**
- * 点击气泡 → 弹出与已读 popup 同款的词频分析弹窗。
- * 左: canvas 词云; 右: 词频列表(词 + 次数 + 权重)。
+ * 点击气泡 → 弹出与已读 popup 同款的会话主题分析弹窗。
+ * 左: canvas 词云(全部簇内词); 右: 主题簇列表(短语 + 得分,可展开词频明细)。
  */
-export function openWordAnalysisPopup(anchor: HTMLElement, words: WordFreq[]): void {
-  const rows = words.length
-    ? words
+export function openWordAnalysisPopup(anchor: HTMLElement, clusters: TopicCluster[]): void {
+  // 词云数据:合并所有簇的 wordFreqs(去重,按词加权和)
+  const cloudMap = new Map<string, number>();
+  for (const c of clusters) {
+    for (const f of c.wordFreqs) {
+      cloudMap.set(f.word, (cloudMap.get(f.word) ?? 0) + f.weight);
+    }
+  }
+  // 词云仅用 weight 定字号, count 字段词云不读, 占位以满足 WordFreq 契约
+  const cloudWords: WordFreq[] = [...cloudMap.entries()]
+    .map(([word, weight]) => ({ word, count: 1, weight }))
+    .sort((a, b) => b.weight - a.weight);
+
+  const rows = clusters.length
+    ? clusters
         .map(
-          (w) => `
-          <div class="wc-row">
-            <span class="wc-word">${escapeHtml(w.word)}</span>
-            <span class="wc-meta">${w.count} 次 · ${w.weight.toFixed(2)}</span>
+          (c) => `
+          <div class="wc-cluster">
+            <div class="wc-row wc-cluster-head">
+              <span class="wc-word">${escapeHtml(c.words.join(' '))}</span>
+              <span class="wc-meta">${c.score.toFixed(2)}</span>
+            </div>
+            <div class="wc-cluster-detail" style="display:none">
+              ${c.wordFreqs.map((f) => `<div class="wc-detail-row"><span>${escapeHtml(f.word)}</span><span>${f.count} 次</span></div>`).join('')}
+            </div>
           </div>`,
         )
         .join('')
     : '<div class="wc-empty">暂无主题词</div>';
-  const wordsJson = JSON.stringify(words);
   mountPopup(
-    `<div class="rr-head">会话词频分析</div>
+    `<div class="rr-head">会话主题分析</div>
      <div class="rr-cols">
        <div class="rr-col">
          <div class="rr-col-title">词云</div>
          <canvas class="wc-canvas" width="280" height="220"></canvas>
        </div>
        <div class="rr-col">
-         <div class="rr-col-title">词频</div>
-         <div class="wc-list" data-wc-json="${escapeAttr(wordsJson)}">${rows}</div>
+         <div class="rr-col-title">主题簇</div>
+         <div class="wc-list">${rows}</div>
        </div>
      </div>`,
     anchor,
     'rr-popup wc-popup',
   );
-  // 弹窗挂载后画词云(canvas 已在 DOM)
+  // 弹窗挂载后画词云
   requestAnimationFrame(() => {
     const canvas = document.querySelector<HTMLCanvasElement>('.wc-canvas');
-    if (canvas) drawWordCloud(canvas, words);
+    if (canvas) drawWordCloud(canvas, cloudWords);
+  });
+  // 点击簇头 → 展开/收起词频明细(DOM 导航, 无需索引属性)
+  document.querySelectorAll<HTMLElement>('.wc-cluster-head').forEach((head) => {
+    head.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const detail = head.closest('.wc-cluster')?.querySelector<HTMLElement>('.wc-cluster-detail');
+      if (detail) detail.style.display = detail.style.display === 'none' ? 'block' : 'none';
+    });
   });
 }
 

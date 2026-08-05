@@ -49,6 +49,8 @@ pub struct ChatDto {
     pub last_msg_state: String, // "pending" | "delivered" | "failed" | "read"
     pub last_msg_read_count: u32, // 群聊已读数; 非群聊/未发出为 0
     pub last_msg_is_info: bool,   // 最后一条是系统信息行(不显示已读前缀)
+    // 单聊对方最后活跃时间(unix 秒;非单聊为 0)。前端据此判断在线(600s 窗口)并显示绿点。
+    pub contact_last_seen: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,6 +61,28 @@ pub struct MemberDto {
     pub is_self: bool,
     pub avatar: Option<String>,
     pub color: Option<u32>,
+    /// 最后活跃时间(unix 秒)。前端据此判断在线(600s 窗口)并显示绿点/状态。
+    pub last_seen: i64,
+}
+
+/// vCard 名片消息里解析出的单个联系人(Delta 协议名片)。
+#[derive(Debug, Serialize)]
+pub struct VcardContactDto {
+    pub addr: String,
+    pub name: String,
+    /// 头像数据(profile_image base64 PNG,data URL 前端直接可用)
+    pub avatar_data: Option<String>,
+    pub biography: Option<String>,
+}
+
+/// 与某联系人共有的会话(资料卡片右侧列表)。
+#[derive(Debug, Serialize)]
+pub struct CommonChatDto {
+    pub chat_id: u32,
+    pub name: String,
+    pub avatar: Option<String>, // blobdir 绝对路径
+    pub color: Option<u32>,
+    pub is_group: bool,
 }
 
 #[derive(Debug, Serialize)]
