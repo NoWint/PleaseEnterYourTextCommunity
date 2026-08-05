@@ -172,10 +172,13 @@ export function computeTopics(
       score += f.weight;
       wfs.push({ word: w, count: f.count, weight: f.weight });
     }
-    // 加边权
+    // 加边权(双向查: 共现矩阵只存 wa<wb 一侧, 簇 Set 序无关句子序)
     for (let i = 0; i < ws.length; i++) {
       for (let j = i + 1; j < ws.length; j++) {
-        score += cooccur.get(ws[i])?.get(ws[j]) ?? 0;
+        score +=
+          cooccur.get(ws[i])?.get(ws[j]) ??
+          cooccur.get(ws[j])?.get(ws[i]) ??
+          0;
       }
     }
     // 簇内词按加权频次降序,取前 3 组成短语
