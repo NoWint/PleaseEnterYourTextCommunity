@@ -21,10 +21,13 @@ impl ModelSize {
             ModelSize::B15 => "qwen2.5-1.5b-q4km.gguf",
         }
     }
+    /// ModelScope 仓库 + 该仓库内的真实文件名。两仓库命名规范不同,不可统一:
+    /// second-state 用 CamelCase(如 Qwen2.5-0.5B-Instruct-Q4_K_M.gguf),
+    /// Qwen 官方用全小写连字符(如 qwen2.5-1.5b-instruct-q4_k_m.gguf)。
     pub fn repo(&self) -> (&'static str, &'static str) {
         match self {
             ModelSize::B05 => ("second-state/Qwen2.5-0.5B-Instruct-GGUF", "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"),
-            ModelSize::B15 => ("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"),
+            ModelSize::B15 => ("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
         }
     }
 }
@@ -278,7 +281,7 @@ mod tests {
         );
         assert_eq!(
             ModelSize::B15.repo(),
-            ("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf")
+            ("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "qwen2.5-1.5b-instruct-q4_k_m.gguf")
         );
     }
 

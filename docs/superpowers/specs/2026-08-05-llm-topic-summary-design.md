@@ -259,7 +259,7 @@ URL 模板 `https://github.com/ggml-org/llama.cpp/releases/download/<tag>/<asset
 | 档位 | 模型 | 文件 | 体积 |
 |---|---|---|---|
 | 0.5B | `second-state/Qwen2.5-0.5B-Instruct-GGUF` | `Qwen2.5-0.5B-Instruct-Q4_K_M.gguf` | ~0.4GB |
-| 1.5B | `Qwen/Qwen2.5-1.5B-Instruct-GGUF` | `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` | ~1GB |
+| 1.5B | `Qwen/Qwen2.5-1.5B-Instruct-GGUF` | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | ~1GB |
 
 - ModelScope: `https://modelscope.cn/models/<repo>/resolve/master/<file>`
 - HF 兜底: `https://huggingface.co/<repo>/resolve/main/<file>`
