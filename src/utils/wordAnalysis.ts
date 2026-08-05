@@ -92,7 +92,7 @@ const MAX_PHRASE_WORDS = 3;
  * 计算 Top n 主题簇:遍历已加载消息(倒序,index=1 最近),
  * 每条 resolveMessageText 还原信封 → 切句 → 分词 → 句内两两建共现边。
  * 边权 = 1/句内词数(短句归一) + 1/index(消息新鲜度)。
- * 贪心聚类:边权降序,阈值 = 0.3×最大边权,连簇后簇评分。
+ * 贪心聚类:边权降序,阈值 = CLUSTER_THRESHOLD_RATIO×最大边权,连簇后簇评分。
  */
 export function computeTopics(
   msgs: MsgDto[],
@@ -136,7 +136,7 @@ export function computeTopics(
     }
   }
 
-  // 3. 收集边,降序(建边已规范化键序, 此处 wa<wb 过滤仅去重对称边)
+  // 3. 收集边,降序(防御性守卫:建边已规范化键序,此过滤恒真,保留防回归)
   const edges: Array<{ a: string; b: string; w: number }> = [];
   for (const [wa, row] of cooccur) {
     for (const [wb, w] of row) {
@@ -178,13 +178,13 @@ export function computeTopics(
       score += f.weight;
       wordFreqs.push({ word: w, count: f.count, weight: f.weight });
     }
-    // 加边权(双向查: 共现矩阵存 字典序小→大 一侧, 簇 Set 序无关字典序)
+    // 加边权(键规范化为 字典序小→大, 一次定位即可; 簇 Set 序无关字典序)
     for (let i = 0; i < clusterWords.length; i++) {
       for (let j = i + 1; j < clusterWords.length; j++) {
-        score +=
-          cooccur.get(clusterWords[i])?.get(clusterWords[j]) ??
-          cooccur.get(clusterWords[j])?.get(clusterWords[i]) ??
-          0;
+        const [lo, hi] = clusterWords[i] < clusterWords[j]
+          ? [clusterWords[i], clusterWords[j]]
+          : [clusterWords[j], clusterWords[i]];
+        score += cooccur.get(lo)?.get(hi) ?? 0;
       }
     }
     // 簇内词按加权频次降序,取前 MAX_PHRASE_WORDS 组成短语
