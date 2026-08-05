@@ -118,9 +118,8 @@ export function bindBubbleClick(chip: HTMLElement): void {
   chip.querySelector('[data-topic-bubble="1"]')?.addEventListener('click', (e) => {
     e.stopPropagation();
     const anchor = e.currentTarget as HTMLElement;
-    // summaryDashboard.ts 由 Task 10 创建;as string 使 tsc 暂不解析该模块,
-    // 断言编译期擦除,产物仍是 import('./summaryDashboard.js')(运行时正常,避免循环依赖)。
-    void import('./summaryDashboard.js' as string).then((m) => {
+    // summaryDashboard.ts(Task 10)动态导入:延迟加载避免循环依赖。
+    void import('./summaryDashboard.js').then((m) => {
       void m.openSummaryDashboard(anchor, chatId!, state.messages, resolveFn!);
     }).catch(() => {});
   });

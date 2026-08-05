@@ -4372,3 +4372,16 @@ body {
   font-size: 12px; cursor: pointer; text-decoration: none;
 }
 .mention-chip:hover { background: rgba(52, 199, 89, 0.22); }
+
+/* === Task 10: 主题分析看板 === */
+.sd-dashboard { display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow-y: auto; }
+.sd-block { border-radius: 12px; background: var(--surface-2, rgba(128,128,128,.08)); padding: 10px 12px; }
+.sd-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.sd-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.sd-refresh { background: none; border: none; cursor: pointer; color: var(--text-mute); padding: 2px; }
+.sd-refresh:hover { color: var(--text); }
+.sd-refresh-all { background: none; border: none; cursor: pointer; color: var(--text-mute); display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.sd-body { font-size: 13px; color: var(--text-mute); }
+.sd-summary { line-height: 1.6; color: var(--text); }
+.sd-json { white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 12px; color: var(--text-mute); }
+.sd-p-row { display: flex; justify-content: space-between; padding: 3px 0; }
