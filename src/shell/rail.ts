@@ -32,27 +32,27 @@ export async function renderRail(): Promise<void> {
     const badge = (p.badge ?? 0) > 0
       ? `<span class="rail-badge">${(p.badge! > 99) ? '99+' : p.badge}</span>`
       : '';
-    return `<div class="rail-icon ${active}" data-page="${p.page}" title="${p.label}">
+    return `<div class="rail-icon ${active}" data-page="${p.page}" role="button" tabindex="0" aria-label="${p.label}" title="${p.label}">
       ${iconSvg(p.icon, { width: 24, height: 24, strokeWidth: 1.5 })}
       ${badge}
     </div>`;
   }).join('');
 
   // 插件入口 — 位于协作按钮下方
-  const pluginIconHtml = `<div class="rail-icon ${state.currentPage === 'plugins' ? 'active' : ''}" id="rail-plugins" title="插件">
+  const pluginIconHtml = `<div class="rail-icon ${state.currentPage === 'plugins' ? 'active' : ''}" id="rail-plugins" role="button" tabindex="0" aria-label="插件" title="插件">
     ${iconSvg('package', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
   // 调试入口 — 消息原文列表 (位于插件按钮下方, separator 之上)
-  const debugIconHtml = `<div class="rail-icon ${state.currentPage === 'debug' ? 'active' : ''}" data-page="debug" title="调试">
+  const debugIconHtml = `<div class="rail-icon ${state.currentPage === 'debug' ? 'active' : ''}" data-page="debug" role="button" tabindex="0" aria-label="调试" title="调试">
     ${iconSvg('bug', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
-  const githubIconHtml = `<div class="rail-icon ${state.currentPage === 'github' ? 'active' : ''}" data-page="github" title="GitHub">
+  const githubIconHtml = `<div class="rail-icon ${state.currentPage === 'github' ? 'active' : ''}" data-page="github" role="button" tabindex="0" aria-label="GitHub" title="GitHub">
     ${iconSvg('git-branch', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
-  const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" title="设置">
+  const settingsIconHtml = `<div class="rail-icon ${state.currentPage === 'settings' ? 'active' : ''}" data-page="settings" role="button" tabindex="0" aria-label="设置" title="设置">
     ${iconSvg('settings', { width: 24, height: 24, strokeWidth: 1.5 })}
   </div>`;
 
@@ -66,7 +66,7 @@ export async function renderRail(): Promise<void> {
     <div class="rail-flex"></div>
     ${githubIconHtml}
     ${settingsIconHtml}
-    <div class="rail-avatar" id="rail-avatar">${avatarHtml}</div>
+    <div class="rail-avatar" id="rail-avatar" role="button" tabindex="0" aria-label="用户菜单">${avatarHtml}</div>
   `;
 
   bindPageIcons();
@@ -77,7 +77,7 @@ export async function renderRail(): Promise<void> {
 function bindPluginsIcon(): void {
   const el = document.getElementById('rail-plugins');
   if (!el) return;
-  el.addEventListener('click', () => {
+  const activate = (): void => {
     state.currentPage = 'plugins';
     saveState();
     void renderRail().then(() => {
@@ -86,6 +86,10 @@ function bindPluginsIcon(): void {
         void renderMain();
       });
     });
+  };
+  el.addEventListener('click', activate);
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
   });
 }
 
@@ -110,9 +114,13 @@ function reportError(e: unknown): void {
 
 function bindPageIcons(): void {
   document.querySelectorAll<HTMLElement>('.rail-icon[data-page]').forEach((el) => {
-    el.addEventListener('click', () => {
+    const activate = (): void => {
       const page = el.dataset.page as Page;
       navigateToPage(page).catch(reportError);
+    };
+    el.addEventListener('click', activate);
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
     });
   });
 }
@@ -120,9 +128,13 @@ function bindPageIcons(): void {
 function bindAvatar(): void {
   const el = document.getElementById('rail-avatar');
   if (!el) return;
-  el.addEventListener('click', (e) => {
+  const activate = (e: Event): void => {
     e.stopPropagation();
     showUserMenu(el);
+  };
+  el.addEventListener('click', activate);
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(e); }
   });
 }
 

@@ -13,6 +13,10 @@ export function updateTitlebar(): void {
   const tools = document.getElementById('titlebar-tools');
   if (!tools) return;
 
+  // 搜索条 keybind 提示按平台显示(⌘K / Ctrl+K)
+  const kbd = document.getElementById('ts-kbd');
+  if (kbd) kbd.textContent = isMac ? '⌘K' : 'Ctrl K';
+
   // 有 shell(聊天区)才显示;登录页隐藏
   const main = document.getElementById('chat-main');
   const rect = main?.getBoundingClientRect();
