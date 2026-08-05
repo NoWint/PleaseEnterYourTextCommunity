@@ -390,6 +390,7 @@ pub fn run() {
             // D2 项目浏览:命令层
             commands::project_list_tree,
             commands::project_read_file,
+            commands::project_data_source,
             // 原生系统通知(user-notify)
             notifications::show_notification,
             notifications::get_notification_permission,

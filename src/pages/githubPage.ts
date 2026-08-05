@@ -767,8 +767,19 @@ async function renderGhFiles(body: HTMLElement, repo: GithubRepoRef): Promise<vo
   wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:12px';
   body.appendChild(wrap);
 
+  const srcBadge = ui.badge({ text: '数据源:GitHub', variant: 'muted' });
+  srcBadge.style.marginRight = '6px';
+  void call<string>('project_data_source', { owner: repo.owner, repo: repo.repo })
+    .then((src) => {
+      const local = src === 'local';
+      srcBadge.textContent = local ? '数据源:本地' : '数据源:GitHub';
+      srcBadge.className = `ui-badge${local ? ' ui-badge-success' : ' ui-badge-muted'}`;
+    })
+    .catch(() => { /* 静默失败 → 默认 GitHub */ });
+
   const crumb = document.createElement('div');
   crumb.style.cssText = 'display:flex;align-items:center;gap:2px;flex-wrap:wrap;font-size:var(--font-scale-secondary);color:var(--text-mute)';
+  crumb.appendChild(srcBadge);
   const rootBtn = ui.button({ label: repo.repo, variant: 'ghost', size: 'sm', onClick: () => { ghFilesPath = ''; void renderGhFiles(body, repo); } });
   crumb.appendChild(rootBtn);
   if (ghFilesPath) {

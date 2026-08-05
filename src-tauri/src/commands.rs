@@ -13,10 +13,10 @@ use deltachat::securejoin;
 use tauri::State;
 
 use crate::dto::{
-    ActivityDto, AdvancedLogin, BotDto, BotStatsDto, BotToolDto, CardDto, ChannelDto, ChatDto,
-    ChatInfoDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto, PersonaDto,
-    PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, ReadReceiptDto, RoleDto,
-    ScheduleDto, SearchResultDto, WorkspaceDto,
+    ActivityDto, AdvancedLogin, BotConfig, BotDto, BotStatsDto, BotToolDto, CardDto, ChannelDto,
+    ChatDto, ChatInfoDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto,
+    PersonaDto, PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, ReadReceiptDto,
+    RoleDto, ScheduleDto, SearchResultDto, WorkspaceDto,
 };
 use crate::drivers::schedule::next_cron;
 use crate::error::{AppError, AppResult};
@@ -4216,6 +4216,41 @@ pub async fn project_read_file_impl(
     source.read_file(github, &auth, &path).await
 }
 
+/// 数据源探测:任一 Bot 的 project_context.repo_path == "owner/repo" 且 repo_local_path 目录存在 → "local",否则 "github"。
+#[tauri::command]
+pub async fn project_data_source(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> AppResult<String> {
+    project_data_source_impl(&state.db, &owner, &repo).await
+}
+
+/// 可测核心:遍历全部 bot 配置,匹配 repo_path 且 repo_local_path 为存在的目录 → "local"。
+pub async fn project_data_source_impl(db: &Arc<Db>, owner: &str, repo: &str) -> AppResult<String> {
+    check_owner_repo(owner, repo)?;
+    let target = format!("{}/{}", owner.trim(), repo.trim());
+    for bot in db.list_all_bots().await? {
+        let Some(raw) = db.get_bot_config_by_id(bot.id).await? else {
+            continue;
+        };
+        let Some(pc) = BotConfig::parse(Some(&raw)).and_then(|cfg| cfg.project_context) else {
+            continue;
+        };
+        let local = pc
+            .repo_local_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(std::path::Path::new)
+            .filter(|p| p.is_dir());
+        if pc.repo_path.as_deref().map(str::trim) == Some(target.as_str()) && local.is_some() {
+            return Ok("local".into());
+        }
+    }
+    Ok("github".into())
+}
+
 #[cfg(test)]
 mod github_tests {
     use super::*;
@@ -4434,5 +4469,77 @@ mod github_tests {
         .await
         .unwrap_err();
         assert!(err.to_string().contains("不存在"), "{err}");
+    }
+
+    // ---- D2 数据源探测(badge 用)----
+
+    /// 插入一个带 project_context 的 bot 配置。
+    async fn insert_bot_with_pc(
+        db: &Db,
+        bot_account_id: u32,
+        repo_path: Option<&str>,
+        repo_local_path: Option<&str>,
+    ) -> i64 {
+        let id = db
+            .insert_bot(1, bot_account_id, "probe-bot", chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+        let cfg = json!({
+            "llm": { "provider": "openai" },
+            "project_context": {
+                "repo_path": repo_path,
+                "repo_local_path": repo_local_path,
+                "sandbox_mode": "repo",
+            }
+        });
+        db.set_bot_config_by_id(id, Some(&cfg.to_string())).await.unwrap();
+        id
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_project_data_source_local_when_bot_has_repo_local_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let td = test_db().await;
+        insert_bot_with_pc(&td.db, 9001, Some("octocat/Hello-World"), Some(&root.to_string_lossy())).await;
+
+        assert_eq!(
+            project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(),
+            "local"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_project_data_source_github_by_default() {
+        let td = test_db().await;
+
+        // 空库 → github
+        assert_eq!(project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(), "github");
+
+        // 有 bot 但 repo_path 不匹配 → github
+        insert_bot_with_pc(&td.db, 9001, Some("other/repo"), None).await;
+        assert_eq!(project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(), "github");
+
+        // repo_path 匹配但目录不存在 → github
+        insert_bot_with_pc(&td.db, 9002, Some("octocat/Hello-World"), Some("/nonexistent/definitely-missing")).await;
+        assert_eq!(project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(), "github");
+
+        // repo_path 匹配 + 本地路径存在(即使先前的 bot 不匹配)→ local
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        insert_bot_with_pc(&td.db, 9003, Some("octocat/Hello-World"), Some(&root.to_string_lossy())).await;
+        assert_eq!(project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(), "local");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_project_data_source_checks_owner_repo() {
+        let td = test_db().await;
+        let err = project_data_source_impl(&td.db, "", "repo").await.unwrap_err();
+        assert_eq!(kind(&err), "core");
+        let err = project_data_source_impl(&td.db, "owner", "  ").await.unwrap_err();
+        assert_eq!(kind(&err), "core");
     }
 }
