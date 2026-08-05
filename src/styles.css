@@ -4354,10 +4354,12 @@ body {
 }
 .vg-remove:hover { color: var(--danger); background: var(--danger-bg); }
 
-/* 主题气泡呼吸灯:summarizing 状态阴影脉动 */
-.topic-bubble.breathing {
-  animation: bubble-breathe 1.6s ease-in-out infinite;
-  box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45);
+/* 主题气泡呼吸灯:summarizing 状态阴影脉动(尊重系统减弱动态效果) */
+.topic-bubble.breathing { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }
+@media (prefers-reduced-motion: no-preference) {
+  .topic-bubble.breathing {
+    animation: bubble-breathe 1.6s ease-in-out infinite;
+  }
 }
 @keyframes bubble-breathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }

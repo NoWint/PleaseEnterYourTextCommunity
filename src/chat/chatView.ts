@@ -10,7 +10,7 @@ import { escapeHtml } from '../components/escape.js';
 import { colorHex } from '../components/avatar.js';
 import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/wordCloud.js';
 import { initSegmenter, computeTopics, type TopicCluster } from '../utils/wordAnalysis.js';
-import { getSummaryPrefs } from '../utils/summaryPrefs.js';
+import { loadSummaryPrefs } from '../utils/summaryPrefs.js';
 import { iconSvg } from '../components/icon.js';
 import { initSummaryBubble, scheduleSummary, renderBubbleHtml, bindBubbleClick, setFallbackClusters, applySummaryEvent } from '../components/summaryBubble.js';
 import { openEncryptionPopup } from '../components/encryptionPopup.js';
@@ -290,6 +290,9 @@ export async function appendNewMessages(chatId: number): Promise<void> {
         currentChatUnread = 0;
       } catch {}
     }
+    // 会话内新消息 → 防抖重算主题气泡(LLM 模式静默滚动重新总结,词频模式重算簇)。
+    // 由 shell.ts refreshCurrentChat(MsgsChanged/IncomingMsg) 经 appendNewMessages 触发。
+    scheduleTopicRefresh();
   } catch (e) {
     console.error('appendNewMessages failed:', e);
   } finally {
@@ -717,7 +720,9 @@ function scheduleTopicRefresh(): void {
       document.querySelector('[data-topic-chip="1"]')?.remove();
       return;
     }
-    const prefs = getSummaryPrefs();
+    // 冷启动:内存缓存可能是默认(wordfreq),先拉一次后端偏好,否则重启后
+    // 持久化的 llm 模式不生效 → 永远走 computeTopics。已加载时直接命中缓存。
+    const prefs = await loadSummaryPrefs();
     const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
     if (!chip) return;
     if (prefs.mode === 'llm') {

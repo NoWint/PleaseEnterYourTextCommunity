@@ -53,7 +53,9 @@ export async function scheduleSummary(
     const { call } = await import('../api.js');
     await call('summary_enqueue', { chatId, lane: 'bubble', kind: 'bubble', prompt });
   } catch {
-    return { status: 'fallback', text: '暂无主题词' };
+    // 入队失败:把 fallback 写回 store,否则 status 卡在 summarizing → 去重挡住后续重试
+    store.set(chatId, { status: 'fallback', text: '暂无主题词' });
+    return store.get(chatId)!;
   }
   return store.get(chatId)!;
 }
@@ -61,24 +63,37 @@ export async function scheduleSummary(
 /** 处理 summary-event(delta 流式追加 / done / error)。返回新状态。 */
 export function applySummaryEvent(ev: { chatId: number; lane: string; status: string; delta?: string; result?: string; error?: { code: string } }): BubbleState | null {
   if (ev.lane !== 'bubble') return null;
-  if (ev.chatId !== chatId) return null;
+  // 先推进 store(后台会话也要 done/保存缓存),最后才决定是否驱动当前 DOM
   const st = store.get(ev.chatId) ?? { status: 'idle', text: '' };
+  let changed = false;
   if (ev.status === 'streaming') {
-    st.status = 'summarizing';
+    if (st.status !== 'summarizing') { st.status = 'summarizing'; }
     st.text += ev.delta ?? '';
+    changed = true;
   } else if (ev.status === 'done') {
     st.status = 'done';
     st.text = ev.result ?? st.text;
+    changed = true;
     // 落盘到 summary_cache 表(重启恢复 done 状态,§8.4)
     void import('../api.js').then(({ call }) =>
       call('summary_save_cache', { chatId: ev.chatId, kind: 'bubble', text: st.text }).catch(() => {}));
   } else if (ev.status === 'error') {
-    st.status = 'error'; // 气泡显示已流到的文本;点击可刷新
-    if (ev.error?.code === 'cancelled') return st; // 正常中断,不降级
-    if (!st.text) st.text = '暂无主题词';
+    if (ev.error?.code === 'cancelled') {
+      // 正常中断(被新任务取代):有已流文本 → done,否则 fallback,不降级到词频
+      // (后端今天无 cancel 路径,此为防御性;显式落 done/fallback 避免呼吸灯常亮)
+      st.status = st.text ? 'done' : 'fallback';
+      if (!st.text) st.text = '暂无主题词';
+      changed = true;
+    } else {
+      st.status = 'error';
+      if (!st.text) st.text = '暂无主题词';
+      changed = true;
+    }
   }
   store.set(ev.chatId, st);
-  return st;
+  // 仅当事件属于当前激活会话才返回(驱动 DOM 重渲染);否则只更新 store,不碰当前气泡
+  if (ev.chatId !== chatId) return null;
+  return changed ? st : null;
 }
 
 /** 最近一次词频簇(LLM 失败时降级显示用)。scheduleTopicRefresh 前置填充。 */
@@ -107,6 +122,6 @@ export function bindBubbleClick(chip: HTMLElement): void {
     // 断言编译期擦除,产物仍是 import('./summaryDashboard.js')(运行时正常,避免循环依赖)。
     void import('./summaryDashboard.js' as string).then((m) => {
       void m.openSummaryDashboard(anchor, chatId!, state.messages, resolveFn!);
-    });
+    }).catch(() => {});
   });
 }
