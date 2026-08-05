@@ -6,16 +6,21 @@ use std::path::{Path, PathBuf};
 use crate::error::{AppError, AppResult};
 
 /// 单目录列出的最大条目数。
+#[allow(dead_code)] // Task 3/4 接入后移除
 pub const MAX_LIST_ENTRIES: usize = 200;
 /// find_files 递归最大深度。
+#[allow(dead_code)]
 pub const MAX_FIND_DEPTH: usize = 3;
 /// find_files 返回结果上限。
+#[allow(dead_code)]
 pub const MAX_FIND_RESULTS: usize = 20;
 /// 文件读取上限(64KB),超限截断 + 提示。
+#[allow(dead_code)]
 pub const MAX_READ: usize = 64 * 1024;
 
 /// 沙箱模式:"repo" 默认,限 root 目录内;"any" 允许 root 外相对路径。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SandboxMode {
     Repo,
     Any,
@@ -23,6 +28,7 @@ pub enum SandboxMode {
 
 impl SandboxMode {
     /// "any"(忽略大小写)→ Any;其余(缺省/其他)→ Repo。
+    #[allow(dead_code)]
     pub fn parse(s: Option<&str>) -> SandboxMode {
         match s {
             Some(v) if v.eq_ignore_ascii_case("any") => SandboxMode::Any,
@@ -34,6 +40,7 @@ impl SandboxMode {
 /// 沙箱路径解析:rel 为相对路径,拼接 root 后校验。
 /// Repo 模式限 root 内(canonicalize 后校验前缀,防符号链接逃逸);
 /// Any 模式不做 root 边界校验(允许 root 外相对),但仍拒绝绝对路径 / `..` / `~` / 空。
+#[allow(dead_code)]
 pub fn resolve_safe(root: &Path, rel: &str, mode: SandboxMode) -> AppResult<PathBuf> {
     if rel.is_empty() {
         return Err(AppError::Core("路径为空".into()));
@@ -109,6 +116,7 @@ pub fn resolve_safe(root: &Path, rel: &str, mode: SandboxMode) -> AppResult<Path
 
 /// 单层目录项。
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub struct LocalEntry {
     pub path: String,
     pub name: String,
@@ -117,6 +125,7 @@ pub struct LocalEntry {
 }
 
 /// 列出目录项(单层;prefix 为相对路径,空 = 根)。
+#[allow(dead_code)]
 pub async fn list_tree(root: &Path, prefix: &str, mode: SandboxMode) -> AppResult<Vec<LocalEntry>> {
     let dir = if prefix.is_empty() {
         root.to_path_buf()
@@ -170,6 +179,7 @@ pub async fn list_tree(root: &Path, prefix: &str, mode: SandboxMode) -> AppResul
 }
 
 /// 读文件(≤64KB;超限截断 + 提示;二进制 NUL 字节 → "二进制文件")。
+#[allow(dead_code)]
 pub async fn read_file(root: &Path, rel: &str, mode: SandboxMode) -> AppResult<String> {
     let path = resolve_safe(root, rel, mode)?;
     if !path.is_file() {
@@ -194,6 +204,7 @@ pub async fn read_file(root: &Path, rel: &str, mode: SandboxMode) -> AppResult<S
 }
 
 /// 按文件名包含匹配(忽略大小写),递归;忽略 .git/node_modules/target;限 20。
+#[allow(dead_code)]
 pub async fn find_files(root: &Path, name: &str, mode: SandboxMode) -> AppResult<Vec<LocalEntry>> {
     let needle = name.to_lowercase();
     let mut out = Vec::new();
@@ -201,6 +212,7 @@ pub async fn find_files(root: &Path, name: &str, mode: SandboxMode) -> AppResult
     Ok(out)
 }
 
+#[allow(dead_code)]
 async fn walk(
     root: &Path,
     needle: &str,

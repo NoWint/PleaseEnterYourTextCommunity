@@ -75,6 +75,16 @@ pub struct ContentDto {
     pub content: Option<String>,
 }
 
+/// Git 树条目(Git Trees API `/git/trees/{branch}?recursive=1`)。
+/// 当前仅 code::source 的 Github 回退使用;Task 3/4 接入前豁免 dead_code。
+#[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
+pub struct TreeEntryDto {
+    pub path: String,
+    pub typ: String,
+    pub size: i64,
+}
+
 /// 仓库搜索结果项。
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchRepoDto {
@@ -290,6 +300,24 @@ pub fn parse_content(v: &serde_json::Value) -> ContentDto {
 
 pub fn parse_content_list(v: &serde_json::Value) -> Vec<ContentDto> {
     array_items(v).iter().map(parse_content).collect()
+}
+
+/// 解析 git 树响应的 `tree` 数组(条目含 path/type/size)。
+#[allow(dead_code)] // Task 3/4 接入后移除
+pub fn parse_tree(v: &serde_json::Value) -> Vec<TreeEntryDto> {
+    v.get("tree")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter(|x| x.is_object())
+                .map(|item| TreeEntryDto {
+                    path: str_field(item, "path"),
+                    typ: str_field(item, "type"),
+                    size: int_field(item, "size"),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn parse_search_repo_item(v: &serde_json::Value) -> SearchRepoDto {
@@ -573,8 +601,38 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_search_repo() {
+    fn test_parse_tree_maps_blobs_and_trees() {
         let v = json!({
+            "sha": "abc",
+            "truncated": false,
+            "tree": [
+                { "path": "src", "mode": "040000", "type": "tree", "sha": "t1", "url": "u" },
+                { "path": "src/main.rs", "mode": "100644", "type": "blob", "sha": "b1", "size": 12, "url": "u" },
+                null,
+                { "path": "README.md", "type": "blob", "size": 5 }
+            ]
+        });
+        let tree = parse_tree(&v);
+        assert_eq!(tree.len(), 3);
+        assert_eq!(tree[0].path, "src");
+        assert_eq!(tree[0].typ, "tree");
+        assert_eq!(tree[0].size, 0);
+        assert_eq!(tree[1].path, "src/main.rs");
+        assert_eq!(tree[1].typ, "blob");
+        assert_eq!(tree[1].size, 12);
+        assert_eq!(tree[2].path, "README.md");
+        assert_eq!(tree[2].size, 5);
+    }
+
+    #[test]
+    fn test_parse_tree_missing_or_no_items() {
+        assert_eq!(parse_tree(&json!({})).len(), 0);
+        assert_eq!(parse_tree(&json!({ "tree": [] })).len(), 0);
+        assert_eq!(parse_tree(&json!({ "tree": [null, 1] })).len(), 0);
+    }
+
+    #[test]
+    fn test_parse_search_repo() {        let v = json!({
             "total_count": 1,
             "items": [
                 { "full_name": "octocat/Hello-World", "description": "x", "stargazers_count": 100, "language": "Rust", "html_url": "u" }

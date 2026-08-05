@@ -72,6 +72,13 @@ pub fn url_get_content(owner: &str, repo: &str, path: &str) -> String {
     }
 }
 
+/// 仓库 git 树(`?recursive=1` 一次拉全树)。branch 可为分支名或 commit SHA。
+/// 当前仅 code::source 的 Github 回退使用;Task 3/4 接入前豁免 dead_code。
+#[allow(dead_code)]
+pub fn url_git_trees(owner: &str, repo: &str, branch: &str) -> String {
+    format!("{}/git/trees/{}?recursive=1", url_repo(owner, repo), enc(branch))
+}
+
 /// README。
 pub fn url_get_readme(owner: &str, repo: &str) -> String {
     format!("{}/readme", url_repo(owner, repo))
@@ -223,6 +230,18 @@ mod tests {
         assert_eq!(url_get_content("o", "r", "/"), base);
         assert_eq!(url_get_content("o", "r", "src/main.rs"), format!("{base}/src%2Fmain.rs"));
         assert_eq!(url_get_content("o", "r", "dir with space"), format!("{base}/dir%20with%20space"));
+    }
+
+    #[test]
+    fn test_url_git_trees_recursive() {
+        assert_eq!(
+            url_git_trees("o", "r", "main"),
+            "https://api.github.com/repos/o/r/git/trees/main?recursive=1"
+        );
+        assert_eq!(
+            url_git_trees("o", "r", "feat/x y"),
+            "https://api.github.com/repos/o/r/git/trees/feat%2Fx%20y?recursive=1"
+        );
     }
 
     #[test]
