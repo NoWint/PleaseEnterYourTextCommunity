@@ -3,6 +3,7 @@
 // 进度经 emit 发 download-progress 事件,事件契约 what ∈ {"engine","model"},
 // 前端按该契约过滤;sha256 下载后计算。
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use crate::error::{AppError, AppResult};
 
@@ -41,7 +42,13 @@ pub struct Downloader {
 impl Downloader {
     pub fn new(models_dir: PathBuf, app: AppHandle) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            // 必须带浏览器 UA:ModelScope 反爬拦截默认的 `reqwest/0.12.x` UA(实测返回 403),
+            // 加 UA 后 200 OK。connect_timeout 防止代理/连接挂起导致「点下载无反应」。
+            http: reqwest::Client::builder()
+                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+                .connect_timeout(Duration::from_secs(30))
+                .build()
+                .expect("reqwest"),
             models_dir,
             app,
             engine_tag: "b10276".into(),
