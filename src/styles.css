@@ -1,48 +1,147 @@
+/* ══════════════════════════════════════════════════════════════════
+   opencode oc-2 设计语言 token(2026-08-05 spec 全量迁移)
+   分层表面 / alpha 叠加状态 / 0.5px hairline / elevation 阶梯 / focus ring
+   ══════════════════════════════════════════════════════════════════ */
 :root {
-  /* nowint 默认主题:纯黑打底 + 分层明度递进(面板/表面逐层提亮,层级靠明度差) */
-  --bg: #000000;
-  --panel: #141416;
-  --border: #262628;
-  --border-strong: #343437;
+  /* ── 原始色板 primitives ── */
+  --grey-50: #ffffff;
+  --grey-100: #f5f5f4;
+  --grey-200: #e7e7e6;
+  --grey-300: #d4d4d3;
+  --grey-400: #b6b6b6;
+  --grey-500: #9a9a9c;
+  --grey-600: #858587;
+  --grey-700: #66666a;
+  --grey-800: #47474b;
+  --grey-900: #333336;
+  --grey-1000: #222224;
+  --grey-1100: #161616;
+  --grey-1200: #080808;
+
+  --blue-400: #a8bdfe;
+  --blue-500: #7698fd;            /* focus 环 */
+  --blue-600: #3b5cf6;            /* accent 主操作 */
+  --blue-700: #2e4bd8;
+  --blue-800: #263bb0;
+
+  /* alpha 梯度 — hover/pressed 一律叠加层,禁止改色 */
+  --alpha-dark-4: #0000000a;
+  --alpha-dark-8: #00000014;
+  --alpha-dark-10: #0000001a;
+  --alpha-dark-12: #0000001f;
+  --alpha-dark-20: #00000033;
+  --alpha-dark-40: #00000066;
+  --alpha-light-4: #ffffff0a;
+  --alpha-light-8: #ffffff14;
+  --alpha-light-10: #ffffff1a;
+  --alpha-light-12: #ffffff1f;
+  --alpha-light-14: #ffffff24;
+  --alpha-light-20: #ffffff33;
+  --alpha-light-40: #ffffff66;
+
+  /* ── 语义 token ── */
+  --surface-base: var(--grey-1100);       /* 主表面 #161616 */
+  --surface-deep: var(--grey-1200);       /* 最深 #080808(原生窗口底色) */
+  --surface-layer-01: var(--grey-1000);   /* 抬升层 1 #222224 */
+  --surface-layer-02: var(--grey-900);    /* 抬升层 2 #333336 */
+  --surface-layer-03: var(--grey-800);    /* 抬升层 3 #47474b */
+  --surface-contrast: var(--grey-50);     /* 对比面(白) */
+
+  --text-base: var(--grey-200);
+  --text-muted: var(--grey-500);
+  --text-faint: var(--grey-700);
+  --text-inverse: var(--grey-50);
+  --text-on-accent: #ffffff;
+  --icon-base: var(--grey-200);
+  --icon-muted: var(--grey-500);
+  --icon-faint: var(--grey-700);
+
+  --border-base: var(--alpha-light-10);
+  --border-strong: var(--alpha-light-20);
+  --border-focus: var(--blue-500);
+  --border-weak: var(--alpha-light-8);
+
+  --overlay-hover: var(--alpha-light-8);
+  --overlay-pressed: var(--alpha-light-12);
+  --overlay-contrast-hover: var(--alpha-dark-10);
+  --overlay-contrast-pressed: var(--alpha-dark-20);
+  --scrim: var(--alpha-dark-40);
+
+  /* 状态色三件套 */
+  --state-success-bg: rgba(48,164,108,0.16);  --state-success-fg: #3ecf8e;  --state-success-border: rgba(48,164,108,0.45);
+  --state-warning-bg: rgba(229,165,10,0.15);  --state-warning-fg: #f0b429;  --state-warning-border: rgba(229,165,10,0.45);
+  --state-danger-bg: rgba(255,95,87,0.15);    --state-danger-fg: #ff6b63;   --state-danger-border: rgba(255,95,87,0.45);
+  --state-info-bg: rgba(59,92,246,0.15);      --state-info-fg: #7698fd;     --state-info-border: rgba(59,92,246,0.45);
+
+  /* ── elevation 阶梯:alpha 软阴影 + 0.5px hairline ring ── */
+  --elevation-raised: 0 2px 4px var(--alpha-dark-8), 0 0 0 0.5px var(--alpha-dark-12);
+  --elevation-floating: 0 8px 16px var(--alpha-dark-4), 0 4px 8px var(--alpha-dark-8), 0 0 0 0.5px var(--alpha-dark-12);
+  --elevation-overlay: 0 16px 32px var(--alpha-dark-8), 0 0 0 0.5px var(--alpha-dark-12);
+  --elevation-contrast: 0 1px 2px var(--alpha-dark-20), inset 0 1px 2px var(--alpha-light-14);
+
+  /* ── 排版 token ── */
+  --weight-regular: 440;
+  --weight-medium: 530;
+  --weight-strong: 530;
+  --tracking-tight: -0.13px;
+  --tracking-body: -0.04px;
+
+  /* ── 动效 token(时长/曲线) ── */
+  --duration-exit: 80ms;
+  --duration-enter: 120ms;
+  --duration-reveal: 150ms;
+  --duration-toast: 280ms;
+  --duration-text: 480ms;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-toast: cubic-bezier(0.2, 0, 0, 1);
+  --ease-text: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 旧变量别名层 — 逐面迁移后删除;主题块覆盖旧名仍生效,保持过渡期不破 */
+:root {
+  /* nowint 默认主题:opencode oc-2 dark 打底 */
+  --bg: var(--surface-deep);
+  --panel: var(--surface-layer-01);
+  --border: var(--border-base);
+  --border-strong: var(--alpha-light-20);
   --active: #222225;
   --capsule: #1a1a1c;
-  --text: #e5e5e5;
-  --text-body: #d8d8da;
-  --text-mute: #888;
-  --text-weak: #5e5e62;
-  --text-faint: #48484a;
-  --border-dashed: #333336;
-  --text-action: #666;
+  --text: var(--text-base);
+  --text-body: var(--text-base);
+  --text-mute: var(--text-muted);
+  --text-weak: var(--text-faint);
+  --text-faint: #545458;
+  --border-dashed: var(--alpha-light-14);
+  --text-action: var(--grey-600);
   --hover-bright: #fff;
   --danger: #ff5555;
   --danger-bg: rgba(255,85,85,0.1);
   --danger-bg-strong: rgba(255,85,85,0.2);
-  --border-hover: #2e2e30;
+  --border-hover: var(--alpha-light-14);
   --theme-gradient: none;
   --theme-mask: none;
-  /* 语义化颜色 token — 供按钮/菜单/输入框/危险操作等复用，各主题覆盖 */
-  --surface: #1c1c1e;            /* 下拉菜单 / banner / context menu 表面 */
-  --surface-hover: #2a2a2c;      /* 菜单项 hover */
-  --control-bg: #262628;         /* 次级按钮背景 */
-  --control-bg-hover: #343437;   /* 次级按钮 hover */
-  --danger: #ff5555;             /* 危险色 */
-  --danger-bg: rgba(255,85,85,0.1);      /* 危险操作底色 */
-  --danger-bg-hover: rgba(255,85,85,0.2); /* 危险操作 hover 底色 */
-  --success: #4caf50;            /* 成功反馈 */
-  --accent: #4a90d9;             /* 强调色: 链接/关键词/词云主色, 各主题可覆盖 */
-  --on-accent: #000000;          /* 强调背景（--text）上的文字色，各主题覆盖 */
-  /* 自己的消息气泡:各主题独立预设 */
-  --bubble-self: #1e5c4b;        /* WhatsApp 式深绿,融入纯黑 */
-  --bubble-self-text: #e5e5e5;
+  /* 语义化颜色 token — 供按钮/菜单/输入框/危险操作等复用,各主题覆盖 */
+  --surface: var(--surface-layer-01);
+  --surface-hover: #2a2a2c;
+  --control-bg: var(--alpha-light-10);
+  --control-bg-hover: var(--alpha-light-14);
+  --danger: #ff5555;
+  --danger-bg: rgba(255,85,85,0.1);
+  --danger-bg-hover: rgba(255,85,85,0.2);
+  --success: var(--state-success-fg);
+  --accent: var(--blue-600);
+  --on-accent: #ffffff;
+  /* 自己的消息气泡(各主题可覆盖) */
+  --bubble-self: var(--blue-600);
+  --bubble-self-text: #ffffff;
 
-  /* 字体尺度 token — 苹果式层级:大标题负 tracking,正文 0,小字正 tracking */
-  /* 2026-08 缩小两号:正文 13px,secondary 11px,micro 10px */
-  --font-scale-display: 38px;   /* 登录品牌标题 */
-  --font-scale-page: 17px;      /* 页面主标题: settings h2 / main-title */
-  --font-scale-title: 14px;     /* 面板标题: chat-title / nav-title / card-detail-title */
-  --font-scale-body: 13px;      /* 正文 / 输入 / 菜单项 */
-  --font-scale-secondary: 11px; /* 次级正文 / 元信息 */
-  --font-scale-micro: 10px;     /* 最小可读: 时间戳 / 角标 */
+  /* 字体尺度 token */
+  --font-scale-display: 38px;
+  --font-scale-page: 17px;
+  --font-scale-title: 14px;
+  --font-scale-body: 13px;
+  --font-scale-secondary: 11px;
+  --font-scale-micro: 10px;
 
   /* 间距 token(8pt 网格) */
   --space-1: 4px;
@@ -53,41 +152,52 @@
   --space-6: 24px;
   --space-7: 32px;
 
-  /* 圆角 token — 苹果式连续圆角:控件小 / 表面中 / 大面板大 */
-  --radius-xs: 6px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  /* 圆角 token — opencode 刻度:控件 6 / 表面 10 / 大面 12 */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-big: 12px;
+  --radius-pill: 9999px;
 
-  /* 阴影 token — 苹果式弥散阴影:大模糊、低不透明度;菜单最重、控件最轻 */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.10);
-  --shadow-md: 0 8px 24px rgba(0,0,0,0.22);
-  --shadow-lg: 0 20px 48px rgba(0,0,0,0.28);
-  --shadow-dropdown: var(--shadow-md); /* 兼容别名 */
+  /* 阴影 token — opencode elevation 阶梯(hairline ring 内置) */
+  --shadow-sm: 0 1px 2px var(--alpha-dark-8), 0 0 0 0.5px var(--alpha-dark-12);
+  --shadow-md: 0 8px 16px var(--alpha-dark-4), 0 4px 8px var(--alpha-dark-8), 0 0 0 0.5px var(--alpha-dark-12);
+  --shadow-lg: 0 16px 32px var(--alpha-dark-8), 0 0 0 0.5px var(--alpha-dark-12);
+  --shadow-dropdown: var(--shadow-md);
 
-  /* 动效 token — 柔和曲线(慢起缓收,不突兀) */
+  /* 动效 token */
   --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
-  /* 样式 token — 主题可覆盖:辉光 / 字重 / 动效 / 边框宽度 */
-  --glow-color: transparent;      /* 彩色外发光色,默认无 */
-  --font-weight-strong: 700;      /* 粗体档 */
-  --anim-duration: 120ms;         /* 全局过渡基准时长 */
-  --anim-ease: ease;              /* 全局过渡缓动曲线 */
-  --border-width: 1px;            /* 常规边框宽度 */
-  --border-width-strong: 1px;     /* 强调边框宽度 */
-  --bubble-radius: 16px;          /* 消息气泡圆角(分组气泡头像侧小角保持固定) */
+  /* 样式 token — 主题可覆盖 */
+  --glow-color: transparent;
+  --font-weight-strong: 530;
+  --anim-duration: 120ms;
+  --anim-ease: ease;
+  --border-width: 1px;
+  --border-width-strong: 1px;
+  --bubble-radius: 10px;
 
-  /* 效果层 token — 背景质感 / 扫描线,默认全部不可见(Nowint 渲染零变化) */
-  --theme-texture: none;          /* 背景质感 background-image(噪点/网格/圆点) */
-  --theme-texture-size: auto;     /* 质感层 background-size */
-  --theme-texture-opacity: 0;     /* 质感层不透明度 */
-  --theme-scanlines: none;        /* CRT 扫描线叠加层 */
+  /* 效果层 token */
+  --theme-texture: none;
+  --theme-texture-size: auto;
+  --theme-texture-opacity: 0;
+  --theme-scanlines: none;
 
-  --font: -apple-system, 'SF Pro Display', 'Segoe UI Variable', 'Segoe UI', 'Inter', sans-serif;
+  --font: 'Inter Variable', -apple-system, 'SF Pro Display', 'PingFang SC', 'Segoe UI Variable', 'Segoe UI', sans-serif;
   --font-mono: 'SF Mono', Menlo, monospace;
+}
+
+/* Inter Variable — 打包本地 woff2,Latin 用 Inter,CJK 回落系统 */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../assets/fonts/InterVariable.woff2') format('woff2-variations');
 }
 
 /* 全局字体缩放 — html[data-font-scale] 覆盖 :root 字体变量(md 默认不设属性) */
@@ -118,8 +228,31 @@ html[data-font-scale="xl"] {
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; color: var(--text); font-family: var(--font); font-size: var(--font-scale-body); }
-html { background: var(--bg); }
+html { background: var(--bg); text-rendering: geometricPrecision; }
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-variation-settings: "slnt" 0; overflow: hidden; }
 #app { height: 100vh; display: flex; overflow: hidden; }
+
+/* 焦点环 — opencode 式:2px focus 色实线 + 2.5px offset */
+:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2.5px; }
+input:focus-visible, textarea:focus-visible, [contenteditable="true"]:focus-visible {
+  outline: 2px solid var(--border-focus); outline-offset: -1px;
+}
+
+/* 滚动条 — 全局隐藏原生条;.scroll-view 显式使用 4px 胶囊(opencode 技法) */
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.scroll-view { scrollbar-width: thin; -ms-overflow-style: auto; overflow-y: auto; }
+.scroll-view::-webkit-scrollbar { width: 4px; height: 4px; display: block; background: transparent; }
+.scroll-view::-webkit-scrollbar-thumb {
+  background: transparent; border-radius: var(--radius-pill);
+  backdrop-filter: blur(4px); transition: background 150ms var(--ease-out);
+}
+.scroll-view:hover::-webkit-scrollbar-thumb,
+.scroll-view::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+::selection { background: var(--alpha-light-20); }
+
+/* 数字统一等宽(tabular-nums) */
+.num { font-variant-numeric: tabular-nums; }
 
 /* ── 无边框窗口标题栏 ─────────────────────────────────────────
    顶部 34px 为「虚拟标题栏」,固定覆盖全页面(登录页与主界面共用):

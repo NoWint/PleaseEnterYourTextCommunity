@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PEYT Chat</title>
+    <!-- 主题 preload:首帧前应用持久化主题/字号,避免闪变(opencode oc-theme-preload 同思路) -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('peyt.theme');
+          if (t && t !== 'nowint') document.documentElement.setAttribute('data-theme', t);
+          var f = localStorage.getItem('peyt.fontScale');
+          if (f && f !== 'md') document.documentElement.setAttribute('data-font-scale', f);
+        } catch (e) {}
+      })();
+    </script>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
