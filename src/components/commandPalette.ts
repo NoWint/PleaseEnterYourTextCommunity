@@ -125,22 +125,10 @@ async function switchView(view: CurrentView): Promise<void> {
 // ── 浮层 ──────────────────────────────────────────────
 
 /** 首次打开时注入专属样式（只挂一次,不触碰 styles.css）。 */
-function ensureStyles(): void {
-  if (document.getElementById('command-palette-css')) return;
-  const style = document.createElement('style');
-  style.id = 'command-palette-css';
-  style.textContent = `
-.command-palette-overlay { align-items: flex-start; padding-top: 60px; }
-.command-palette-overlay.closing { animation: fade-out 150ms var(--ease-out) forwards; }
-`;
-  document.head.appendChild(style);
-}
-
 export function openCommandPalette(): void {
   if (paletteOpen) return;
   paletteOpen = true;
   selectedIndex = 0;
-  ensureStyles();
 
   const overlay = document.createElement('div');
   overlay.className = 'overlay command-palette-overlay';
