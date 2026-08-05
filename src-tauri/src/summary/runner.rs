@@ -70,6 +70,17 @@ impl LocalRunner {
     }
 
     async fn spawn(&self, model_path: &Path) -> AppResult<()> {
+        // 先回收已存在的子进程,避免并发 spawn 留下孤儿进程占住端口
+        {
+            let mut guard = self.child.lock().await;
+            if let Some(child) = guard.as_mut() {
+                if child.try_wait().ok().flatten().is_none() {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                }
+            }
+            *guard = None;
+        }
         // 探测空闲端口 12700..12710
         let port = self.next_free_port().await;
         {
@@ -106,8 +117,8 @@ impl LocalRunner {
         12700
     }
 
-    /// 空闲回收:10 分钟无任务 → kill。
-    pub async fn stop_if_idle(&self, idle: Duration) {
+    /// 空闲回收:由调用方(队列 worker)决定何时调用,本方法直接 kill。
+    pub async fn stop_if_idle(&self) {
         let mut guard = self.child.lock().await;
         if let Some(child) = guard.as_mut() {
             if child.try_wait().ok().flatten().is_none() {
@@ -138,6 +149,10 @@ impl LocalRunner {
         if let Some(mt) = cfg.max_tokens { body["max_tokens"] = serde_json::json!(mt); }
         let resp = self.http.post(&url).json(&body).send().await
             .map_err(|e| AppError::Core(format!("llm stream: {e}")))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(AppError::Core(format!("engine_stream_failed: {status}")));
+        }
         let mut full = String::new();
         let mut bytes = resp.bytes_stream();
         let mut buf: Vec<u8> = Vec::new();
