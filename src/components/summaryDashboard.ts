@@ -142,9 +142,8 @@ function renderStreaming(kind: AnalysisKind, text: string): string {
     if (d == null) return '<span class="sd-streaming">生成中…</span>';
     return renderDetailBody(kind, text);
   }
-  // summary:markdown 实时渲染(换行/标签实时生效);participation insight 纯文本
-  if (kind === 'summary') return renderSummary(text);
-  return escapeHtml(text);
+  // summary / participation 解读:markdown 实时渲染(换行/标签实时生效)
+  return renderMarkdown(text);
 }
 
 function isJsonKind(kind: AnalysisKind): boolean {
@@ -334,14 +333,17 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
     }
   });
 
-  // 参与度统计即时渲染 + LLM 解读
+  // 默认全部 7 个 kind 并发入队(缓存命中则直接显示):
+  // participation 统计即时渲染 + LLM 解读入队;其余 6 个(含 summary)直接入队。
   const pBody = overlay.querySelector<HTMLElement>(`[data-body="participation"]`);
   if (pBody) {
     pBody.innerHTML = `<div class="sd-p-stat">${renderParticipationStat(win)}</div><div class="sd-p-insight">分析中…</div>`;
     enqueueOverlay(overlay, chatId, kindOf('participation'), prompt, false);
   }
-  // summary 首个默认入队
-  enqueueOverlay(overlay, chatId, kindOf('summary'), prompt);
+  for (const t of ANALYSIS_TYPES) {
+    if (t.kind === 'participation') continue; // 已在上方处理
+    enqueueOverlay(overlay, chatId, t.kind, prompt);
+  }
 
   // 导航点击 → 滚动定位到块
   overlay.querySelectorAll<HTMLElement>('[data-nav-kind]').forEach((item) => {
@@ -384,7 +386,7 @@ function enqueueOverlay(overlay: HTMLElement, chatId: number, kind: AnalysisKind
     if (body) {
       // participation 缓存的是 LLM 解读文本;统计为前端即时算(重新算,因为窗口可能变化)
       body.innerHTML = kind === 'participation'
-        ? `<div class="sd-p-stat">${renderParticipationStat(fsWin)}</div><div class="sd-p-insight"><div class="sd-insight-text">${escapeHtml(cached.text)}</div></div>`
+        ? `<div class="sd-p-stat">${renderParticipationStat(fsWin)}</div><div class="sd-p-insight"><div class="sd-insight-text">${renderMarkdown(cached.text)}</div></div>`
         : renderDetailBody(kind, cached.text);
     }
     return;
@@ -418,8 +420,9 @@ function bindFullscreenEvents(): void {
       const target = p.kind === 'participation' ? body.querySelector<HTMLElement>('.sd-p-insight') : body;
       if (!target) return;
       if (cur.status === 'done') {
+        // participation 解读:markdown 渲染(换行/标签可点);其他按 kind 渲染
         target.innerHTML = p.kind === 'participation'
-          ? `<div class="sd-insight-text">${escapeHtml(cur.text)}</div>`
+          ? `<div class="sd-insight-text">${renderMarkdown(cur.text)}</div>`
           : renderDetailBody(p.kind as AnalysisKind, cur.text);
         // 卡片出现动画:done 后加 .sd-reveal,stagger 由子项 animation-delay 控制
         const block = target.closest('.sd-block');

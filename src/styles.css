@@ -4364,13 +4364,25 @@ body {
   0%, 100% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }
   50% { box-shadow: 0 0 12px 4px rgba(52, 199, 89, 0.25); }
 }
-/* 标签引用 chip */
+/* 标签引用 chip(Apple 风格):accent 胶囊,玻璃质感,active 缩放反馈(§1) */
 .mention-chip {
-  display: inline-block; padding: 1px 6px; margin: 0 2px;
-  border-radius: 6px; background: rgba(52, 199, 89, 0.12); color: var(--text);
-  font-size: 12px; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 8px; margin: 0 2px;
+  border-radius: 999px; /* 胶囊 */
+  background: color-mix(in srgb, var(--accent, #4a90d9) 12%, transparent);
+  color: var(--accent, #4a90d9);
+  font-size: 12px; font-weight: 500; line-height: 1.6;
+  cursor: pointer; text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--accent, #4a90d9) 25%, transparent);
+  transition: background 140ms var(--ease-out), transform 100ms var(--ease-out), box-shadow 140ms var(--ease-out);
 }
-.mention-chip:hover { background: rgba(52, 199, 89, 0.22); }
+.mention-chip:hover {
+  background: color-mix(in srgb, var(--accent, #4a90d9) 20%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--accent, #4a90d9) 20%, transparent);
+}
+.mention-chip:active { transform: scale(0.95); }
+/* 消息引用 chip 加轻微下划线示意「可跳转」 */
+.mention-chip[data-msg-ref] { text-decoration: underline dotted; text-underline-offset: 3px; }
 
 /* === Task 10: 主题分析看板(大号居中弹窗 + 横向分栏) === */
 /* 弹窗遮罩:.ui-overlay 已 flex 居中 + 模糊背景;这里微调强调 */
@@ -4459,8 +4471,18 @@ body {
 .sd-chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent, #4a90d9) 12%, transparent); color: var(--text-mute); }
 .sd-chip-due { background: color-mix(in srgb, #e06c6c 14%, transparent); }
 .sd-empty { padding: 8px; color: var(--text-mute); font-style: italic; }
-.sd-ref { color: var(--accent, #4a90d9); text-decoration: none; font-size: 12px; margin-left: 4px; opacity: 0.7; }
-.sd-ref:hover { opacity: 1; }
+/* JSON ref 跳转 chip:↗ 图标,明确「跳原文」语义,与 mention-chip 同源 */
+.sd-ref {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-left: 4px;
+  border-radius: 50%; /* 圆形跳转按钮 */
+  color: var(--accent, #4a90d9);
+  font-size: 12px; text-decoration: none;
+  background: color-mix(in srgb, var(--accent, #4a90d9) 10%, transparent);
+  transition: background 140ms var(--ease-out), transform 100ms var(--ease-out);
+}
+.sd-ref:hover { background: color-mix(in srgb, var(--accent, #4a90d9) 20%, transparent); }
+.sd-ref:active { transform: scale(0.9); }
 
 /* 资源:链接/文件行 */
 .sd-res-link, .sd-res-file { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; }
