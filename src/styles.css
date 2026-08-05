@@ -1733,7 +1733,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   gap: 8px;
   padding: 4px 8px;
 }
-.wc-row:nth-child(odd) { background: var(--capsule); }
+.wc-detail-row:nth-child(odd) { background: var(--capsule); }
 .wc-word { font-size: var(--font-scale-body); color: var(--text); font-weight: 500; }
 .wc-meta { font-size: var(--font-scale-micro); color: var(--text-mute); white-space: nowrap; }
 .wc-empty { padding: var(--space-3) var(--space-2); color: var(--text-weak); font-size: var(--font-scale-secondary); }

@@ -2,7 +2,7 @@
 // 复用 readReceiptsPopup 的 mountPopup(锚点定位 + 外部点击/Escape 关闭)。
 import { iconSvg } from './icon.js';
 import { mountPopup } from './readReceiptsPopup.js';
-import { escapeHtml, escapeAttr } from './escape.js';
+import { escapeHtml } from './escape.js';
 import type { WordFreq, TopicCluster } from '../utils/wordAnalysis.js';
 
 // 词云配色板: 与主题脱钩的中性可读色(亮暗主题均能看清)
@@ -11,7 +11,7 @@ const CLOUD_COLORS = ['#4a90d9', '#e06c6c', '#4caf50', '#d9a441', '#8e6cd9', '#2
 /** 渲染主题气泡 HTML: 专业 SVG(hash) + Top 主题短语横向排布。 */
 export function renderTopicBubbleHtml(clusters: TopicCluster[]): string {
   const text = clusters.length
-    ? clusters.map((c) => c.words.join(' ')).join(' · ')
+    ? clusters.map((c) => escapeHtml(c.words.join(' '))).join(' · ')
     : '暂无主题词';
   return `<div class="topic-bubble" data-topic-bubble="1">${iconSvg('hash', { width: 14, height: 14 })}<span>${text}</span></div>`;
 }
@@ -28,6 +28,7 @@ export function openWordAnalysisPopup(anchor: HTMLElement, clusters: TopicCluste
       cloudMap.set(f.word, (cloudMap.get(f.word) ?? 0) + f.weight);
     }
   }
+  // 词云仅用 weight 定字号, count 字段词云不读, 占位以满足 WordFreq 契约
   const cloudWords: WordFreq[] = [...cloudMap.entries()]
     .map(([word, weight]) => ({ word, count: 1, weight }))
     .sort((a, b) => b.weight - a.weight);
@@ -35,20 +36,19 @@ export function openWordAnalysisPopup(anchor: HTMLElement, clusters: TopicCluste
   const rows = clusters.length
     ? clusters
         .map(
-          (c, i) => `
-          <div class="wc-cluster" data-i="${i}">
-            <div class="wc-row wc-cluster-head" data-head="${i}">
+          (c) => `
+          <div class="wc-cluster">
+            <div class="wc-row wc-cluster-head">
               <span class="wc-word">${escapeHtml(c.words.join(' '))}</span>
               <span class="wc-meta">${c.score.toFixed(2)}</span>
             </div>
-            <div class="wc-cluster-detail" data-detail="${i}" style="display:none">
+            <div class="wc-cluster-detail" style="display:none">
               ${c.wordFreqs.map((f) => `<div class="wc-detail-row"><span>${escapeHtml(f.word)}</span><span>${f.count} 次</span></div>`).join('')}
             </div>
           </div>`,
         )
         .join('')
     : '<div class="wc-empty">暂无主题词</div>';
-  const clustersJson = JSON.stringify(clusters);
   mountPopup(
     `<div class="rr-head">会话主题分析</div>
      <div class="rr-cols">
@@ -58,7 +58,7 @@ export function openWordAnalysisPopup(anchor: HTMLElement, clusters: TopicCluste
        </div>
        <div class="rr-col">
          <div class="rr-col-title">主题簇</div>
-         <div class="wc-list" data-wc-json="${escapeAttr(clustersJson)}">${rows}</div>
+         <div class="wc-list">${rows}</div>
        </div>
      </div>`,
     anchor,
@@ -69,12 +69,11 @@ export function openWordAnalysisPopup(anchor: HTMLElement, clusters: TopicCluste
     const canvas = document.querySelector<HTMLCanvasElement>('.wc-canvas');
     if (canvas) drawWordCloud(canvas, cloudWords);
   });
-  // 点击簇头 → 展开/收起词频明细
+  // 点击簇头 → 展开/收起词频明细(DOM 导航, 无需索引属性)
   document.querySelectorAll<HTMLElement>('.wc-cluster-head').forEach((head) => {
     head.addEventListener('click', (e) => {
       e.stopPropagation();
-      const i = head.dataset.head;
-      const detail = document.querySelector<HTMLElement>(`[data-detail="${i}"]`);
+      const detail = head.closest('.wc-cluster')?.querySelector<HTMLElement>('.wc-cluster-detail');
       if (detail) detail.style.display = detail.style.display === 'none' ? 'block' : 'none';
     });
   });
