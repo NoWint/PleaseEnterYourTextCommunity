@@ -19,9 +19,10 @@
 | 本地模型档位 | **0.5B / 1.5B 两档可选**,Q4_K_M 量化 |
 | 模型源 | ModelScope 优先(HF 兜底),GGUF 直链 `resolve/<branch>/<file>` |
 | 引擎源 | llama.cpp GitHub releases(锁定 tag,CPU 产物) |
-| 输出 | 气泡短摘要(bubble 车道) + 弹窗详细分析(detail 车道),**两次独立请求** |
+| 输出 | 气泡短摘要(bubble 车道) + 弹窗**巨大看板**(detail 车道),**每分析类型一次独立请求** |
 | 流式 | 两车道均 SSE 流式,「输出即答案」,气泡打字机效果 |
-| 上下文窗口 | **方式 2:上次分析 + 最近 N 条**(非增量,无 after_id) |
+| 上下文时间 | 每行注入**绝对时间 `YYYY-MM-DD HH:MM`**,供时序/间隔/活跃时段分析 |
+| 上下文窗口 | **方式 2:上次分析 + 最近 N 条**(非增量,无 after_id);**N 可调(设置),默认 50** |
 | 附件隔离 | 只传 `payload.text`;附件仅留一行 `[附件: 文件名]`;信封非 text 字段不带 |
 | AI 引用 id | 统一 `msg_id`(数字);不传 UUID;标签 `<message='...'>` 模糊匹配 |
 | 状态 | `idle / summarizing(流式) / done / error / fallback` |
@@ -87,18 +88,97 @@
 ### 4.3 双车道优先级(本地单进程关键)
 
 - **bubble 优先于 detail**:detail 生成中若 bubble 到达 → 中断 detail(Rust 断开 HTTP 流,llama-server 检测断连即取消生成),detail 标记 stale 排到队尾。popup 开着显示「分析被新消息打断,点击刷新重试」。
-- API 模式无此压力(远端并发),两车道可并行,仅 Rust 侧限单聊天不重复。
+- **detail 内部(看板多请求)同队列串行**:本地单进程同一时刻只跑一个 detail;看板打开时各类型按优先级依次入队,前面的完成自动跑下一个。bubble 到达时抢占当前 detail,其余 detail 在队中等待。
+- API 模式无此压力(远端并发),bubble 与各 detail 均可并行,仅 Rust 侧限单聊天同类型不重复。
 
 ### 4.4 上下文窗口(方式 2:上次分析 + 最近 N 条)
 
 ```
-输入 = 上次分析结果(结构化) + 最近 N 条消息(N≈50,或 ~1500 字先到先停)
+输入 = 上次分析结果(结构化) + 最近 N 条消息(N 可调,默认 50)
 输出 = 更新后的完整分析(同格式)
 ```
 
+- **N 可调(设置项,默认 50,范围 10-200)**:用户对不同会话的消息密度按需调整——低频会话调大覆盖更长历史,高频会话调小聚焦近期。
+- **字数硬上限(不随 N 联动)**:窗口序列化后超 **4000 字**即截断,保护模型上下文不爆(长消息/长附件文件名多时生效)。用户只调条数,不碰字数上限。
 - 不做增量窗口(after_id),不传 UUID。
-- 首次进入无上次分析 → 退化为首窗口(最近 ~100 条 / ~1500 字)。
+- 首次进入无上次分析 → 退化为首窗口(最近 N 条)。
 - 分析结果持久化,重启恢复 `done` 状态。
+
+## 4.5 Prompt 定稿(两车道)
+
+两条车道共享**同一份组装好的 context**(上次分析 + 最近 N 条),区别只在 system 角色与输出格式约束——保证 bubble 先出、detail 补全时看到的是同一份聊天内容,不互相矛盾。
+
+### 4.5.1 共享上下文组装(两条车道同一个函数产出)
+
+```
+[id=42] 张三 [2026-08-04 14:30]: 下午三点开会
+[id=43] 李四 [2026-08-04 14:31]: 收到,带电脑
+[id=44] 张三 [2026-08-05 09:02]: [附件: 产品文档.pdf]
+```
+
+- 每行尾部注入**绝对时间 `YYYY-MM-DD HH:MM`**(取自 `MsgDto.ts`,unix 秒)。时间线/决策/悬而未决「多久没答」都依赖它;跨窗口一致,LLM 才能算时序、间隔、活跃时段。
+- 编号用 `msg_id`(数字);信封消息取 `payload.text` 当内容、锚点仍是 `msg_id`;附件行只留文件名;系统消息跳过。
+- 上次分析结果作为开头的**「历史上下文」块**,帮助模型保持连续性。
+- 时间开销小(每行固定尾部),4000 字硬上限兜住长窗口。
+
+### 4.5.2 Bubble 车道 prompt(一句话短摘要,秒出)
+
+**system:**
+```
+你是聊天主题总结助手。根据给定的聊天记录,用一句话概括最近聊的主题。
+要求:
+- 一句话,不超过 60 字
+- 直接输出概括内容,不要任何前缀/后缀/解释
+- 不要使用 <message> 或 <user> 标签
+```
+
+**user(拼接):**
+```
+历史上下文(之前的分析结果):
+<上次分析摘要,若有>
+
+最近聊天记录:
+[id=42] 张三: 下午三点开会
+[id=43] 李四: 收到,带电脑
+...
+
+请用一句话概括最近聊的主题:
+```
+
+**输出**:纯文本一句话,≤60 字,无标签。
+
+### 4.5.3 Detail 车道:每类型独立请求
+
+**Detail 不是一次请求返回全部,而是每个分析类型各自一次独立请求**(见 §9.5 注册表)。每类型独立入队、独立流式、独立状态、独立刷新。各类型共享同一份 context,仅 prompt 不同。
+
+**summary 类型**(一段话总结,支持 XML 行内标签):
+
+**system:**
+```
+你是聊天内容分析助手。根据聊天记录,用一段话总结最近聊的内容。
+要求:
+- 一段话(2-4 句),不是列表
+- 用 <message='...'> 引用具体消息(用消息 id 或内容片段)
+- 用 <user='...'> 引用发言人(用名字)
+- 直接输出总结,不要任何前缀/后缀
+```
+
+**user(拼接):**
+```
+历史上下文(之前的分析结果):
+<上次分析结果,若有>
+
+最近聊天记录:
+[id=42] 张三 [2026-08-04 14:30]: 下午三点开会
+[id=43] 李四 [2026-08-04 14:31]: 收到,带电脑
+...
+
+请用一段话总结:
+```
+
+**输出**:一段话,内嵌 `<message>` / `<user>` 行内引用。无区块标签(段落式,非四块)。
+
+**其它分析类型**(action_items/decisions/timeline/participation/resources/open_questions)的 prompt 是**同构变体**:同一份 context + 各自的输出 schema(JSON)+ system 的引用标签要求一致。各类型 prompt 在实施计划中逐个落定(JSON 输出用「只输出 JSON,不输出解释」约束)。
 
 ## 5. 附件隔离(只传 text + id)
 
@@ -221,6 +301,7 @@ app-data/models/
 | LLM 来源 | 本地模型 / API 二选一(LLM 模式启用时显示) |
 | 本地模型 | 0.5B / 1.5B 两档 radio,**仅记录选择,不触发下载** |
 | 下载按钮 | 点「下载」→ 展开进度面板(见 8.3) |
+| 上下文条数 | slider,10-200,默认 50(注入最近 N 条消息,见 §4.4) |
 
 ### 8.2 API 配置(来源=API 时显示)
 
@@ -251,7 +332,7 @@ app-data/models/
 
 | 数据 | 存储 |
 |---|---|
-| 偏好(模式/来源/所选档位) | localStorage(`peyt.summary.*`) |
+| 偏好(模式/来源/所选档位/上下文条数 N) | localStorage(`peyt.summary.*`) |
 | 引擎/模型状态 + 版本 + sha256 + 上次摘要缓存 | `app-data/summary_state.json`(后端读写) |
 | API 凭据 | 后端设置表(对齐 `github_settings`,key 不进 localStorage) |
 
@@ -283,12 +364,63 @@ app-data/models/
 - 状态由 `summary-event` 事件驱动,后端只发数据不碰 DOM;前端维护 `Map<chatId, state>`。
 - 呼吸灯只在 `summarizing` 亮。
 
-### 分析 popup(复用 `wc-popup`)
+### 分析 popup(巨大看板,复用 `wc-popup`)
 
-- 头部「会话主题分析」+ **刷新按钮**(重新入队 `analyze_detail`,立即执行)。
-- 区块:短摘要 → 主题标签(chips) → 关键要点(list) → 待办事项(list,checkbox 样式仅展示)。
-- `streaming` 中逐块追加;被新消息打断 → 显示「分析已过期,点击刷新」。
+**整个 detail popup 是一张巨大的看板**(dashboard),全部分析类型平铺展示,非 tab 切换。
+
+- 头部「会话主题分析」+ **刷新全部按钮**(所有类型重新入队)+ 各区块独立刷新。
+- 看板区块自上而下按优先级排布:
+  1. **summary** —— 一段话总结(顶部,最抢眼)
+  2. **participation** —— 前端统计(数字 + 简易条形/密度图)+ LLM 解读
+  3. **action_items** —— 可勾选待办 + 「转卡片」入口
+  4. **resources** —— 链接 + 文件列表
+  5. **open_questions** —— 悬而未决列表
+  6. **timeline** —— 话题演变时间线
+  7. **decisions** —— 决策记录
+- 每个区块独立 `idle/streaming/done/error` 状态,独立流式追加,独立刷新。
+- 看板可滚动;区块折叠/展开;加载中显示骨架 + 呼吸灯。
+- 被新消息打断 → 该区块显示「分析已过期,点击刷新」。
 - 渲染用标签解析;内容为空显示占位。
+
+## 9.5 分析类型注册表(多 Detail 车道 · 看板)
+
+Detail 车道从「单一种类」升级为「**可插拔的分析类型注册表 · 看板**」:每类独立入队、独立状态、独立渲染、独立刷新,popup 是**平铺全部类型的看板**(非 tab 切换)。新增类型 = 注册 schema + 渲染组件,队列/流式/持久化全复用。
+
+```ts
+type AnalysisKind = 'summary' | 'participation' | 'action_items' | 'resources'
+                  | 'open_questions' | 'timeline' | 'decisions';
+
+interface AnalysisType {
+  kind: AnalysisKind;
+  title: string;                 // 看板区块标题
+  engine: 'llm' | 'local_stats' | 'stats_plus_llm'; // 见下
+  prompt?: PromptTemplate;       // engine 含 llm 时使用
+  schema: JsonSchema;            // 输出 JSON 结构(校验 + 类型提示)
+  renderer: (data: unknown) => string; // 渲染成看板区块
+  priority: 0 | 1 | 2;           // 0=默认展示, 1=次要, 2=推迟
+}
+```
+
+**三种引擎模式**:
+- `llm`:纯 LLM 提取(语义类)。
+- `local_stats`:纯前端统计,0 token,即时返回(像现有 computeTopics)。
+- `stats_plus_llm`:前端统计为主 + LLM 文字解读为辅(**participation 专用**)。统计给数字(准确、秒出),LLM 给解读(「最近谁最活跃 / 活跃时段集中在下午」)。
+
+**类型清单与优先级**(分析师视角,按价值排序):
+
+| 优先级 | kind | engine | 输出形态 | 为什么 |
+|---|---|---|---|---|
+| P0 | `summary` | llm | 一段话总结(XML 行内引用) | 核心,看板顶部 |
+| P0 | `participation` | **stats_plus_llm** | 前端统计 + LLM 解读 | 统计 0 token;解读补语义 |
+| P0 | `action_items` | llm | JSON `{ items:[{text,assignee?,due?,ref?}] }` | 联动卡片系统(转 Card) |
+| P1 | `resources` | llm | JSON `{ links:[{url,title?,sender,ref}], files:[{name,ref}] }` | 低成本高频;URL 提取小模型可靠 |
+| P1 | `open_questions` | llm | JSON `{ questions:[{text,asked_by,unanswered_since?,ref}] }` | 拉出没闭环的问题 |
+| P1 | `timeline` | llm | JSON `{ phases:[{period,topic,key_messages:[ref]}] }` | 叙事价值,对齐现有 timeline 视图 |
+| P2 | `decisions` | llm | JSON `{ decisions:[{title,made_when,by?,rationale?,ref}] }` | ADR 风格决策日志 |
+
+**推迟不做**(分析师泼冷水):情感分析(小模型不可靠+价值低)、互动网络(数据量小+价值虚)、问答对(误判率高,open_questions 已覆盖)。
+
+**关键设计**:`local_stats` / `stats_plus_llm` 的统计部分不占 llama-server 队列,前端即时算、即时出;仅其 LLM 解读部分走队列。不是所有 detail 都该走 LLM——能结构化统计的别浪费 token。
 
 ## 10. 错误处理与降级
 
