@@ -160,7 +160,8 @@ pub fn build_gemini_body(
 }
 
 /// OpenAI 单条消息 → chat/completions 消息。
-fn openai_message(m: &ChatMessage) -> serde_json::Value {
+/// pub(crate):summary::runner 本地推理复用同一序列化(避免重复逻辑)。
+pub(crate) fn openai_message(m: &ChatMessage) -> serde_json::Value {
     match m.role.as_str() {
         "tool" => serde_json::json!({
             "role": "tool",
