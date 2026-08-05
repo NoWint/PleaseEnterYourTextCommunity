@@ -4516,3 +4516,34 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .sd-overlay { animation: none; }
 }
+
+/* === 智能页(设置 → 智能):Apple 卡片 + pill === */
+.settings-intelligence { max-width: 560px; }
+.settings-intelligence .ui-field { margin-bottom: 14px; }
+/* pill 分段:圆润胶囊,active 用 accent 而非纯黑(比通用 segmented 更 Apple) */
+.settings-intelligence .ui-segmented {
+  border-radius: 999px; padding: 3px; background: var(--bg);
+  border: 1px solid var(--border); gap: 2px;
+}
+.settings-intelligence .ui-segment {
+  border-radius: 999px; padding: 5px 14px;
+}
+.settings-intelligence .ui-segment.active {
+  background: var(--accent, #4a90d9); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+/* 配置卡片:分段式表面 + 阴影,与弹窗材质一致 */
+.sd-card {
+  border-radius: 14px;
+  background: var(--surface-2, rgba(128,128,128,.05));
+  border: 1px solid var(--border);
+  padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: 16px;
+}
+/* 模型行:可编辑输入 + 获取模型按钮 */
+.sd-model-row { display: flex; gap: 8px; align-items: center; }
+.sd-model-row .ui-input { flex: 1; min-width: 0; }
+/* 保存/清除按钮行 */
+.sd-actions { display: flex; gap: 8px; margin-top: 8px; }
+/* 输入框圆角统一(对齐卡片) */
+.settings-intelligence .ui-input { border-radius: 10px; }

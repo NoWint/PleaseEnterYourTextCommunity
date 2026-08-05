@@ -532,14 +532,15 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
   main.innerHTML = '';
   dlUnlisten?.(); // 先解绑旧监听,避免重渲染累积
   dlUnlisten = null;
-  await loadSummaryPrefs(); // 拉后端偏好 + 下载状态(一次 summary_get_state)
+  await loadSummaryPrefs(); // 拉后端偏好 + 下载状态 + API 配置(一次 summary_get_state)
   const prefs = getSummaryPrefs();
-  const { engineDownloaded, modelDownloaded } = prefs;
+  const { engineDownloaded, modelDownloaded, apiBaseUrl, apiKey, apiModel } = prefs;
+
   const section = document.createElement('div');
-  section.className = 'settings-section';
+  section.className = 'settings-section settings-intelligence';
   section.innerHTML = '<h2>智能</h2>';
 
-  // 模式
+  // ── 引擎模式:pill 分段 ─────────────────────────────
   const modeSeg = ui.segmented({
     items: [
       { value: 'off', label: '关闭' },
@@ -549,13 +550,12 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
     value: prefs.mode,
     onChange: (v) => {
       prefs.mode = v as SummaryPrefs['mode'];
-      // 模式切换后重渲染,让 LLM 相关的来源/下载面板即时出现
       void saveSummaryPrefs(prefs).then(() => renderIntelligence(main));
     },
   });
   section.appendChild(ui.field({ label: '总结引擎', children: modeSeg }));
 
-  // 来源(LLM 模式下)
+  // LLM 模式:来源 + 上下文条数
   if (prefs.mode === 'llm') {
     const srcSeg = ui.segmented({
       items: [
@@ -565,27 +565,28 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
       value: prefs.source,
       onChange: (v) => {
         prefs.source = v as SummaryPrefs['source'];
-        // 来源切换后重渲染,让本地下载面板即时出现/消失
         void saveSummaryPrefs(prefs).then(() => renderIntelligence(main));
       },
     });
     section.appendChild(ui.field({ label: 'LLM 来源', children: srcSeg }));
 
-    // 上下文条数
     const nInput = ui.input({ value: String(prefs.contextN), type: 'number' });
     nInput.addEventListener('change', () => {
       const n = Number(nInput.value);
       if (!Number.isNaN(n)) { prefs.contextN = Math.min(200, Math.max(10, n)); nInput.value = String(prefs.contextN); void saveSummaryPrefs(prefs); }
     });
-    section.appendChild(ui.field({ label: '上下文条数(注入最近 N 条)', children: nInput, help: '10-200,默认 50。字数硬上限 4000 自动截断。' }));
+    section.appendChild(ui.field({ label: '上下文条数', children: nInput, help: '注入最近 N 条消息,默认 50。字数硬上限 4000 自动截断。' }));
   }
 
-  // 本地模型下载面板(来源=local)
+  // ── 本地模型下载面板 ───────────────────────────────
   if (prefs.mode === 'llm' && prefs.source === 'local') {
+    const localCard = document.createElement('div');
+    localCard.className = 'sd-card';
+
     const sizeSeg = ui.segmented({
       items: [
-        { value: '0.5b', label: '0.5B (~0.4GB)' },
-        { value: '1.5b', label: '1.5B (~1GB)' },
+        { value: '0.5b', label: '0.5B' },
+        { value: '1.5b', label: '1.5B' },
       ],
       value: prefs.modelSize,
       onChange: (v) => {
@@ -593,10 +594,10 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
         void saveSummaryPrefs(prefs);
       },
     });
-    section.appendChild(ui.field({ label: '模型档位', children: sizeSeg }));
+    localCard.appendChild(ui.field({ label: '模型档位', children: sizeSeg, help: '0.5B ~0.4GB · 1.5B ~1GB。CPU 推理:档位越小越快。' }));
 
     const dl = ui.button({
-      label: modelDownloaded ? '已下载' : '下载',
+      label: modelDownloaded ? '已下载' : '下载模型',
       icon: 'download',
       variant: modelDownloaded ? 'ghost' : 'primary',
       disabled: modelDownloaded,
@@ -606,19 +607,17 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
         } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
       },
     });
-    section.appendChild(ui.field({ label: '模型下载', children: dl }));
+    localCard.appendChild(ui.field({ label: '模型', children: dl }));
 
-    // 进度条(监听 download-progress)
     const bar = document.createElement('div');
     bar.className = 'settings-toggle-hint';
     bar.textContent = modelDownloaded ? '引擎与模型已就绪' : (engineDownloaded ? '引擎就绪,等待下载模型' : '点击下载引擎与模型');
-    section.appendChild(bar);
+    localCard.appendChild(bar);
 
     const { listen } = await import('@tauri-apps/api/event');
     const un = await listen('download-progress', (ev) => {
       const p = ev.payload as { what?: string; status: string; bytes?: number; total?: number; rate?: number; message?: string };
       if (p.status === 'error') {
-        // 后端错误事件无 what 字段;下载失败必须反馈
         bar.textContent = `下载失败:${p.message ?? '未知错误'}`;
         ui.toast(`下载失败:${p.message ?? '未知错误'}`);
         return;
@@ -630,11 +629,109 @@ async function renderIntelligence(main: HTMLElement): Promise<void> {
       } else if (p.status === 'done') {
         bar.textContent = '下载完成';
         ui.toast(`${p.what === 'engine' ? '引擎' : '模型'} 下载完成`);
-        // 重新拉取下载状态,按钮变「已下载」
         void renderIntelligence(main);
       }
     });
     dlUnlisten = un;
+
+    section.appendChild(localCard);
+  }
+
+  // ── API 配置卡片 ──────────────────────────────────
+  if (prefs.mode === 'llm' && prefs.source === 'api') {
+    const apiCard = document.createElement('div');
+    apiCard.className = 'sd-card';
+
+    // BaseURL:预设下拉 + 自由输入
+    const baseUrlInput = ui.input({ value: apiBaseUrl ?? 'https://api.deepseek.com', placeholder: 'https://api.deepseek.com' });
+    apiCard.appendChild(ui.field({ label: 'API 地址 (Base URL)', children: baseUrlInput, help: '默认 DeepSeek。OpenAI 兼容服务填对应 /v1 地址。' }));
+
+    // KEY
+    const keyInput = ui.input({ value: apiKey ?? '', type: 'password', placeholder: 'sk-…' });
+    apiCard.appendChild(ui.field({ label: 'API 密钥 (Key)', children: keyInput, help: '仅保存在本地数据库,不会上传。' }));
+
+    // 模型:可自由输入的下拉(datalist)+ 获取模型按钮
+    const modelWrap = document.createElement('div');
+    modelWrap.className = 'sd-model-row';
+    const modelInput = ui.input({ value: apiModel ?? 'deepseek-chat', placeholder: 'deepseek-chat' });
+    modelInput.setAttribute('list', 'sd-model-list'); // 原生 datalist:可自由输入 + 下拉建议
+    const datalist = document.createElement('datalist');
+    datalist.id = 'sd-model-list';
+    datalist.innerHTML = [
+      { v: 'deepseek-chat', l: 'DeepSeek Chat (通用对话)' },
+      { v: 'deepseek-reasoner', l: 'DeepSeek Reasoner (深度推理)' },
+      { v: 'deepseek-v4-flash', l: 'DeepSeek V4 Flash (快速)' },
+      { v: 'deepseek-v4-pro', l: 'DeepSeek V4 Pro (最强)' },
+    ].map((m) => `<option value="${m.v}" label="${m.l}">`).join('');
+    const fetchBtn = ui.button({
+      label: '获取模型',
+      icon: 'refresh-cw',
+      variant: 'ghost',
+      onClick: async () => {
+        const base = baseUrlInput.value.trim();
+        const key = keyInput.value.trim();
+        if (!base || !key) { ui.toast('请先填写 API 地址与密钥'); return; }
+        fetchBtn.disabled = true;
+        const orig = fetchBtn.textContent;
+        fetchBtn.textContent = '获取中…';
+        try {
+          const models = await call<string[]>('summary_list_models', { baseUrl: base, apiKey: key });
+          if (models.length === 0) { ui.toast('未获取到模型'); return; }
+          datalist.innerHTML = models.map((m) => `<option value="${escapeHtml(m)}">`).join('');
+          if (!models.includes(modelInput.value.trim())) modelInput.value = models[0];
+          ui.toast(`获取到 ${models.length} 个模型`);
+        } catch (e) {
+          ui.toast(e instanceof Error ? e.message : String(e));
+        } finally {
+          fetchBtn.disabled = false;
+          fetchBtn.textContent = orig;
+        }
+      },
+    });
+    modelWrap.appendChild(modelInput);
+    modelWrap.appendChild(fetchBtn);
+    apiCard.appendChild(ui.field({ label: '模型', children: modelWrap }));
+    apiCard.appendChild(datalist); // datalist 独立节点,input[list] 引用它
+
+    // 保存按钮:显式保存,反馈落库
+    const saveBtn = ui.button({
+      label: '保存',
+      icon: 'check',
+      variant: 'primary',
+      onClick: async () => {
+        const base = baseUrlInput.value.trim();
+        const key = keyInput.value.trim();
+        const model = modelInput.value.trim();
+        if (!base || !key || !model) { ui.toast('请完整填写 API 地址、密钥与模型'); return; }
+        try {
+          await call('summary_set_api', { baseUrl: base, apiKey: key, model });
+          // 同步内存缓存
+          Object.assign(prefs, { apiBaseUrl: base, apiKey: key, apiModel: model });
+          ui.toast('API 配置已保存');
+        } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+      },
+    });
+    const clearBtn = ui.button({
+      label: '清除',
+      icon: 'trash',
+      danger: true,
+      onClick: async () => {
+        try {
+          await call('summary_clear_api');
+          baseUrlInput.value = 'https://api.deepseek.com';
+          keyInput.value = '';
+          modelInput.value = 'deepseek-chat';
+          ui.toast('API 配置已清除');
+        } catch (e) { ui.toast(e instanceof Error ? e.message : String(e)); }
+      },
+    });
+    const btnRow = document.createElement('div');
+    btnRow.className = 'sd-actions';
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(clearBtn);
+    apiCard.appendChild(btnRow);
+
+    section.appendChild(apiCard);
   }
 
   main.appendChild(section);

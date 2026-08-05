@@ -95,6 +95,7 @@ pub async fn summary_get_state(svc: State<'_, Arc<SummaryService>>) -> AppResult
         "mode": row.mode, "source": row.source, "modelSize": row.model_size, "contextN": row.context_n,
         "engineVersion": row.engine_version, "modelSha256": row.model_sha256,
         "apiConfigured": row.api_base_url.is_some() && row.api_key.is_some() && row.api_model.is_some(),
+        "apiBaseUrl": row.api_base_url, "apiKey": row.api_key, "apiModel": row.api_model,
         "engineDownloaded": engine_ok,
         "modelDownloaded": model_ok,
     }))
@@ -158,6 +159,36 @@ pub async fn summary_load_cache(svc: State<'_, Arc<SummaryService>>, chat_id: u6
 pub async fn summary_save_cache(svc: State<'_, Arc<SummaryService>>, chat_id: u64, kind: String, text: String) -> AppResult<()> {
     svc.db.upsert_summary_cache(chat_id, &kind, &text).await?;
     Ok(())
+}
+
+/// 列出模型:调 OpenAI 兼容 /models 端点(base_url + api_key),返回模型 id 列表。
+/// DeepSeek(https://api.deepseek.com)与多数 OpenAI 兼容服务都支持。
+#[tauri::command]
+pub async fn summary_list_models(svc: State<'_, Arc<SummaryService>>, base_url: String, api_key: String) -> AppResult<Vec<String>> {
+    let base = base_url.trim_end_matches('/');
+    let url = format!("{base}/models");
+    let resp = svc.downloader.http
+        .get(&url)
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .map_err(|e| AppError::Core(format!("list_models: {e}")))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(AppError::Core(format!("list_models: HTTP {status}")));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| AppError::Core(format!("list_models parse: {e}")))?;
+    // OpenAI 兼容响应:{data:[{id:"...",...}]}
+    let ids = v
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Ok(ids)
 }
 
 #[tauri::command]

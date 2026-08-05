@@ -413,6 +413,7 @@ pub fn run() {
             summary::commands::summary_set_api,
             summary::commands::summary_clear_api,
             summary::commands::summary_download,
+            summary::commands::summary_list_models,
             summary::commands::summary_enqueue,
             summary::commands::summary_load_cache,
             summary::commands::summary_save_cache,
