@@ -112,6 +112,11 @@ impl Downloader {
         }
     }
 
+    /// 应用数据目录(状态快照用)。
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
     /// 启动下载:`which` = 'engine' | 'model',`tier` = '0.5b' | '1.5b'。
     /// 已存在目标文件 → 直接返回(断点续传留迭代 2,TODO)。
     pub async fn start(

@@ -195,24 +195,89 @@ pub fn default_registry() -> Arc<CommandRegistry> {
 // handler 以「pub async fn + 结构体适配」双形式暴露:结构体用于注册,
 // pub fn 供集成者复用/替换(真实实现可改走 hooks 或直接替换 handler 字段)。
 
-/// 扩展点:summarize/ask 的占位实现,集成者替换本模块内函数即可接入真实实现。
-/// 注意:rule.rs 的 /summarize 分支因依赖 BotRuntime(LLM 客户端),仍保留原实现;
-/// 此处 hooks 面向无 runtime 的上下文(系统路径)。
+/// 扩展点:summarize/ask 的实现经 `bridge()` 桥接全局装配(集成者在 lib.rs setup
+/// 时 `set_bridge`)。无桥接时保持占位文案(可测、可独立运行)。
+/// 注意:rule.rs 的 /summarize 分支依赖 BotRuntime(LLM 客户端),保留原实现;
+/// 此处 hooks 面向无 runtime 的上下文(系统路径),与 Bot 路径共用 pipeline/ask。
 pub mod hooks {
     use super::*;
 
-    /// 总结占位:集成者替换为 knowledge pipeline 的 store_summary 调用。
-    pub async fn summarize(
-        _chat_id: u32,
-        _msg_id: u32,
-        _args: &[String],
-    ) -> AppResult<Vec<String>> {
-        Ok(vec!["总结功能待接入".into()])
+    /// 命令桥:由 lib.rs setup 注入(Arc<Knowledge> + 当前账号 Context 提供者)。
+    pub struct CommandBridge {
+        pub knowledge: Arc<crate::knowledge::Knowledge>,
+        pub ctx: Arc<
+            dyn Fn() -> BoxFuture<'static, Option<deltachat::context::Context>> + Send + Sync,
+        >,
     }
 
-    /// 问答占位:集成者替换为 knowledge ask 的调用。
-    pub async fn ask(_chat_id: u32, _msg_id: u32, _args: &[String]) -> AppResult<Vec<String>> {
-        Ok(vec!["问答功能待接入".into()])
+    static BRIDGE: std::sync::OnceLock<CommandBridge> = std::sync::OnceLock::new();
+
+    /// 装配时注入;重复调用忽略。
+    pub fn set_bridge(b: CommandBridge) {
+        let _ = BRIDGE.set(b);
+    }
+
+    fn bridge() -> Option<&'static CommandBridge> {
+        BRIDGE.get()
+    }
+
+    /// 取当前账号 Context(桥接存在且账号可用时)。
+    async fn current_ctx() -> Option<deltachat::context::Context> {
+        (bridge()?.ctx)()
+            .await
+    }
+
+    /// 总结并(可选)入库:`/summarize [N] [save]`。
+    /// - 无桥接/无账号 → 占位提示;N 默认 30 上限 200(与 rule.rs 一致)。
+    /// - `save` 后缀 → 总结后 upsert 入库并返回「已存入知识库:<title>」。
+    pub async fn summarize(
+        chat_id: u32,
+        _msg_id: u32,
+        args: &[String],
+    ) -> AppResult<Vec<String>> {
+        let Some(b) = bridge() else {
+            return Ok(vec!["总结功能待接入".into()]);
+        };
+        let Some(ctx) = current_ctx().await else {
+            return Ok(vec!["当前无账号,无法总结".into()]);
+        };
+        let save = args.iter().any(|a| a == "save");
+        let count = args
+            .iter()
+            .find(|a| a.parse::<usize>().is_ok())
+            .and_then(|a| a.parse::<usize>().ok())
+            .map(|n| n.clamp(1, 200))
+            .unwrap_or(30);
+        match b.knowledge.pipeline.store_summary(&ctx, chat_id, count, "manual").await {
+            Ok(dto) => {
+                if save {
+                    Ok(vec![format!(
+                        "已存入知识库:<{title}>\n{d}",
+                        title = dto.title,
+                        d = dto.summary
+                    )])
+                } else {
+                    // 未 save:返回摘要文本(总结已生成,入库仅限 save)
+                    Ok(vec![dto.title, dto.summary])
+                }
+            }
+            Err(e) => Ok(vec![format!("总结失败: {e}")]),
+        }
+    }
+
+    /// 问答:`/ask <问题>` → 检索知识库 + LLM 回答。
+    pub async fn ask(chat_id: u32, _msg_id: u32, args: &[String]) -> AppResult<Vec<String>> {
+        let Some(b) = bridge() else {
+            return Ok(vec!["问答功能待接入".into()]);
+        };
+        let Some(ctx) = current_ctx().await else {
+            return Ok(vec!["当前无账号,无法问答".into()]);
+        };
+        let question = args.join(" ").trim().to_string();
+        if question.is_empty() {
+            return Ok(vec!["用法: /ask <问题>".into()]);
+        }
+        b.knowledge.ask.ask(&ctx, chat_id, &question).await
     }
 
     /// whoami 占位:全局注册表无 BotRuntime 可查 db/配置,返回通用身份。

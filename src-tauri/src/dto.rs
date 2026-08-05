@@ -619,6 +619,15 @@ pub struct ModelStatusDto {
     pub model_sha256: Option<String>,
 }
 
+/// 主题总结入队上下文(前端组装窗口后传入)。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SummaryContextDto {
+    #[serde(default)]
+    pub lines: Vec<String>,
+    #[serde(default)]
+    pub prev_analysis: Option<String>,
+}
+
 /// Bot 完整配置(存于 bots.config_json)。
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct BotConfig {

@@ -204,6 +204,48 @@ pub fn run() {
             let tool_registry = Arc::new(built);
             state.bot_tools = tool_registry.clone();
 
+            // 智能运行时(主题总结 + 知识库共享引擎):AppHandle 用于事件回传。
+            let intelligence = Arc::new(crate::intelligence::Intelligence::new(
+                state.db.clone(),
+                state.data_dir.clone(),
+                app.handle().clone(),
+            ));
+            // 知识库:LLM 经注入回调指向智能运行时统一入口。
+            let ig_for_llm = intelligence.clone();
+            let llm: crate::knowledge::LlmFn = Arc::new(move |messages| {
+                let ig = ig_for_llm.clone();
+                Box::pin(async move { ig.complete_text(messages).await })
+            });
+            let knowledge = Arc::new(crate::knowledge::Knowledge::new(
+                state.db.clone(),
+                llm,
+            ));
+            // 命令桥:系统路径 /summarize /ask 用当前账号 Context + 知识库。
+            let accounts_for_bridge = state.accounts.clone();
+            let bridge_ctx: Arc<
+                dyn Fn() -> crate::commands::registry::BoxFuture<
+                    'static,
+                    Option<deltachat::context::Context>,
+                > + Send
+                    + Sync,
+            > = Arc::new(move || {
+                let accounts = accounts_for_bridge.clone();
+                Box::pin(async move {
+                    let selected = accounts.lock().await.get_selected_account_id();
+                    let id = selected?;
+                    let acc = accounts.lock().await;
+                    acc.get_account(id)
+                })
+            });
+            crate::commands::registry::hooks::set_bridge(
+                crate::commands::registry::hooks::CommandBridge {
+                    knowledge: knowledge.clone(),
+                    ctx: bridge_ctx,
+                },
+            );
+            state.intelligence = Some(intelligence.clone());
+            state.knowledge = Some(knowledge.clone());
+
             // 驱动注册:规则 + LLM + 定时(cron)。顺序即优先级:
             // RuleDriver 在前 → 规则命中即短路,LLM 驱动不再被调用(spec §2.1)。
             let mut registry = crate::drivers::DriverRegistry::new();
@@ -215,6 +257,60 @@ pub fn run() {
                 tool_registry,
             )));
             registry.register(Arc::new(crate::drivers::schedule::ScheduleDriver));
+            // 系统命令处理器:用户侧斜杠命令(无 Bot 会话也生效);不双回复。
+            let accounts_for_send = state.accounts.clone();
+            let send: crate::drivers::syscmd::SendReplyFn = Arc::new(move |chat_id, text| {
+                let accounts = accounts_for_send.clone();
+                let text = text.to_string();
+                Box::pin(async move {
+                    let selected = accounts.lock().await.get_selected_account_id();
+                    let ctx = match selected {
+                        Some(id) => {
+                            let acc = accounts.lock().await;
+                            acc.get_account(id)
+                        }
+                        None => None,
+                    }
+                    .ok_or_else(|| crate::error::AppError::Core("no account".into()))?;
+                    crate::commands::send_text_impl(&ctx, chat_id, text)
+                        .await
+                        .map(|id| id.to_u32())
+                })
+            });
+            let accounts_for_bot = state.accounts.clone();
+            let bot_ids_for_bot = state.bots.bot_ids();
+            let has_running_bot: crate::drivers::syscmd::HasRunningBotFn =
+                Arc::new(move |chat_id| {
+                    let accounts = accounts_for_bot.clone();
+                    let ids = bot_ids_for_bot.clone();
+                    Box::pin(async move {
+                        let id_list: Vec<u32> = ids.lock().await.iter().copied().collect();
+                        for id in id_list {
+                            let ctx = {
+                                let acc = accounts.lock().await;
+                                acc.get_account(id)
+                            };
+                            if let Some(ctx) = ctx {
+                                // 该 chat 在任一 running bot 账号存在 → 视为有 Bot 会响应。
+                                if deltachat::chat::get_chat_contacts(
+                                    &ctx,
+                                    deltachat::chat::ChatId::new(chat_id),
+                                )
+                                .await
+                                .is_ok()
+                                {
+                                    return Ok(true);
+                                }
+                            }
+                        }
+                        Ok(false)
+                    })
+                });
+            registry.register(Arc::new(crate::drivers::syscmd::SystemCommandProcessor::new(
+                crate::commands::registry::CommandRegistry::global(),
+                send,
+                has_running_bot,
+            )));
             // 挂载事件调度器(常驻后台)
             tauri::async_runtime::spawn(crate::runtime::spawn(
                 state.accounts.clone(),
@@ -224,6 +320,34 @@ pub fn run() {
                 registry,
                 state.data_dir.clone(),
             ));
+            // 每日自动总结扫描器(独立于 Bot,30s 粒度,按 daily_run_date 防重跑)
+            {
+                let kn = knowledge.clone();
+                let accounts = state.accounts.clone();
+                let db = state.db.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        // 用当前选中账号的 Context(与界面命令一致)。
+                        let selected = accounts.lock().await.get_selected_account_id();
+                        let ctx = match selected {
+                            Some(id) => {
+                                let acc = accounts.lock().await;
+                                acc.get_account(id)
+                            }
+                            None => None,
+                        };
+                        let Some(ctx) = ctx else { continue };
+                        match kn.pipeline.run_daily(&ctx).await {
+                            Ok(n) if n > 0 => {
+                                log::info!("intelligence daily: {n} 个会话完成自动总结入库")
+                            }
+                            Ok(_) => {}
+                            Err(e) => log::warn!("intelligence daily 扫描失败: {e}"),
+                        }
+                    }
+                });
+            }
             app.manage(state);
             Ok(())
         })
@@ -394,6 +518,19 @@ pub fn run() {
             commands::project_list_tree,
             commands::project_read_file,
             commands::project_data_source,
+            // 智能中心:知识库 + 智能设置 + 主题总结队列
+            commands::list_knowledge,
+            commands::get_knowledge,
+            commands::delete_knowledge,
+            commands::update_knowledge,
+            commands::summarize_store_now,
+            commands::list_knowledge_config,
+            commands::set_knowledge_config,
+            commands::get_intelligence_settings,
+            commands::set_intelligence_settings,
+            commands::get_llm_model_status,
+            commands::start_engine_download,
+            commands::enqueue_summary,
             // 原生系统通知(user-notify)
             notifications::show_notification,
             notifications::get_notification_permission,

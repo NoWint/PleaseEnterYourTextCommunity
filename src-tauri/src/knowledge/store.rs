@@ -51,6 +51,49 @@ impl KnowledgeStore {
         self.db.update_knowledge(id, title, summary, tags).await?;
         self.get(id).await
     }
+
+    /// 全部会话知识库配置。
+    pub async fn list_configs(&self) -> AppResult<Vec<crate::dto::KnowledgeConfigDto>> {
+        let rows = self.db.list_knowledge_configs().await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| crate::dto::KnowledgeConfigDto {
+                chat_id: r.chat_id,
+                chat_name: r.chat_id.to_string(),
+                daily_enabled: r.daily_enabled,
+                daily_time: r.daily_time,
+                window_count: r.window_count,
+                auto_store: r.auto_store,
+            })
+            .collect())
+    }
+
+    /// 写每会话知识库配置,返回写入后的 DTO。
+    pub async fn set_config(
+        &self,
+        chat_id: u32,
+        daily_enabled: bool,
+        daily_time: &str,
+        window_count: i64,
+        auto_store: bool,
+    ) -> AppResult<crate::dto::KnowledgeConfigDto> {
+        self.db
+            .set_knowledge_config(chat_id, daily_enabled, daily_time, window_count, auto_store)
+            .await?;
+        let row = self
+            .db
+            .get_knowledge_config(chat_id)
+            .await?
+            .ok_or_else(|| crate::error::AppError::Core(format!("会话 {chat_id} 配置写入失败")))?;
+        Ok(crate::dto::KnowledgeConfigDto {
+            chat_id: row.chat_id,
+            chat_name: row.chat_id.to_string(),
+            daily_enabled: row.daily_enabled,
+            daily_time: row.daily_time,
+            window_count: row.window_count,
+            auto_store: row.auto_store,
+        })
+    }
 }
 
 /// KnowledgeRow → KnowledgeDto。tags 按 JSON 数组解析。

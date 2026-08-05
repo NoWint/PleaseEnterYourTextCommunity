@@ -34,6 +34,7 @@ pub struct Intelligence {
     pub queue: SummaryQueue,
     pub local: Arc<LocalRunner>,
     pub downloader: Downloader,
+    handle: tauri::AppHandle,
 }
 
 impl Intelligence {
@@ -48,6 +49,7 @@ impl Intelligence {
             queue,
             local,
             downloader,
+            handle,
         }
     }
 
@@ -73,6 +75,31 @@ impl Intelligence {
             }
             _ => api::complete(&cfg, messages).await,
         }
+    }
+
+    /// 引擎/模型状态快照(界面命令 get_llm_model_status 用)。
+    pub async fn status(&self) -> crate::dto::ModelStatusDto {
+        let dto = match self.settings.get().await {
+            Ok(d) => d,
+            Err(_) => crate::dto::IntelligenceSettingsDto::default(),
+        };
+        let dir = download::models_dir(&self.data_dir());
+        let engine = dir.join(download::engine_asset_name());
+        let model = dir.join(download::model_asset_name(&dto.model_tier));
+        crate::dto::ModelStatusDto {
+            mode: dto.mode,
+            source: dto.source,
+            engine_ready: engine.exists(),
+            model_ready: model.exists(),
+            engine_path: Some(engine.to_string_lossy().into_owned()),
+            model_path: Some(model.to_string_lossy().into_owned()),
+            engine_version: Some("b10276".into()),
+            model_sha256: None,
+        }
+    }
+
+    fn data_dir(&self) -> PathBuf {
+        self.downloader.data_dir().to_path_buf()
     }
 }
 
