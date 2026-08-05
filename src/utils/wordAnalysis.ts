@@ -83,6 +83,11 @@ function uniqueWords(words: string[]): string[] {
   return [...new Set(words)];
 }
 
+/** 贪心聚类阈值 = 该比例 × 最大边权,低于阈值的边不参与连簇。 */
+const CLUSTER_THRESHOLD_RATIO = 0.3;
+/** 每个簇取前 N 个高频词组成短语。 */
+const MAX_PHRASE_WORDS = 3;
+
 /**
  * 计算 Top n 主题簇:遍历已加载消息(倒序,index=1 最近),
  * 每条 resolveMessageText 还原信封 → 切句 → 分词 → 句内两两建共现边。
@@ -116,21 +121,22 @@ export function computeTopics(
         f.weight += 1 / idx;
         freq.set(w, f);
       }
-      // 两两建边
+      // 两两建边(键规范化: 恒存 字典序小→大, 与下方收集过滤条件一致)
       for (let a = 0; a < nWords; a++) {
         for (let b = a + 1; b < nWords; b++) {
           const wa = words[a];
           const wb = words[b];
-          let row = cooccur.get(wa);
-          if (!row) { row = new Map(); cooccur.set(wa, row); }
-          const cur = row.get(wb) ?? 0;
-          row.set(wb, cur + 1 / nWords + 1 / idx);
+          const [k, v] = wa < wb ? [wa, wb] : [wb, wa];
+          let row = cooccur.get(k);
+          if (!row) { row = new Map(); cooccur.set(k, row); }
+          const cur = row.get(v) ?? 0;
+          row.set(v, cur + 1 / nWords + 1 / idx);
         }
       }
     }
   }
 
-  // 3. 收集边,降序
+  // 3. 收集边,降序(建边已规范化键序, 此处 wa<wb 过滤仅去重对称边)
   const edges: Array<{ a: string; b: string; w: number }> = [];
   for (const [wa, row] of cooccur) {
     for (const [wb, w] of row) {
@@ -139,8 +145,8 @@ export function computeTopics(
   }
   edges.sort((x, y) => y.w - x.w);
 
-  // 4. 贪心聚类:阈值 = 0.3×最大边权
-  const thresh = edges.length ? edges[0].w * 0.3 : 0;
+  // 4. 贪心聚类:阈值 = CLUSTER_THRESHOLD_RATIO × 最大边权
+  const thresh = edges.length ? edges[0].w * CLUSTER_THRESHOLD_RATIO : 0;
   const clusters: Array<Set<string>> = [];
   for (const e of edges) {
     if (e.w < thresh) continue;
@@ -164,29 +170,29 @@ export function computeTopics(
   const wordFreq = (w: string): { count: number; weight: number } =>
     freq.get(w) ?? { count: 0, weight: 0 };
   for (const c of clusters) {
-    const ws = [...c];
+    const clusterWords = [...c];
     let score = 0;
-    const wfs: WordFreq[] = [];
-    for (const w of ws) {
+    const wordFreqs: WordFreq[] = [];
+    for (const w of clusterWords) {
       const f = wordFreq(w);
       score += f.weight;
-      wfs.push({ word: w, count: f.count, weight: f.weight });
+      wordFreqs.push({ word: w, count: f.count, weight: f.weight });
     }
-    // 加边权(双向查: 共现矩阵只存 wa<wb 一侧, 簇 Set 序无关句子序)
-    for (let i = 0; i < ws.length; i++) {
-      for (let j = i + 1; j < ws.length; j++) {
+    // 加边权(双向查: 共现矩阵存 字典序小→大 一侧, 簇 Set 序无关字典序)
+    for (let i = 0; i < clusterWords.length; i++) {
+      for (let j = i + 1; j < clusterWords.length; j++) {
         score +=
-          cooccur.get(ws[i])?.get(ws[j]) ??
-          cooccur.get(ws[j])?.get(ws[i]) ??
+          cooccur.get(clusterWords[i])?.get(clusterWords[j]) ??
+          cooccur.get(clusterWords[j])?.get(clusterWords[i]) ??
           0;
       }
     }
-    // 簇内词按加权频次降序,取前 3 组成短语
-    wfs.sort((a, b) => b.weight - a.weight);
+    // 簇内词按加权频次降序,取前 MAX_PHRASE_WORDS 组成短语
+    wordFreqs.sort((a, b) => b.weight - a.weight);
     result.push({
-      words: wfs.slice(0, 3).map((f) => f.word),
+      words: wordFreqs.slice(0, MAX_PHRASE_WORDS).map((f) => f.word),
       score,
-      wordFreqs: wfs,
+      wordFreqs,
     });
   }
   result.sort((a, b) => b.score - a.score);
