@@ -95,14 +95,13 @@ export function renderRightDrawer(): void {
   const tab = state.detailTab;
   const tabsHtml = `
     <span class="rd-tab ${tab === 'members' ? 'active' : ''}" data-tab="members">${iconSvg('users', { width: 14, height: 14 })}<span>成员</span></span>
-    <span class="rd-tab ${tab === 'media' ? 'active' : ''}" data-tab="media">${iconSvg('image', { width: 14, height: 14 })}<span>媒体消息</span></span>
     <span class="rd-tab ${tab === 'archive' ? 'active' : ''}" data-tab="archive">${iconSvg('pin', { width: 14, height: 14 })}<span>存档消息</span></span>
   `;
   drawer.innerHTML = `<div class="rd-tabs">${tabsHtml}</div><div id="rd-body" style="flex:1;overflow-y:auto"></div>`;
 
   drawer.querySelectorAll<HTMLElement>('.rd-tab').forEach((el) => {
     el.addEventListener('click', () => {
-      state.detailTab = el.dataset.tab as 'members' | 'media' | 'archive';
+      state.detailTab = el.dataset.tab as 'members' | 'archive';
       saveState();
       renderRightDrawer();
     });
@@ -131,6 +130,8 @@ function bindOutsideDismiss(): void {
     if (drawer.contains(target)) return;
     // 点击头部触发按钮 (members/pin / 「更多」) → 不关,交给按钮自身 toggle 逻辑
     if ((e.target as HTMLElement).closest?.('.chat-header-btn[data-action], .ch-ctl-btn[data-ctl="more"]')) return;
+    // 点击/拖拽列宽手柄 → 不关(拖拽结束的 pointerup 会冒泡成 click,不能触发关闭)
+    if ((e.target as HTMLElement).closest?.('.col-resizer')) return;
     state.detailPanelOpen = false;
     saveState();
     renderRightDrawer();
@@ -150,8 +151,6 @@ async function renderRdBody(): Promise<void> {
   if (!body) return;
   if (state.detailTab === 'members') {
     await renderMembers(body);
-  } else if (state.detailTab === 'media') {
-    await renderMedia(body);
   } else {
     await renderPins(body);
   }
@@ -425,70 +424,6 @@ async function renderPins(body: HTMLElement): Promise<void> {
       }
     });
   });
-}
-
-// 媒体消息 tab:列出当前聊天的图片/视频/语音/文件,点击跳转并高亮。
-async function renderMedia(body: HTMLElement): Promise<void> {
-  if (!state.currentChatId) {
-    body.innerHTML = `<div class="rd-empty">未选中频道</div>`;
-    return;
-  }
-  let msgs: MsgDto[];
-  try {
-    msgs = await call<MsgDto[]>('get_chat_media', { chatId: state.currentChatId, viewType: null });
-  } catch (e) {
-    body.innerHTML = `<div class="rd-empty">加载失败</div>`;
-    showToast(e instanceof Error ? e.message : String(e));
-    return;
-  }
-  if (!msgs || msgs.length === 0) {
-    body.innerHTML = `<div class="rd-empty">暂无媒体消息</div>`;
-    return;
-  }
-  const items = msgs.map((m) => `
-    <div class="rd-media-item" data-msg="${m.msg_id}">
-      <div class="rd-media-icon">${mediaIcon(m.view_type)}</div>
-      <div class="rd-media-body">
-        <div class="rd-media-name">${escapeHtml(m.file_name || viewLabel(m.view_type))}</div>
-        <div class="rd-media-meta">${escapeHtml(m.from_name || '')} · ${formatRelativeTime(m.ts)}</div>
-      </div>
-    </div>
-  `).join('');
-  body.innerHTML = items;
-  body.querySelectorAll<HTMLElement>('.rd-media-item').forEach((el) => {
-    el.addEventListener('click', async () => {
-      const chatId = state.currentChatId;
-      if (chatId == null) return;
-      const msgId = Number(el.dataset.msg);
-      const { renderChatView } = await import('../chat/chatView.js');
-      await renderChatView(chatId);
-      setTimeout(() => {
-        const msgEl = document.querySelector(`[data-msg="${msgId}"]`);
-        if (msgEl) {
-          msgEl.scrollIntoView({ behavior: 'smooth' });
-          (msgEl as HTMLElement).style.background = 'var(--active)';
-          setTimeout(() => { (msgEl as HTMLElement).style.background = ''; }, 2000);
-        }
-      }, 200);
-    });
-  });
-}
-
-function mediaIcon(viewType: string | null): string {
-  switch (viewType) {
-    case 'Image': case 'Gif': return iconSvg('image', { width: 18, height: 18 });
-    case 'Video': return iconSvg('play', { width: 18, height: 18 });
-    case 'Voice': case 'Audio': return iconSvg('mic', { width: 18, height: 18 });
-    case 'Webxdc': return iconSvg('package', { width: 18, height: 18 });
-    default: return iconSvg('file-text', { width: 18, height: 18 });
-  }
-}
-
-function viewLabel(viewType: string | null): string {
-  const labels: Record<string, string> = {
-    Image: '图片', Gif: 'GIF', Video: '视频', Voice: '语音', Audio: '音频', File: '文件', Webxdc: '应用',
-  };
-  return labels[viewType ?? ''] ?? '文件';
 }
 
 // 成员分组标题本地化:core/Members → 中文,其余 role 名保留
