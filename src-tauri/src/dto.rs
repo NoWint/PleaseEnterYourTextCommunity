@@ -509,6 +509,12 @@ pub struct ProjectContext {
     /// 每 Bot 的 GitHub token(优先,回退全局 settings token)
     #[serde(default)]
     pub github_token: Option<String>,
+    /// 本地仓库路径(优先;无则回退 GitHub)
+    #[serde(default)]
+    pub repo_local_path: Option<String>,
+    /// 沙箱模式:"repo"(默认,限本地仓库目录)| "any"(任意相对路径)
+    #[serde(default)]
+    pub sandbox_mode: Option<String>,
 }
 
 /// GitHub 全局设置(单行表 id=1)。
@@ -794,6 +800,8 @@ mod tests {
             description: Some("PEYT Chat 桌面端".into()),
             repo_path: Some("owner/repo".into()),
             github_token: Some("ghp_test_token".into()),
+            repo_local_path: Some("/tmp/local-repo".into()),
+            sandbox_mode: Some("repo".into()),
         };
         let json = serde_json::to_string(&pc).unwrap();
         let back: ProjectContext = serde_json::from_str(&json).unwrap();
@@ -803,6 +811,8 @@ mod tests {
         assert_eq!(back.description.as_deref(), Some("PEYT Chat 桌面端"));
         assert_eq!(back.repo_path.as_deref(), Some("owner/repo"));
         assert_eq!(back.github_token.as_deref(), Some("ghp_test_token"));
+        assert_eq!(back.repo_local_path.as_deref(), Some("/tmp/local-repo"));
+        assert_eq!(back.sandbox_mode.as_deref(), Some("repo"));
     }
 
     #[test]
@@ -814,6 +824,8 @@ mod tests {
         assert_eq!(back.description.as_deref(), Some("仅描述"));
         assert_eq!(back.repo_path, None);
         assert_eq!(back.github_token, None);
+        assert_eq!(back.repo_local_path, None);
+        assert_eq!(back.sandbox_mode, None);
         // 完全空 JSON → Default
         let empty: ProjectContext = serde_json::from_str("{}").unwrap();
         assert_eq!(empty, ProjectContext::default());
@@ -861,6 +873,8 @@ mod tests {
                 description: Some("测试项目".into()),
                 repo_path: None,
                 github_token: None,
+                repo_local_path: None,
+                sandbox_mode: None,
             }),
         };
         let json = serde_json::to_string(&cfg).unwrap();

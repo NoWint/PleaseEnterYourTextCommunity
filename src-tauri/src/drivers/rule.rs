@@ -443,6 +443,7 @@ mod tests {
             description: Some("PEYT 桌面端".into()),
             repo_path: None,
             github_token: None,
+            ..Default::default()
         };
         let r = whoami_reply("Bot", "bot@x.io", Some(&pc), None);
         assert!(r.starts_with("我是 Bot(bot@x.io)"), "got: {r}");
@@ -458,6 +459,7 @@ mod tests {
             description: None,
             repo_path: None,
             github_token: None,
+            ..Default::default()
         };
         let r = whoami_reply("Bot", "bot@x.io", Some(&pc), Some("PEYT Studio"));
         assert!(r.contains("所属工作区: PEYT Studio"), "got: {r}");
@@ -472,6 +474,7 @@ mod tests {
             description: Some("   ".into()),
             repo_path: None,
             github_token: None,
+            ..Default::default()
         };
         let r = whoami_reply("Bot", "bot@x.io", Some(&pc), None);
         assert_eq!(r, "我是 Bot(bot@x.io)");
@@ -740,6 +743,7 @@ mod tests {
             description: Some("桌面端协作空间".into()),
             repo_path: None,
             github_token: None,
+            ..Default::default()
         });
         let data_dir = tmp.path().to_path_buf();
 

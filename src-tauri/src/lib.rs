@@ -1,5 +1,6 @@
 mod activity;
 mod bots;
+mod code;
 mod commands;
 mod db;
 mod deeplink;
