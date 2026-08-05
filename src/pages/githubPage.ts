@@ -395,7 +395,7 @@ async function doSearch(queryEl: HTMLInputElement, resultsEl: HTMLElement): Prom
 export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   panel.innerHTML = '';
 
-  // header:选中仓库名(动态)+ 添加/刷新/设置按钮
+  // header:标题固定「GitHub」(仓库列表栏)+ 添加/刷新/设置按钮
   const header = document.createElement('div');
   header.className = 'nav-header';
   const titleBox = document.createElement('div');
@@ -403,7 +403,6 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   const navTitle = document.createElement('div');
   navTitle.className = 'nav-title';
   navTitle.textContent = 'GitHub';
-  navTitle.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
   titleBox.appendChild(navTitle);
   const headerActions = document.createElement('div');
   headerActions.className = 'nav-header-actions';
@@ -414,12 +413,6 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
   headerActions.append(addRepoBtn, refreshBtn, settingsBtn);
   header.append(titleBox, headerActions);
   panel.appendChild(header);
-
-  // 侧栏标题跟随选中仓库(GitHub 式:显示 owner/repo,未选中显示 GitHub)
-  const syncNavTitle = (): void => {
-    navTitle.textContent = ghSelected ? ghSelected.full_name : 'GitHub';
-    navTitle.title = ghSelected ? ghSelected.full_name : 'GitHub';
-  };
 
   // 仓库树(绑定仓库列表 / 空引导)
   const tree = document.createElement('div');
@@ -495,13 +488,12 @@ export async function renderGithubNav(panel: HTMLElement): Promise<void> {
     return wrap;
   }
 
-  // 仓库列表/选中变化 → 同步标题 + 重渲染树
-  sidebarRefresher = () => { syncNavTitle(); void renderTree(); };
+  // 仓库列表/选中变化 → 重渲染树
+  sidebarRefresher = () => { void renderTree(); };
 
   // 初始化
   await ghLoadSettings();
   await ghReloadRepos();
-  syncNavTitle();
 }
 
 // ── 主编辑区:玻璃工具条 + Tab 条 + 内容区(VSCode 式) ────────────────────────
