@@ -177,19 +177,25 @@ impl Downloader {
                 let (_asset, exe) = Self::engine_asset();
                 #[cfg(target_os = "windows")]
                 {
+                    // llama-server.exe 依赖同目录全部 DLL(ggml-*.dll/llama.dll 等),
+                    // 单独提取 exe 会因缺 DLL 无法运行 → 整包解压到 models 目录。
                     let file = std::fs::File::open(path)?;
                     let mut zip = zip::ZipArchive::new(file).map_err(|e| AppError::Io(e.to_string()))?;
-                    let target = self.models_dir.join(exe);
                     for i in 0..zip.len() {
                         let mut entry = zip.by_index(i).map_err(|e| AppError::Io(e.to_string()))?;
-                        if entry.name().ends_with(exe) {
-                            let mut out = std::fs::File::create(&target)?;
-                            std::io::copy(&mut entry, &mut out)?;
+                        // 仅解压顶层文件(引擎包无子目录);目录条目跳过
+                        if entry.is_dir() { continue; }
+                        let name = entry.name().to_string();
+                        let out_path = self.models_dir.join(name.trim_start_matches('/'));
+                        if let Some(parent) = out_path.parent() {
+                            std::fs::create_dir_all(parent)?;
                         }
+                        let mut out = std::fs::File::create(&out_path)?;
+                        std::io::copy(&mut entry, &mut out)?;
                     }
                     // 释放句柄再删压缩包(Windows 上文件句柄未关闭时删除更稳妥)
                     drop(zip);
-                    if !target.exists() {
+                    if !self.models_dir.join(exe).exists() {
                         return Err(AppError::Core("引擎包内未找到 llama-server 可执行文件".into()));
                     }
                     std::fs::remove_file(path)?;
@@ -197,19 +203,23 @@ impl Downloader {
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
+                    // macOS/Linux 引擎包同样依赖同目录动态库,且 tar 内可能带顶层目录名。
+                    // 稳妥做法:解压到临时目录 → 找到 llama-server 所在目录 → 平铺拷到 models。
+                    let pkg_dir = self.models_dir.join(".engine_pkg");
+                    if pkg_dir.exists() { std::fs::remove_dir_all(&pkg_dir)?; }
+                    std::fs::create_dir_all(&pkg_dir)?;
                     let file = std::fs::File::open(path)?;
                     let gz = flate2::read::GzDecoder::new(file);
                     let mut tar = tar::Archive::new(gz);
+                    tar.unpack(&pkg_dir)?;
+                    // 递归找 llama-server(顶层目录名随 tag 变)
+                    let exe_path = find_file_recursive(&pkg_dir, exe)
+                        .ok_or_else(|| AppError::Core("引擎包内未找到 llama-server 可执行文件".into()))?;
+                    // 平铺 exe 所在目录内容到 models(依赖动态库必须同目录)
+                    let exe_dir = exe_path.parent().ok_or_else(|| AppError::Core("引擎包结构异常".into()))?;
                     let target = self.models_dir.join(exe);
-                    for entry in tar.entries()? {
-                        let mut entry = entry?;
-                        if entry.path()?.to_string_lossy().ends_with(exe) {
-                            entry.unpack(&target)?;
-                        }
-                    }
-                    if !target.exists() {
-                        return Err(AppError::Core("引擎包内未找到 llama-server 可执行文件".into()));
-                    }
+                    copy_dir_flat(exe_dir, &self.models_dir)?;
+                    std::fs::remove_dir_all(&pkg_dir)?;
                     std::fs::remove_file(path)?;
                     #[cfg(target_os = "macos")]
                     {
@@ -243,6 +253,35 @@ impl Downloader {
             engine_tag: self.engine_tag.clone(),
         }
     }
+}
+
+/// 递归查找名为 `name` 的文件(引擎包顶层目录名随 tag 变)。
+fn find_file_recursive(dir: &Path, name: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            if let Some(found) = find_file_recursive(&p, name) { return Some(found); }
+        } else if p.file_name().map(|n| n == name).unwrap_or(false) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// 把 `src` 目录内容平铺拷贝到 `dst`(引擎依赖动态库必须与 exe 同目录)。
+fn copy_dir_flat(src: &Path, dst: &Path) -> AppResult<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            std::fs::create_dir_all(&target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
 }
 
 fn what_label(w: DownloadWhat) -> &'static str {
