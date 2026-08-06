@@ -37,6 +37,11 @@ export function envelopeText(env: Envelope): string | null {
   return typeof t === 'string' ? t : null;
 }
 
+/** 取信封 md 标记:payload.markdown === true 才 true(布尔严格校验)。 */
+export function envelopeMarkdown(env: Envelope): boolean {
+  return env.payload.markdown === true;
+}
+
 /** 还原消息正文: 是信封 → payload.text; 否则 → 原文。 */
 export function resolveMessageText(text: string): string {
   const env = tryParseEnvelope(text);
