@@ -731,6 +731,7 @@ function scheduleTopicRefresh(): void {
       const st = await scheduleSummary(state.messages, resolveMessageText, prefs.contextN);
       if (st) {
         chip.innerHTML = renderBubbleHtml(st);
+        syncChipTitle(chip);
         bindTopicChipClick(); // 委托已在,幂等
       }
       return;
@@ -739,9 +740,17 @@ function scheduleTopicRefresh(): void {
     const clusters = computeTopics(state.messages, resolveMessageText, 4);
     topicWords = clusters;
     chip.innerHTML = renderTopicBubbleHtml(clusters);
+    syncChipTitle(chip);
     // 点击:全局委托(bindTopicChipClick 一次挂载)按模式分流 —— 词频弹词云 / LLM 弹看板
     bindTopicChipClick();
   }, 300);
+}
+
+// 同步气泡 tooltip:chip.textContent 即纯文本(图标为 svg 无文本),
+// 设为原生 title → 鼠标悬停显示气泡内完整总结文本(气泡过长被省略号截断时看全)。
+function syncChipTitle(chip: HTMLElement): void {
+  const text = chip.textContent?.trim();
+  chip.title = text || '';
 }
 
 // 主题气泡点击全局委托:ch-topic-chip 自身即气泡(data-topic-bubble 标记),
@@ -778,6 +787,7 @@ function bindSummaryEvents(): void {
     const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
     if (chip) {
       chip.innerHTML = renderBubbleHtml(st);
+      syncChipTitle(chip);
       bindTopicChipClick(); // 委托已在,幂等
     }
   });
