@@ -179,9 +179,9 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   const roleName = !isOut && msg.from_id && !isSingle ? getRoleName(msg.from_id) : '';
   const roleTag = roleName ? `<span class="msg-role">${escapeHtml(roleName)}</span>` : '';
   // Reply mark: 本土化 —— 「回复 用户名」。用户名可点击 → 打开发送者名片
-  // (data-reply-contact 传 from_id,data-reply-name 传名字;头像经成员表反查加载)
+  // (data-reply-contact 传 quote_from_id=被引用消息发送者;data-reply-name 传名字;头像经成员表反查加载)
   const replyMark = msg.quote_from
-    ? `<span class="msg-reply-mark">回复 <span class="msg-reply-name" data-reply-contact="${msg.from_id || ''}" data-reply-name="${escapeAttr(msg.quote_from)}">${escapeHtml(msg.quote_from)}</span></span>`
+    ? `<span class="msg-reply-mark">回复 <span class="msg-reply-name" data-reply-contact="${msg.quote_from_id ?? ''}" data-reply-name="${escapeAttr(msg.quote_from)}">${escapeHtml(msg.quote_from)}</span></span>`
     : '';
   // 引用块:遵循被引用消息信封内的 markdown 字段(quote_text 即被引用消息完整信封)
   const qEnv = msg.quote_text ? tryParseEnvelope(msg.quote_text) : null;
@@ -757,8 +757,8 @@ export function bindMessageActions(container: HTMLElement): void {
       void (async () => {
         const { openContactCard } = await import('../components/contactCard.js');
         openContactCard({
-          // 优先用成员表反查的 contact_id;查不到(引用的可能是非本会话成员)则回退 data 里的 id
-          contactId: member?.contact_id ?? (contactId || null),
+          // contactId = 被引用消息发送者(quote_from_id);成员表能反查到则带完整资料
+          contactId: contactId || null,
           name: member?.name || name,
           addr: member?.addr || '',
           avatar: member?.avatar,

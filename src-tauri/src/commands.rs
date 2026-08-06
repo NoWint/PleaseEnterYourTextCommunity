@@ -529,7 +529,7 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
         None
     };
     let from_color = from_sender.as_ref().map(|c| c.get_color());
-    let (quote_from, quote_text) = match m.quoted_message(ctx).await? {
+    let (quote_from, quote_text, quote_msg_id, quote_from_id) = match m.quoted_message(ctx).await? {
         Some(q) => {
             let q_from_id = q.get_from_id();
             let q_name = if q_from_id == deltachat::contact::ContactId::SELF {
@@ -540,9 +540,9 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
                     .get_display_name()
                     .to_string()
             };
-            (Some(q_name), Some(q.get_text()))
+            (Some(q_name), Some(q.get_text()), Some(q.get_id().to_u32()), Some(q_from_id.to_u32()))
         }
-        None => (None, None),
+        None => (None, None, None, None),
     };
     let file_path = m.get_file(ctx).map(|p| p.to_string_lossy().to_string());
     let file_name = m.get_filename();
@@ -568,6 +568,8 @@ async fn msg_to_dto(ctx: &Context, msg_id: MsgId) -> AppResult<MsgDto> {
         state: state_str(m.get_state()).to_string(),
         quote_from,
         quote_text,
+        quote_msg_id,
+        quote_from_id,
         view_type,
         file: file_path,
         file_name,
@@ -2889,7 +2891,7 @@ pub async fn get_chat_media(
                 None
             };
             let from_color = from_sender.as_ref().map(|c| c.get_color());
-            let (quote_from, quote_text) = match m.quoted_message(&ctx).await? {
+            let (quote_from, quote_text, quote_msg_id, quote_from_id) = match m.quoted_message(&ctx).await? {
                 Some(q) => {
                     let q_from_id = q.get_from_id();
                     let q_name = if q_from_id == deltachat::contact::ContactId::SELF {
@@ -2900,9 +2902,9 @@ pub async fn get_chat_media(
                             .get_display_name()
                             .to_string()
                     };
-                    (Some(q_name), Some(q.get_text()))
+                    (Some(q_name), Some(q.get_text()), Some(q.get_id().to_u32()), Some(q_from_id.to_u32()))
                 }
-                None => (None, None),
+                None => (None, None, None, None),
             };
             let file_path = m.get_file(&ctx).map(|p| p.to_string_lossy().to_string());
             let file_name = m.get_filename();
@@ -2928,6 +2930,8 @@ pub async fn get_chat_media(
                 state: state_str(m.get_state()).to_string(),
                 quote_from,
                 quote_text,
+                quote_msg_id,
+                quote_from_id,
                 view_type: view_type_str,
                 file: file_path,
                 file_name,

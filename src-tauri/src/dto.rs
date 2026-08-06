@@ -127,6 +127,8 @@ pub struct MsgDto {
     pub state: String,
     pub quote_from: Option<String>,
     pub quote_text: Option<String>,
+    pub quote_msg_id: Option<u32>, // 被引用消息的 msg_id(前端跳原文定位用)
+    pub quote_from_id: Option<u32>, // 被引用消息的发送者 id(前端弹被引用者名片用)
     pub view_type: String, // "Text"|"Image"|"Gif"|"Sticker"|"Audio"|"Voice"|"Video"|"File"|"Vcard"|"Webxdc"|"Unknown"
     pub file: Option<String>, // blobdir absolute path
     pub file_name: Option<String>,

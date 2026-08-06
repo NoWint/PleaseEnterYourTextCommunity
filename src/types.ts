@@ -74,6 +74,8 @@ export interface MsgDto {
   file_bytes: number | null;
   quote_text: string | null;
   quote_from: string | null;
+  quote_msg_id: number | null;
+  quote_from_id: number | null;
   reactions: Record<string, number[]> | null;
   /** 系统消息(群成员变更/群资料变更/加密状态等),渲染为居中信息行 */
   is_info: boolean;
