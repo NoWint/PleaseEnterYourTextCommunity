@@ -56,29 +56,34 @@ function refChip(id: number | string | undefined): string {
   return `<a class="sd-ref" data-ref="${escapeHtml(String(id))}">↗</a>`;
 }
 
-/** action_items: {items:[{text,assignee?,due?,ref?}]} → checkbox 列表。 */
-function renderActionItems(text: string): string {
+/** action_items: {items:[{text,assignee?,due?,ref?}]} → checkbox 列表 + 进度条,勾选态 localStorage 持久化。 */
+function renderActionItems(text: string, chatId: number): string {
   const d = safeParseJson(text) as { items?: Array<{ text?: string; assignee?: string; due?: string; ref?: number }> } | null;
   if (!d || !Array.isArray(d.items)) return fallbackJson(text);
-  const rows = d.items
-    .map((it) => {
-      const meta = [
-        it.assignee ? `<span class="sd-chip">${escapeHtml(it.assignee)}</span>` : '',
-        it.due ? `<span class="sd-chip sd-chip-due">${escapeHtml(it.due)}</span>` : '',
-      ].filter(Boolean).join('');
-      // 真 checkbox(隐藏)驱动勾选态;点击行即切换
-      return `<label class="sd-item"><input type="checkbox" class="sd-check-input"><span class="sd-checkbox"></span><span class="sd-item-text">${escapeHtml(it.text ?? '')}${refChip(it.ref)}</span>${meta ? `<span class="sd-item-meta">${meta}</span>` : ''}</label>`;
-    })
-    .join('');
-  return `<div class="sd-list">${rows || '<div class="sd-empty">无行动项</div>'}</div>`;
+  const storeKey = (i: number) => `sd-action-done:${chatId}:action_items:${i}`;
+  const doneCount = d.items.filter((_, i) => localStorage.getItem(storeKey(i)) === '1').length;
+  const rows = d.items.map((it, i) => {
+    const checked = localStorage.getItem(storeKey(i)) === '1';
+    const meta = [
+      it.assignee ? `<span class="sd-chip">${escapeHtml(it.assignee)}</span>` : '',
+      it.due ? `<span class="sd-chip sd-chip-due">${escapeHtml(it.due)}</span>` : '',
+    ].filter(Boolean).join('');
+    // 真 checkbox(隐藏)驱动勾选态;点击行即切换;勾选态写 localStorage 跨刷新保持
+    return `<label class="sd-item"><input type="checkbox" class="sd-check-input" data-action-i="${i}" ${checked ? 'checked' : ''}><span class="sd-checkbox"></span><span class="sd-item-text">${escapeHtml(it.text ?? '')}${refChip(it.ref)}</span>${meta ? `<span class="sd-item-meta">${meta}</span>` : ''}</label>`;
+  }).join('');
+  const pct = d.items.length ? Math.round((doneCount / d.items.length) * 100) : 0;
+  return `<div class="sd-action-progress"><div class="sd-action-p-fill" style="width:${pct}%"></div><span>${doneCount}/${d.items.length}</span></div><div class="sd-list">${rows || '<div class="sd-empty">无行动项</div>'}</div>`;
 }
 
-/** open_questions: {questions:[{text,asked_by,ref}]} → 问题列表。 */
+/** open_questions: {questions:[{text,priority?,due?,asked_by,ref}]} → 问题列表。 */
 function renderOpenQuestions(text: string): string {
-  const d = safeParseJson(text) as { questions?: Array<{ text?: string; asked_by?: string; ref?: number }> } | null;
+  const d = safeParseJson(text) as { questions?: Array<{ text?: string; priority?: string; due?: string; asked_by?: string; ref?: number }> } | null;
   if (!d || !Array.isArray(d.questions)) return fallbackJson(text);
-  const rows = d.questions.map((q) =>
-    `<div class="sd-item"><span class="sd-q-icon">?</span><span class="sd-item-text">${escapeHtml(q.text ?? '')}${refChip(q.ref)}</span>${q.asked_by ? `<span class="sd-item-meta"><span class="sd-chip">${escapeHtml(q.asked_by)}</span></span>` : ''}</div>`).join('');
+  const rows = d.questions.map((q) => {
+    const pri = q.priority === 'high' ? ' sd-q-pri-high' : q.priority === 'medium' ? ' sd-q-pri-med' : '';
+    const due = q.due ? `<span class="sd-chip sd-chip-due">${escapeHtml(q.due)}</span>` : '';
+    return `<div class="sd-item${pri}"><span class="sd-q-icon">?</span><span class="sd-item-text">${escapeHtml(q.text ?? '')}${refChip(q.ref)}</span><span class="sd-item-meta">${due}${q.asked_by ? `<span class="sd-chip">${escapeHtml(q.asked_by)}</span>` : ''}</span></div>`;
+  }).join('');
   return `<div class="sd-list">${rows || '<div class="sd-empty">无悬而未决</div>'}</div>`;
 }
 
@@ -91,12 +96,17 @@ function renderTimeline(text: string): string {
   return `<div class="sd-timeline">${nodes || '<div class="sd-empty">无话题演变</div>'}</div>`;
 }
 
-/** decisions: {decisions:[{title,by,rationale,ref}]} → 决策卡片。 */
+/** decisions: {decisions:[{title,status?,impact?,by,rationale,ref}]} → 决策卡片。 */
 function renderDecisions(text: string): string {
-  const d = safeParseJson(text) as { decisions?: Array<{ title?: string; by?: string; rationale?: string; ref?: number }> } | null;
+  const d = safeParseJson(text) as { decisions?: Array<{ title?: string; status?: string; impact?: string; by?: string; rationale?: string; ref?: number }> } | null;
   if (!d || !Array.isArray(d.decisions)) return fallbackJson(text);
-  const cards = d.decisions.map((dc) =>
-    `<div class="sd-dec"><div class="sd-dec-head">${iconSvg('pin', { width: 14, height: 14 })}<span class="sd-dec-title">${escapeHtml(dc.title ?? '')}</span>${dc.by ? `<span class="sd-chip">${escapeHtml(dc.by)}</span>` : ''}${refChip(dc.ref)}</div>${dc.rationale ? `<div class="sd-dec-rationale">${escapeHtml(dc.rationale)}</div>` : ''}</div>`).join('');
+  const cards = d.decisions.map((dc) => {
+    const st = dc.status === 'done'
+      ? `<span class="sd-dec-status sd-dec-done">✓</span>`
+      : dc.status === 'pending' ? `<span class="sd-dec-status sd-dec-pending">○</span>` : '';
+    const impact = dc.impact ? `<div class="sd-dec-impact">${escapeHtml(dc.impact)}</div>` : '';
+    return `<div class="sd-dec">${st}<div class="sd-dec-head">${iconSvg('pin', { width: 14, height: 14 })}<span class="sd-dec-title">${escapeHtml(dc.title ?? '')}</span>${dc.by ? `<span class="sd-chip">${escapeHtml(dc.by)}</span>` : ''}${refChip(dc.ref)}</div>${dc.rationale ? `<div class="sd-dec-rationale">${escapeHtml(dc.rationale)}</div>` : ''}${impact}</div>`;
+  }).join('');
   return `<div class="sd-list">${cards || '<div class="sd-empty">无决策</div>'}</div>`;
 }
 
@@ -165,12 +175,12 @@ function fallbackJson(text: string): string {
  * 由各 renderer 的可选字段兜底);parse 失败显示「生成中…」不显示原始 JSON。
  * 非 JSON(summary/participation 文本)直接显示累积文本(实时打字机)。
  */
-function renderStreaming(kind: AnalysisKind, text: string): string {
+function renderStreaming(kind: AnalysisKind, text: string, chatId: number): string {
   if (!text) return '<span class="sd-streaming">生成中…</span>';
   if (isJsonKind(kind)) {
     const d = safeParseJson(text);
     if (d == null) return '<span class="sd-streaming">生成中…</span>';
-    return renderDetailBody(kind, text);
+    return renderDetailBody(kind, text, chatId);
   }
   // summary / participation 解读:markdown 实时渲染(换行/标签实时生效)
   return renderMarkdown(text);
@@ -182,16 +192,27 @@ function isJsonKind(kind: AnalysisKind): boolean {
 }
 
 /** 按 kind 渲染详情。 */
-function renderDetailBody(kind: AnalysisKind, text: string): string {
+function renderDetailBody(kind: AnalysisKind, text: string, chatId: number): string {
   switch (kind) {
     case 'summary': return renderSummary(text);
     case 'mood': return renderMood(text);
-    case 'action_items': return renderActionItems(text);
+    case 'action_items': return renderActionItems(text, chatId);
     case 'open_questions': return renderOpenQuestions(text);
     case 'timeline': return renderTimeline(text);
     case 'decisions': return renderDecisions(text);
     default: return fallbackJson(text);
   }
+}
+
+/** 行动项勾选 → localStorage 持久化(勾选态跨刷新/重开保持)。 */
+function bindCheckboxPersistence(root: HTMLElement, chatId: number): void {
+  root.querySelectorAll<HTMLInputElement>('.sd-check-input').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const i = cb.dataset.actionI;
+      if (i == null) return;
+      localStorage.setItem(`sd-action-done:${chatId}:action_items:${i}`, cb.checked ? '1' : '0');
+    });
+  });
 }
 
 // ── 全屏打开/关闭 ────────────────────────────────────────
@@ -371,7 +392,8 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
       // participation:统计前端即时算 + 缓存解读
       body.innerHTML = t.kind === 'participation'
         ? `<div class="sd-p-stat">${renderParticipationStat(win)}</div><div class="sd-p-insight"><div class="sd-insight-text">${renderMarkdown(cached.text)}</div></div>`
-        : renderDetailBody(t.kind, cached.text);
+        : renderDetailBody(t.kind, cached.text, chatId);
+      bindCheckboxPersistence(body, chatId); // 缓存命中直接渲染时也绑定勾选持久化
     } else if (t.kind === 'participation') {
       // participation 统计即时渲染(0 token),解读等预请求
       body.innerHTML = `<div class="sd-p-stat">${renderParticipationStat(win)}</div><div class="sd-p-insight">分析中…</div>`;
@@ -424,7 +446,8 @@ function enqueueOverlay(overlay: HTMLElement, chatId: number, kind: AnalysisKind
       // participation 缓存的是 LLM 解读文本;统计为前端即时算(重新算,因为窗口可能变化)
       body.innerHTML = kind === 'participation'
         ? `<div class="sd-p-stat">${renderParticipationStat(fsWin)}</div><div class="sd-p-insight"><div class="sd-insight-text">${renderMarkdown(cached.text)}</div></div>`
-        : renderDetailBody(kind, cached.text);
+        : renderDetailBody(kind, cached.text, chatId);
+      bindCheckboxPersistence(body, chatId); // 缓存命中直接渲染时也绑定勾选持久化
     }
     return;
   }
@@ -547,7 +570,8 @@ function bindFullscreenEvents(): void {
         // participation 解读:markdown 渲染(换行/标签可点);其他按 kind 渲染
         target.innerHTML = p.kind === 'participation'
           ? `<div class="sd-insight-text">${renderMarkdown(cur.text)}</div>`
-          : renderDetailBody(p.kind as AnalysisKind, cur.text);
+          : renderDetailBody(p.kind as AnalysisKind, cur.text, p.chatId);
+        bindCheckboxPersistence(target, p.chatId); // 行动项勾选 → localStorage 持久化
         // 卡片出现动画:done 后加 .sd-reveal,stagger 由子项 animation-delay 控制
         const block = target.closest('.sd-block');
         if (block) {
@@ -562,7 +586,7 @@ function bindFullscreenEvents(): void {
       }
       else if (cur.status === 'error') target.innerHTML = '<div class="wc-empty">分析失败,点击刷新重试</div>';
       // streaming:实时渲染(JSON 增量解析/文本打字机)。streaming 阶段不加 reveal 动画(done 才加)
-      else target.innerHTML = renderStreaming(p.kind as AnalysisKind, cur.text);
+      else target.innerHTML = renderStreaming(p.kind as AnalysisKind, cur.text, p.chatId);
     });
   });
 }
