@@ -44,4 +44,12 @@ mod tests {
         assert!(json.get("from").is_none());
         assert!(json.get("timestamp").is_none());
     }
+
+    #[test]
+    fn envelope_text_with_markdown() {
+        let s = build_envelope("text", json!({"text": "**hi**", "markdown": true})).unwrap();
+        let json: Value = serde_json::from_str(&s).unwrap();
+        assert_eq!(json["payload"]["markdown"], true);
+        assert_eq!(json["payload"]["text"], "**hi**");
+    }
 }
