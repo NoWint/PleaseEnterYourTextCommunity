@@ -46,7 +46,8 @@ let mentionQueryStart = -1;
 // 草稿:输入防抖保存计时器(500ms 后写入后端)
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
-// iMessage 式输入:一条长输入框,Enter 发送,Cmd/Ctrl/Shift+Enter 换行。
+// 微信/QQ 式输入:左侧录音按钮 + 计时,中间大 textarea(内含附件),右侧圆形发送。
+// 顶部 resize 条可拖拽调高输入区。Enter 发送,Cmd/Ctrl+Enter 换行。
 
 // 表情面板常用 emoji(微信风格常用集,零依赖内嵌)
 const EMOJI_PANEL: string[] = [
@@ -93,18 +94,21 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       `;
     }
   }
-  // iMessage 式输入框:一条长输入框(圆角胶囊),最左侧附件按钮,无发送按钮。
-  // Enter 发送,Cmd/Ctrl/Shift+Enter 换行。
+  // 微信/QQ 式输入框:顶部 resize 拖拽条,回复条在卡片内顶部。
+  // 一行布局:左侧录音按钮 + 计时,中间 textarea(内含附件按钮),右侧圆形发送。
+  // Enter 发送,Cmd/Ctrl+Enter 换行。
   area.innerHTML = `
     <div class="composer">
+      <div class="composer-resize" id="composer-resize" title="拖拽调整高度" aria-hidden="true"></div>
       ${replyPreview}
       <div class="composer-row">
+        <button type="button" class="composer-mic" id="composer-mic" title="录音" aria-label="录音">${iconSvg('mic', { width: 16, height: 16 })}</button>
+        <span class="composer-mic-timer" id="composer-mic-timer"></span>
         <div class="composer-field">
           <button type="button" class="composer-attach" id="composer-attach" title="添加附件" aria-label="添加附件"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
-          <textarea id="composer-input" placeholder="消息" rows="1"></textarea>
+          <textarea id="composer-input" placeholder="发消息到频道... (@提及 / #频道)" rows="1"></textarea>
         </div>
-        <span class="composer-mic-timer" id="composer-mic-timer"></span>
-        <button type="button" class="composer-mic" id="composer-mic" title="录音" aria-label="录音">${iconSvg('mic', { width: 18, height: 18 })}</button>
+        <button type="button" class="composer-send" id="composer-send" title="发送" aria-label="发送" disabled>${iconSvg('arrow-up', { width: 18, height: 18, strokeWidth: 2.2 })}</button>
       </div>
     </div>
   `;
@@ -123,6 +127,58 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   const composerRO = new ResizeObserver(() => syncComposerHeight());
   if (composerEl) composerRO.observe(composerEl);
   syncComposerHeight();
+  // 发送按钮:空输入禁用,有内容点亮(与 Enter 发送等价)
+  const sendBtn = document.getElementById('composer-send') as HTMLButtonElement | null;
+  const updateSendState = () => {
+    if (sendBtn) sendBtn.disabled = !input.value.trim();
+  };
+  updateSendState();
+  sendBtn?.addEventListener('click', async () => {
+    if (!input.value.trim()) return;
+    await send(chatId, input, area, onSent);
+    updateSendState();
+  });
+  // 顶部 resize 拖拽条:按下立即切 textarea 模式(高度保持当前,无缝衔接),
+  // 拖动调高输入区;拖回单行高度松手自动切回 input 模式。
+  const resizeHandle = document.getElementById('composer-resize') as HTMLElement | null;
+  const setExpanded = (next: boolean, keepHeight: boolean): void => {
+    composerEl?.classList.toggle('expanded', next);
+    if (next) {
+      // 进入 textarea:保持当前高度(无缝);无 inline 高度则给默认大高度
+      if (!keepHeight || !input.style.height || input.style.height === 'auto') {
+        input.style.height = Math.max(input.getBoundingClientRect().height || 38, 150) + 'px';
+      }
+    } else {
+      // 退出 textarea:恢复内容自适应(单行)
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    }
+  };
+  resizeHandle?.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const wasExpanded = composerEl?.classList.contains('expanded') ?? false;
+    if (!wasExpanded) setExpanded(true, true);
+    const startY = e.clientY;
+    const startH = input.getBoundingClientRect().height;
+    let collapsePending = false;
+    const onMove = (ev: PointerEvent): void => {
+      const delta = ev.clientY - startY; // 向上拖 = 负增量 = 增高
+      const h = Math.min(320, Math.max(38, startH - delta));
+      input.style.height = h + 'px';
+      // 拖到单行高度 → 标记待切回(松手时生效,实时无跳变)
+      collapsePending = h <= 46;
+      // 输入框变高 → 消息区底部让位,若在底部则同步上顶,保持最新消息可见
+      const messagesEl = document.getElementById('messages');
+      if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+    const onUp = (): void => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      if (collapsePending) setExpanded(false, false);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
   // 附件按钮:打开文件选择 → base64 → send_attachment(media 信封)
   const attachBtn = document.getElementById('composer-attach') as HTMLButtonElement | null;
   if (attachBtn) {
@@ -152,6 +208,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     handleMentionInput(input);
+    updateSendState();
     // 草稿:输入防抖 500ms 保存(空文本=清除)
     if (draftTimer) clearTimeout(draftTimer);
     draftTimer = setTimeout(() => {
@@ -192,11 +249,12 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         return;
       }
     }
-    // iMessage 语义:Enter 发送,Cmd/Ctrl/Shift+Enter 换行
+    // 微信/QQ 语义:普通 Enter 发送;Cmd/Ctrl+Enter 换行。
+    // (中文输入法组合中 Enter 用于上屏候选字,composing 时跳过发送/换行)
     if (e.key === 'Enter' && !composing && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       await send(chatId, input, area, onSent);
-    } else if (e.key === 'Enter' && !composing && (e.shiftKey || e.metaKey || e.ctrlKey)) {
+    } else if (e.key === 'Enter' && !composing && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       insertNewline(input);
     } else if (e.key === 'Escape') {
@@ -213,6 +271,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       input.value = draft;
       input.style.height = 'auto';
       input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+      updateSendState();
     }
   } catch {}
   input.focus();

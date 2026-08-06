@@ -620,31 +620,30 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .msg .msg-reaction:hover { background: var(--active); border-color: var(--text-weak); }
 .msg-reaction-count { font-size: var(--font-scale-micro); font-weight: 600; color: var(--text-mute); line-height: 1; margin-left: 1px; }
-/* 输入区:iMessage 式长输入框。一条圆角胶囊,最左侧附件按钮 + 自适应 textarea,
-   无发送按钮。Enter 发送,Cmd/Ctrl/Shift+Enter 换行。 */
+/* 输入区:悬浮玻璃卡片(与 chat-header 同材质)。微信/QQ 式布局:
+   顶部 resize 拖拽条 + 一行(左侧录音按钮+计时,中间大 textarea(内含附件),右侧圆形发送)。
+   Enter 发送,Cmd/Ctrl+Enter 换行。 */
 .composer {
-  display: flex; flex-direction: column;
-  gap: 6px;
   position: relative;
-  /* 底板:全宽贴底接地,直角 */
-  padding: 8px 12px 10px;
-  border-radius: 0;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   backdrop-filter: blur(18px) saturate(150%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.20), inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
 }
 .composer-row {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: flex-end; gap: 10px;
 }
+/* 中间输入域:胶囊底 + 细边框,内含附件按钮与弹性 textarea(微信/QQ 式) */
 .composer-field {
   flex: 1; min-width: 0;
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 6px 4px 4px;
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 4px 3px 2px;
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--capsule) 90%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  backdrop-filter: blur(18px) saturate(150%);
+  background: var(--capsule);
+  border: 1px solid var(--border);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
 }
 .composer-attach {
@@ -690,13 +689,8 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .composer-expand:hover .composer-tooltip { opacity: 1; visibility: visible; transform: translateY(0); }
 
-/* 展开模式:大 textarea + 顶部 resize 指示器。
-   收起(默认):单行自动增高;展开:固定大高度 + 顶部指示器拖拽调高。
-   指示器挂在 .composer 容器边缘(卡片顶边),而非输入框内部 —— 悬停即抓,操作容易。 */
-.composer { position: relative; }
-.composer-main { position: relative; }
-/* resize 指示器:位于容器上边缘。始终显示(热区常驻),悬停浮现抓取条。
-   按下立即切 textarea 模式(见 composer.ts),拖动调高,缩到单行松手切回 input。 */
+/* 拖拽调高:顶部 resize 指示器挂在 .composer 容器上边缘(卡片顶边) —— 悬停即抓,操作容易。
+   按下立即切 .expanded 模式(见 composer.ts),拖动调高;拖回单行高度松手自动恢复自适应。 */
 .composer-resize {
   position: absolute; top: -3px; left: 0; right: 0;
   height: 9px; cursor: row-resize;
@@ -710,8 +704,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   opacity: 0; transition: opacity 120ms var(--ease-out);
 }
 .composer:hover .composer-resize::before, .composer-resize:hover::before, .composer-resize:active::before { opacity: 0.9; }
-/* 展开(textarea)模式:textarea 撑高(最小高度调低,避免展开突兀)。
-   resize 条本身两种模式都常显。 */
+/* 拖拽调高(展开)模式:textarea 撑高;缩回单行后移除 .expanded 恢复自适应 */
 .composer.expanded textarea {
   min-height: 88px;
   max-height: 320px;
@@ -748,7 +741,7 @@ html.window-frame #titlebar-tools { height: 34px; }
 .composer-emoji:hover { background: var(--active); transform: scale(1.15); }
 /* 悬浮输入区容器:贴底、左右留边,脱离文档流浮在消息区之上(与 chat-header 对称) */
 #composer-area {
-  position: absolute; bottom: 0; left: 0; right: 0;
+  position: absolute; bottom: 14px; left: 14px; right: 14px;
   z-index: 10;
 }
 
@@ -1204,7 +1197,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   40% { opacity: 1; }
 }
 
-/* composer textarea:融入胶囊背景(无独立边框) */
+/* composer textarea:透明融入 .composer-field 胶囊背景(无独立边框),弹性高度 */
 .composer textarea {
   flex: 1;
   min-width: 0;
@@ -1226,37 +1219,33 @@ html.window-frame #titlebar-tools { height: 34px; }
 .composer textarea { scrollbar-width: none; }
 .composer textarea::-webkit-scrollbar { display: none; }
 
-/* 发送按钮:底色迎合主题(--text 底 + --on-accent 字,与主按钮/图标态一致,
-   不用微信绿也不强调色)。空输入禁用灰,有内容点亮为主题强调色。 */
+/* 圆形发送按钮:空输入禁用灰,有内容点亮(--text 底 + --on-accent 箭头,与主按钮/图标态一致) */
 .composer-send {
   flex-shrink: 0;
-  min-width: 64px; height: 34px;
-  padding: 0 16px;
+  width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
-  border: none; border-radius: 6px;
+  border: none; border-radius: 50%;
   cursor: pointer;
-  font-size: var(--font-scale-body); font-weight: 600;
   color: var(--on-accent);
   background: var(--text);
-  transition: transform 100ms ease-out, opacity 120ms, filter 150ms;
+  transition: transform 100ms ease-out, opacity 120ms, box-shadow 150ms;
 }
-.composer-send:hover { filter: brightness(1.08); }
-.composer-send:active { transform: scale(0.96); }
+.composer-send svg { display: block; }
+.composer-send:hover { box-shadow: var(--shadow-sm); }
+.composer-send:active { transform: scale(0.9); }
 .composer-send:disabled {
   background: var(--border-strong); color: var(--text-weak);
-  cursor: default; filter: none;
+  cursor: default; box-shadow: none;
 }
 
-/* 录音麦克风按钮:与发送按钮同形态,录音态变红 + pulse */
+/* 录音麦克风按钮:圆形,与发送按钮同形态,录音态变红 + pulse */
 .composer-mic {
   flex-shrink: 0;
   width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
-  border: none; border-radius: var(--radius-md); /* 与输入框同圆角 */
+  border: 1px solid var(--border-strong); border-radius: 50%;
   cursor: pointer;
-  background: color-mix(in srgb, var(--capsule) 90%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
-  color: var(--text-mute);
+  background: var(--capsule); color: var(--text-mute);
   transition: transform 120ms var(--ease-out), color 120ms var(--ease-out), background 120ms var(--ease-out);
 }
 .composer-mic svg { display: block; }
