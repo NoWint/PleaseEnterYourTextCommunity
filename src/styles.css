@@ -419,7 +419,8 @@ html.window-frame #titlebar-tools { height: 34px; }
   top: 0;
   z-index: 5;
   flex-shrink: 0;
-  padding: 6px 8px 12px;
+  /* 顶部/左右留白与输入框悬浮卡片一致(14px):顶部栏与输入框视觉对齐 */
+  padding: 14px 14px 12px;
   /* iOS 26 Message 顶部控件组:居左横排,左侧主信息 + 在线 + 词频气泡 + 右侧按钮组 */
   display: flex; justify-content: flex-start; align-items: center; gap: 8px;
   /* 融入聊天流: 容器背景透明, 仅各控件自身带 panel 背景 */
