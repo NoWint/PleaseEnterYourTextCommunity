@@ -85,6 +85,13 @@ let sidebarRefresher: (() => void) | null = null;
 let ghFilesPath = '';
 let ghFilesRepoKey = '';
 
+// Promise 超时保护:GitHub API 慢/不可达时,超时给出明确错误,避免一直空白
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, reject) => {
+    setTimeout(() => reject(new Error('timeout')), ms);
+  })]);
+}
+
 // 标签栏指示线(GitHub 式橙色下划线):仅一个主区实例,页面重入时覆盖指针。
 // 指示线用 active 项相对 .gh-tabbar 的 offsetLeft/offsetWidth 定位,CSS 过渡滑动(§4 行为而非固定动画)。
 let ghTabTarget: { bar: HTMLElement; thumb: HTMLElement } | null = null;
@@ -731,21 +738,51 @@ async function openGhIssue(it: IssueDto, repo: GithubRepoRef): Promise<void> {
   dlg.overlay.querySelector('.ui-dialog')!.insertBefore(bodyEl, actionsEl);
 }
 
-// Pulls:富行 + +N/-N(增绿减红)+ 合并状态。点击 → 详情弹窗
+// Pulls:open/closed/all 筛选(GitHub 式计数器按钮)+ 富行(+N/−N 增绿减红)+ 合并状态。点击 → 详情弹窗
+let ghPullState: 'open' | 'closed' | 'all' = 'open'; // 模块级,切换 tab 后保留上次筛选
 async function renderGhPulls(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
+  body.innerHTML = ''; // 先清 spinner,让筛选栏立刻可见
+  const filter = document.createElement('div');
+  filter.className = 'gh-filter';
+  const mk = (id: 'open' | 'closed' | 'all', label: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'gh-filter-btn' + (ghPullState === id ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      if (ghPullState === id) return;
+      ghPullState = id;
+      void renderGhPulls(body, repo);
+    });
+    filter.appendChild(b);
+  };
+  mk('open', '开启');
+  mk('closed', '已关闭');
+  mk('all', '全部');
+  body.appendChild(filter);
+
+  // 数据到达前保留小 spinner(筛选栏下方)
+  const loading = document.createElement('div');
+  loading.className = 'ui-spinner-wrap';
+  loading.style.flex = '1';
+  loading.appendChild(ui.spinner());
+  body.appendChild(loading);
+
   let pulls: PullDto[];
   try {
-    pulls = await call<PullDto[]>('github_list_pulls', { owner: repo.owner, repo: repo.repo, state: 'open' });
+    pulls = await call<PullDto[]>('github_list_pulls', { owner: repo.owner, repo: repo.repo, state: ghPullState });
   } catch (e) {
-    body.innerHTML = '';
+    loading.remove();
     body.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
     return;
   }
-  body.innerHTML = '';
+  loading.remove();
   if (pulls.length === 0) {
     body.appendChild(ui.empty('暂无 Pull Request'));
     return;
   }
+  const list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-direction:column';
   pulls.forEach((p) => {
     const row = document.createElement('div');
     row.className = 'rd-gh-row';
@@ -762,8 +799,9 @@ async function renderGhPulls(body: HTMLElement, repo: GithubRepoRef): Promise<vo
       </div>
     `;
     row.addEventListener('click', () => void openGhPull(p));
-    body.appendChild(row);
+    list.appendChild(row);
   });
+  body.appendChild(list);
 }
 async function openGhPull(p: PullDto): Promise<void> {
   const bodyEl = document.createElement('div');
@@ -789,11 +827,18 @@ async function openGhPull(p: PullDto): Promise<void> {
 
 // Commits:mono sha[0:7] + 消息首行 + 作者/日期
 async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
-  body.innerHTML = '';
-  const list = document.createElement('div');
-  list.style.cssText = 'display:flex;flex-direction:column';
-  body.appendChild(list);
-  let page = 1; // 后端每页 per_page=100,满页时提供「加载更多」
+  // 保留 renderEditorContent 的加载 spinner,数据到达前不空白
+  let page = 1; // 后端每页 per_page=30,满页时提供「加载更多」
+  let list: HTMLElement | null = null;
+
+  function ensureList(): HTMLElement {
+    if (list) return list;
+    body.innerHTML = ''; // 数据到达:清掉 renderEditorContent 的加载 spinner,避免残留圆圈
+    list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-direction:column';
+    body.appendChild(list);
+    return list;
+  }
 
   function buildRow(c: CommitDto): HTMLElement {
     const row = document.createElement('div');
@@ -810,25 +855,33 @@ async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<
     return row;
   }
 
-  // 拉取一页并追加;返回是否还有更多(满页 100 条即视为还有下一页)
+  // 拉取一页并追加;返回是否还有更多(满页 30 条即视为还有下一页)
   async function loadPage(): Promise<boolean> {
     let commits: CommitDto[];
     try {
-      commits = await call<CommitDto[]>('github_list_commits', { owner: repo.owner, repo: repo.repo, page });
+      commits = await withTimeout(
+        call<CommitDto[]>('github_list_commits', { owner: repo.owner, repo: repo.repo, page }),
+        30000, // 对齐后端 30s;网络慢时 commit 响应可达 20s+,不能 10s 就误判超时
+      );
     } catch (e) {
-      if (list.childElementCount === 0) list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+      body.innerHTML = '';
+      const msg = e instanceof Error && e.message === 'timeout'
+        ? '加载超时:连接 GitHub API 超时,请检查网络后重试'
+        : (e instanceof Error ? e.message : String(e));
+      body.appendChild(ui.empty(msg));
       return false;
     }
-    if (commits.length === 0) return false;
-    for (const c of commits) list.appendChild(buildRow(c));
-    return commits.length >= 100;
+    const l = ensureList();
+    l.innerHTML = '';
+    if (commits.length === 0) {
+      l.appendChild(ui.empty('暂无 Commit'));
+      return false;
+    }
+    for (const c of commits) l.appendChild(buildRow(c));
+    return commits.length >= 30;
   }
 
   const hasMore = await loadPage();
-  if (list.childElementCount === 0) {
-    list.appendChild(ui.empty('暂无 Commit'));
-    return;
-  }
   if (hasMore) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -843,7 +896,7 @@ async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<
       if (more) btn.textContent = '加载更多';
       else btn.remove();
     });
-    list.appendChild(btn);
+    ensureList().appendChild(btn);
   }
 }
 

@@ -2207,6 +2207,22 @@ html.window-frame #titlebar-tools { height: 34px; }
 /* 提交圆点(Commits) */
 .rd-gh-commitdot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; background: var(--text-weak); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-weak) 20%, transparent); }
 
+/* PR/Issue 筛选栏(open/closed/all):GitHub 式计数器按钮 */
+.gh-filter {
+  display: flex; align-items: center; gap: 4px;
+  padding: 10px 14px 0;
+}
+.gh-filter-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 12px; border-radius: 999px;
+  font-size: var(--font-scale-micro); font-weight: 600;
+  color: var(--text-mute); background: transparent;
+  border: 1px solid transparent; cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.gh-filter-btn:hover { color: var(--text-strong); background: var(--control-bg-hover); }
+.gh-filter-btn.active { background: var(--gh-label-bg); color: var(--gh-accent); border-color: var(--gh-label-border); }
+
 /* GitHub 式标签 chip */
 .gh-label {
   display: inline-block; padding: 0 8px; border-radius: 999px;
