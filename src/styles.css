@@ -252,6 +252,10 @@ html[data-font-scale="xl"] {
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* 关键:关闭 button 的 WebKit 系统外观。macOS WKWebView 默认给 <button> 绘制系统按钮皮肤
+   (白色渐变 + 2px outset 3D 边框),会叠加在自定义背景上,表现为「按钮一半白一半主题色」。
+   同时清掉 UA 的默认边框/背景;各按钮类(.ui-button 等)再自行覆盖。 */
+button { appearance: none; -webkit-appearance: none; border: none; background: none; }
 html, body { height: 100%; color: var(--text); font-family: var(--font); font-size: var(--font-scale-body); }
 html { background: var(--bg); text-rendering: geometricPrecision; }
 body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-variation-settings: "slnt" 0; overflow: hidden; }
@@ -370,6 +374,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   display: flex; align-items: center; gap: 8px;
   width: 440px; height: 28px; padding: 0 6px 0 12px;
   border-radius: var(--radius-big);
+  border: none;
   background: var(--surface-layer-01);
   box-shadow: inset 0 0 0 1px var(--border-base);
   color: var(--text-muted); font-size: var(--font-scale-secondary); cursor: pointer; font-family: inherit;
