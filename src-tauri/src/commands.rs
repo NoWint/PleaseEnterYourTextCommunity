@@ -1,3 +1,6 @@
+/// 统一命令注册表(Bot 与用户侧共用)。
+pub mod registry;
+
 use deltachat::chat::{self, Chat, ChatItem, ChatVisibility};
 use deltachat::context::Context;
 use deltachat::chatlist::Chatlist;
@@ -13,10 +16,10 @@ use deltachat::securejoin;
 use tauri::State;
 
 use crate::dto::{
-    ActivityDto, AdvancedLogin, BotDto, BotStatsDto, BotToolDto, CardDto, ChannelDto, ChatDto,
-    ChatInfoDto, CommonChatDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto, MsgDto,
-    PersonaDto, PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, ReadReceiptDto, RoleDto,
-    ScheduleDto, SearchResultDto, VcardContactDto, WorkspaceDto,
+    ActivityDto, AdvancedLogin, BotConfig, BotDto, BotStatsDto, BotToolDto, CardDto, ChannelDto,
+    ChatDto, ChatInfoDto, CommonChatDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto,
+    MsgDto, PersonaDto, PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, ReadReceiptDto,
+    RoleDto, ScheduleDto, SearchResultDto, VcardContactDto, WorkspaceDto,
 };
 use crate::drivers::schedule::next_cron;
 use crate::error::{AppError, AppResult};
@@ -33,12 +36,14 @@ use crate::github::api::{
     url_list_pulls, url_repo, url_search_code, url_search_repo,
 };
 use crate::github::client::GithubAuth;
+use crate::github::client::GithubClient;
 use crate::github::types::{
     parse_commit_list, parse_content, parse_content_list, parse_event_list, parse_issue,
     parse_issue_list, parse_pull_list, parse_repo, parse_search_code, parse_search_repo,
     CommitDto, ContentDto, EventDto, IssueDto, PullDto, RepoDto, SearchCodeDto, SearchRepoDto,
 };
 use crate::tools::github::filter_out_pull_requests;
+use crate::code::{CodeEntry, CodeSource};
 
 /// SP5 Task 11: 区分"字段缺失"(None, 不更新) / "字段为 null"(Some(None), 清空) /
 /// "字段有值"(Some(Some(v)), 更新)。
@@ -637,7 +642,7 @@ pub async fn get_chat_msgs(
 
 /// 发送文本消息，返回新消息 id（供 send_text 与 bot_send_text 复用）。
 /// 普通文本统一组装成 `{"type":"text",...,"payload":{"text":...,"markdown":bool}}` 信封发出。
-async fn send_text_impl(ctx: &Context, chat_id: u32, text: String, markdown: Option<bool>) -> AppResult<MsgId> {
+pub(crate) async fn send_text_impl(ctx: &Context, chat_id: u32, text: String, markdown: Option<bool>) -> AppResult<MsgId> {
     let chat_id = deltachat::chat::ChatId::new(chat_id);
     let payload = serde_json::json!({ "text": text, "markdown": markdown.unwrap_or(false) });
     let envelope = crate::envelope::build_envelope("text", payload)?;
@@ -4356,12 +4361,13 @@ pub async fn github_list_commits(
     owner: String,
     repo: String,
     path: Option<String>,
+    page: Option<u32>,
 ) -> AppResult<Vec<CommitDto>> {
     check_owner_repo(&owner, &repo)?;
     let auth = github_auth(&state.db).await?;
     let raw = state
         .github
-        .get_json(&auth, &url_list_commits(&owner, &repo, path.as_deref()))
+        .get_json(&auth, &url_list_commits(&owner, &repo, path.as_deref(), page))
         .await?;
     Ok(parse_commit_list(&raw))
 }
@@ -4420,6 +4426,293 @@ pub async fn github_get_content(
     } else {
         Ok(vec![parse_content(&raw)])
     }
+}
+
+// ---- D2 项目浏览命令 ----
+
+/// 列出项目目录(单层;显式 local_path 或 owner/repo 构造 CodeSource,不依赖 Bot)。
+#[tauri::command]
+pub async fn project_list_tree(
+    state: State<'_, AppState>,
+    local_path: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+    prefix: Option<String>,
+) -> AppResult<Vec<CodeEntry>> {
+    project_list_tree_impl(&state.db, &state.github, local_path, owner, repo, prefix).await
+}
+
+/// 可测核心:解析 CodeSource → list_tree(Local 直读 / Github contents API)。
+pub async fn project_list_tree_impl(
+    db: &Arc<Db>,
+    github: &GithubClient,
+    local_path: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+    prefix: Option<String>,
+) -> AppResult<Vec<CodeEntry>> {
+    let source = CodeSource::from_parts(local_path, owner, repo)?;
+    let auth = github_auth(db).await?;
+    source
+        .list_tree(github, &auth, prefix.as_deref().unwrap_or(""))
+        .await
+}
+
+/// 读取项目文件(≤64KB;显式 local_path 或 owner/repo,不依赖 Bot)。
+#[tauri::command]
+pub async fn project_read_file(
+    state: State<'_, AppState>,
+    local_path: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+    path: String,
+) -> AppResult<String> {
+    project_read_file_impl(&state.db, &state.github, local_path, owner, repo, path).await
+}
+
+/// 可测核心:解析 CodeSource → read_file(Local 沙箱直读 / Github base64 解码)。
+pub async fn project_read_file_impl(
+    db: &Arc<Db>,
+    github: &GithubClient,
+    local_path: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+    path: String,
+) -> AppResult<String> {
+    let source = CodeSource::from_parts(local_path, owner, repo)?;
+    let auth = github_auth(db).await?;
+    source.read_file(github, &auth, &path).await
+}
+
+/// 数据源探测:任一 Bot 的 project_context.repo_path == "owner/repo" 且 repo_local_path 目录存在 → "local",否则 "github"。
+#[tauri::command]
+pub async fn project_data_source(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> AppResult<String> {
+    project_data_source_impl(&state.db, &owner, &repo).await
+}
+
+/// 可测核心:遍历全部 bot 配置,匹配 repo_path 且 repo_local_path 为存在的目录 → "local"。
+pub async fn project_data_source_impl(db: &Arc<Db>, owner: &str, repo: &str) -> AppResult<String> {
+    check_owner_repo(owner, repo)?;
+    let target = format!("{}/{}", owner.trim(), repo.trim());
+    for bot in db.list_all_bots().await? {
+        let Some(raw) = db.get_bot_config_by_id(bot.id).await? else {
+            continue;
+        };
+        let Some(pc) = BotConfig::parse(Some(&raw)).and_then(|cfg| cfg.project_context) else {
+            continue;
+        };
+        let local = pc
+            .repo_local_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(std::path::Path::new)
+            .filter(|p| p.is_dir());
+        if pc.repo_path.as_deref().map(str::trim) == Some(target.as_str()) && local.is_some() {
+            return Ok("local".into());
+        }
+    }
+    Ok("github".into())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 智能中心:知识库 + 智能设置 + 主题总结队列(界面命令,全部非 Bot 特定)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 取已装配的智能运行时;未装配时返回明确的 Core 错误(避免 unwrap)。
+fn intelligence<'a>(state: &'a State<'_, AppState>) -> AppResult<&'a Arc<crate::intelligence::Intelligence>> {
+    state
+        .intelligence
+        .as_ref()
+        .ok_or_else(|| AppError::Core("智能运行时未装配".into()))
+}
+
+/// 取已装配的知识库模块。
+fn knowledge<'a>(state: &'a State<'_, AppState>) -> AppResult<&'a Arc<crate::knowledge::Knowledge>> {
+    state
+        .knowledge
+        .as_ref()
+        .ok_or_else(|| AppError::Core("知识库未装配".into()))
+}
+
+/// 知识条目列表(过滤 + 分页)。
+#[tauri::command]
+pub async fn list_knowledge(
+    state: State<'_, AppState>,
+    chat_id: Option<u32>,
+    tag: Option<String>,
+    keyword: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> AppResult<Vec<crate::dto::KnowledgeDto>> {
+    let kn = knowledge(&state)?;
+    kn.store
+        .list(
+            chat_id,
+            tag.as_deref(),
+            keyword.as_deref(),
+            page.unwrap_or(1),
+            page_size.unwrap_or(50),
+        )
+        .await
+}
+
+/// 单条知识条目。
+#[tauri::command]
+pub async fn get_knowledge(state: State<'_, AppState>, id: i64) -> AppResult<crate::dto::KnowledgeDto> {
+    let kn = knowledge(&state)?;
+    kn.store
+        .get(id)
+        .await?
+        .ok_or_else(|| AppError::Core(format!("知识条目 {id} 不存在")))
+}
+
+/// 删除知识条目。
+#[tauri::command]
+pub async fn delete_knowledge(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    let kn = knowledge(&state)?;
+    kn.store.delete(id).await
+}
+
+/// 编辑知识条目(仅非 None 字段)。
+#[tauri::command]
+pub async fn update_knowledge(
+    state: State<'_, AppState>,
+    id: i64,
+    title: Option<String>,
+    summary: Option<String>,
+    tags: Option<Vec<String>>,
+) -> AppResult<crate::dto::KnowledgeDto> {
+    let kn = knowledge(&state)?;
+    let tags_json = tags.map(|t| serde_json::to_string(&t).unwrap_or_else(|_| "[]".into()));
+    kn.store
+        .update(id, title.as_deref(), summary.as_deref(), tags_json.as_deref())
+        .await?
+        .ok_or_else(|| AppError::Core(format!("知识条目 {id} 不存在")))
+}
+
+/// 立即总结指定会话并入库(智能中心「总结本会话入库」按钮)。
+#[tauri::command]
+pub async fn summarize_store_now(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    count: Option<usize>,
+) -> AppResult<crate::dto::KnowledgeDto> {
+    let kn = knowledge(&state)?;
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    kn.pipeline
+        .store_summary(&ctx, chat_id, count.unwrap_or(30), "manual")
+        .await
+}
+
+/// 每会话知识库配置列表。
+#[tauri::command]
+pub async fn list_knowledge_config(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::dto::KnowledgeConfigDto>> {
+    let kn = knowledge(&state)?;
+    kn.store.list_configs().await
+}
+
+/// 写每会话知识库配置。
+#[tauri::command]
+pub async fn set_knowledge_config(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    daily_enabled: bool,
+    daily_time: String,
+    window_count: i64,
+    auto_store: bool,
+) -> AppResult<crate::dto::KnowledgeConfigDto> {
+    let kn = knowledge(&state)?;
+    kn.store
+        .set_config(chat_id, daily_enabled, &daily_time, window_count, auto_store)
+        .await
+}
+
+/// 智能设置读取。
+#[tauri::command]
+pub async fn get_intelligence_settings(
+    state: State<'_, AppState>,
+) -> AppResult<crate::dto::IntelligenceSettingsDto> {
+    let ig = intelligence(&state)?;
+    ig.settings.get().await
+}
+
+/// 智能设置写入。
+#[tauri::command]
+pub async fn set_intelligence_settings(
+    state: State<'_, AppState>,
+    mode: String,
+    source: String,
+    model_tier: String,
+    window_n: i64,
+    base_url: Option<String>,
+    api_key: Option<String>,
+    model: Option<String>,
+) -> AppResult<()> {
+    let ig = intelligence(&state)?;
+    ig.settings
+        .set(&crate::dto::IntelligenceSettingsDto {
+            mode,
+            source,
+            model_tier,
+            window_n,
+            base_url,
+            api_key,
+            model,
+        })
+        .await
+}
+
+/// 引擎/模型状态。
+#[tauri::command]
+pub async fn get_llm_model_status(
+    state: State<'_, AppState>,
+) -> AppResult<crate::dto::ModelStatusDto> {
+    let ig = intelligence(&state)?;
+    Ok(ig.status().await)
+}
+
+/// 启动引擎或模型下载(进度经 download-progress 事件回传)。
+#[tauri::command]
+pub async fn start_engine_download(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    which: String,
+) -> AppResult<()> {
+    let ig = intelligence(&state)?;
+    let dto = ig.settings.get().await?;
+    let tier = dto.model_tier.clone();
+    ig.downloader.start(&which, &tier, &app).await
+}
+
+/// 主题总结入队(气泡/详情看板;窗口由前端组装经 context 传入)。
+#[tauri::command]
+pub async fn enqueue_summary(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    lane: String,
+    kind: Option<String>,
+    context: Option<crate::dto::SummaryContextDto>,
+) -> AppResult<()> {
+    let ig = intelligence(&state)?;
+    let ctx = context.unwrap_or_default();
+    ig.queue.enqueue(crate::intelligence::queue::SummaryRequest {
+        chat_id,
+        lane,
+        kind,
+        lines: ctx.lines,
+        prev_analysis: ctx.prev_analysis,
+    });
+    Ok(())
 }
 
 #[cfg(test)]
@@ -4568,5 +4861,149 @@ mod github_tests {
         let dtos = map_repo_rows(rows);
         assert_eq!(dtos[0].id, 7);
         assert_eq!(dtos[0].full_name, "a/b");
+    }
+
+    // ---- D2 项目浏览命令(本地端到端,不触发网络)----
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_project_commands_local_end_to_end() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("README.md"), "# hi").unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let local = root.to_string_lossy().into_owned();
+
+        // 无 token 的 db + 共享 client(Local 分支不触发网络)
+        let td = test_db().await;
+        let github = GithubClient::new();
+
+        let entries = project_list_tree_impl(
+            &td.db,
+            &github,
+            Some(local.clone()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"src"), "根应含 src:{names:?}");
+        assert!(names.contains(&"README.md"), "根应含 README.md:{names:?}");
+
+        let src = project_list_tree_impl(
+            &td.db,
+            &github,
+            Some(local.clone()),
+            None,
+            None,
+            Some("src".into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(src.len(), 1);
+        assert_eq!(src[0].name, "main.rs");
+        assert!(!src[0].is_dir);
+
+        let content = project_read_file_impl(
+            &td.db,
+            &github,
+            Some(local.clone()),
+            None,
+            None,
+            "src/main.rs".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(content, "fn main() {}\n");
+
+        let err =
+            project_read_file_impl(&td.db, &github, None, None, None, "x".into()).await.unwrap_err();
+        assert!(err.to_string().contains("缺少仓库参数"), "{err}");
+
+        let err = project_read_file_impl(
+            &td.db,
+            &github,
+            Some("/nonexistent/definitely-missing".into()),
+            None,
+            None,
+            "x".into(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("不存在"), "{err}");
+    }
+
+    // ---- D2 数据源探测(badge 用)----
+
+    /// 插入一个带 project_context 的 bot 配置。
+    async fn insert_bot_with_pc(
+        db: &Db,
+        bot_account_id: u32,
+        repo_path: Option<&str>,
+        repo_local_path: Option<&str>,
+    ) -> i64 {
+        let id = db
+            .insert_bot(1, bot_account_id, "probe-bot", chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+        let cfg = json!({
+            "llm": { "provider": "openai" },
+            "project_context": {
+                "repo_path": repo_path,
+                "repo_local_path": repo_local_path,
+                "sandbox_mode": "repo",
+            }
+        });
+        db.set_bot_config_by_id(id, Some(&cfg.to_string())).await.unwrap();
+        id
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_project_data_source_local_when_bot_has_repo_local_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let td = test_db().await;
+        insert_bot_with_pc(&td.db, 9001, Some("octocat/Hello-World"), Some(&root.to_string_lossy())).await;
+
+        assert_eq!(
+            project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(),
+            "local"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_project_data_source_github_by_default() {
+        let td = test_db().await;
+
+        // 空库 → github
+        assert_eq!(project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(), "github");
+
+        // 有 bot 但 repo_path 不匹配 → github
+        insert_bot_with_pc(&td.db, 9001, Some("other/repo"), None).await;
+        assert_eq!(project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(), "github");
+
+        // repo_path 匹配但目录不存在 → github
+        insert_bot_with_pc(&td.db, 9002, Some("octocat/Hello-World"), Some("/nonexistent/definitely-missing")).await;
+        assert_eq!(project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(), "github");
+
+        // repo_path 匹配 + 本地路径存在(即使先前的 bot 不匹配)→ local
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        insert_bot_with_pc(&td.db, 9003, Some("octocat/Hello-World"), Some(&root.to_string_lossy())).await;
+        assert_eq!(project_data_source_impl(&td.db, "octocat", "Hello-World").await.unwrap(), "local");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_project_data_source_checks_owner_repo() {
+        let td = test_db().await;
+        let err = project_data_source_impl(&td.db, "", "repo").await.unwrap_err();
+        assert_eq!(kind(&err), "core");
+        let err = project_data_source_impl(&td.db, "owner", "  ").await.unwrap_err();
+        assert_eq!(kind(&err), "core");
     }
 }

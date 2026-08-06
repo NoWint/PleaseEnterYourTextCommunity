@@ -535,6 +535,12 @@ pub struct ProjectContext {
     /// 每 Bot 的 GitHub token(优先,回退全局 settings token)
     #[serde(default)]
     pub github_token: Option<String>,
+    /// 本地仓库路径(优先;无则回退 GitHub)
+    #[serde(default)]
+    pub repo_local_path: Option<String>,
+    /// 沙箱模式:"repo"(默认,限本地仓库目录)| "any"(任意相对路径)
+    #[serde(default)]
+    pub sandbox_mode: Option<String>,
 }
 
 /// GitHub 全局设置(单行表 id=1)。
@@ -551,6 +557,77 @@ pub struct GithubRepoDto {
     pub owner: String,
     pub repo: String,
     pub full_name: String,
+}
+
+/// 知识条目 DTO。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KnowledgeDto {
+    pub id: i64,
+    pub chat_id: u32,
+    #[serde(default)]
+    pub chat_name: String,
+    pub date: String,
+    pub title: String,
+    pub summary: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub msg_count: u32,
+    pub source: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// 每会话知识库配置 DTO。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KnowledgeConfigDto {
+    pub chat_id: u32,
+    #[serde(default)]
+    pub chat_name: String,
+    pub daily_enabled: bool,
+    pub daily_time: String,
+    pub window_count: i64,
+    pub auto_store: bool,
+}
+
+/// 智能设置 DTO(主题总结与知识库共用)。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IntelligenceSettingsDto {
+    pub mode: String,
+    pub source: String,
+    pub model_tier: String,
+    pub window_n: i64,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// 引擎/模型状态 DTO。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ModelStatusDto {
+    pub mode: String,
+    pub source: String,
+    pub engine_ready: bool,
+    pub model_ready: bool,
+    #[serde(default)]
+    pub engine_path: Option<String>,
+    #[serde(default)]
+    pub model_path: Option<String>,
+    #[serde(default)]
+    pub engine_version: Option<String>,
+    #[serde(default)]
+    pub model_sha256: Option<String>,
+}
+
+/// 主题总结入队上下文(前端组装窗口后传入)。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SummaryContextDto {
+    #[serde(default)]
+    pub lines: Vec<String>,
+    #[serde(default)]
+    pub prev_analysis: Option<String>,
 }
 
 /// Bot 完整配置(存于 bots.config_json)。
@@ -820,6 +897,8 @@ mod tests {
             description: Some("PEYT Chat 桌面端".into()),
             repo_path: Some("owner/repo".into()),
             github_token: Some("ghp_test_token".into()),
+            repo_local_path: Some("/tmp/local-repo".into()),
+            sandbox_mode: Some("repo".into()),
         };
         let json = serde_json::to_string(&pc).unwrap();
         let back: ProjectContext = serde_json::from_str(&json).unwrap();
@@ -829,6 +908,8 @@ mod tests {
         assert_eq!(back.description.as_deref(), Some("PEYT Chat 桌面端"));
         assert_eq!(back.repo_path.as_deref(), Some("owner/repo"));
         assert_eq!(back.github_token.as_deref(), Some("ghp_test_token"));
+        assert_eq!(back.repo_local_path.as_deref(), Some("/tmp/local-repo"));
+        assert_eq!(back.sandbox_mode.as_deref(), Some("repo"));
     }
 
     #[test]
@@ -840,6 +921,8 @@ mod tests {
         assert_eq!(back.description.as_deref(), Some("仅描述"));
         assert_eq!(back.repo_path, None);
         assert_eq!(back.github_token, None);
+        assert_eq!(back.repo_local_path, None);
+        assert_eq!(back.sandbox_mode, None);
         // 完全空 JSON → Default
         let empty: ProjectContext = serde_json::from_str("{}").unwrap();
         assert_eq!(empty, ProjectContext::default());
@@ -887,6 +970,8 @@ mod tests {
                 description: Some("测试项目".into()),
                 repo_path: None,
                 github_token: None,
+                repo_local_path: None,
+                sandbox_mode: None,
             }),
         };
         let json = serde_json::to_string(&cfg).unwrap();

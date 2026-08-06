@@ -34,7 +34,9 @@ export type IconName =
   // 智能:设置页「智能」section
   | 'sparkles'
   // 微信式输入框展开按钮
-  | 'chevrons-up-down';
+  | 'chevrons-up-down'
+  // 智能中心入口 / 知识库 Tab
+  | 'sparkles' | 'book-open';
 
 export interface IconOpts {
   width?: number;

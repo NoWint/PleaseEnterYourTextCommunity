@@ -1,4 +1,4 @@
-export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'settings' | 'debug' | 'github';
+export type Page = 'messages' | 'groups' | 'work' | 'inbox' | 'bots' | 'plugins' | 'settings' | 'debug' | 'github' | 'intelligence';
 export type SettingsSection = 'account' | 'appearance' | 'team' | 'notifications' | 'plugins' | 'about' | 'github' | 'intelligence';
 export type PluginsTab = 'market' | 'installed';
 
@@ -26,6 +26,9 @@ export interface GithubRepoRef {
   owner: string;
   repo: string;
 }
+
+/** 智能中心聚合页的 Tab:知识库/主题总结/自动总结配置/智能设置 */
+export type IntelligenceTab = 'knowledge' | 'summary' | 'config' | 'settings';
 
 export interface WorkspaceDto {
   id: number;
@@ -164,6 +167,8 @@ export interface AppState {
   currentGithubRepo: GithubRepoRef | null;
   /** GitHub 抽屉当前 tab(选中仓库时重置为 'issues') */
   githubTab: GithubTab;
+  /** 智能中心聚合页当前 tab */
+  intelligenceTab: IntelligenceTab;
   self: SelfProfile | null;
   roles: RoleDto[];
   wsMembers: Record<number, number>;

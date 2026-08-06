@@ -74,6 +74,8 @@ interface ProjectContext {
   chat_ids: number[];
   description?: string | null;
   repo_path?: string | null;
+  repo_local_path?: string | null;
+  sandbox_mode?: string | null;
   github_token?: string | null;
 }
 
@@ -850,6 +852,14 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
   const pcDescArea = ui.textarea({ placeholder: '项目一句话描述(如:PEYT Chat 桌面端,基于 Tauri 2 + deltachat)', rows: 2 });
   const repoPathInput = ui.input({ placeholder: 'owner/repo(如 octocat/Hello-World)', value: getCfg()?.project_context?.repo_path || '' });
   const githubTokenInput = ui.input({ type: 'password', placeholder: 'GitHub Token(可选,优先于全局 token)', value: getCfg()?.project_context?.github_token || '' });
+  const repoLocalPathInput = ui.input({ placeholder: '/path/to/repo', value: getCfg()?.project_context?.repo_local_path || '' });
+  const sandboxModeSelect = ui.select({
+    options: [
+      { value: 'repo', label: 'repo(限本地仓库目录,默认)' },
+      { value: 'any', label: 'any(任意相对路径)' },
+    ],
+    value: getCfg()?.project_context?.sandbox_mode || 'repo',
+  });
   // 已绑定仓库下拉:选择后填入 repo_path(help 选 repo_path)
   let boundRepos: Array<{ id: number; full_name: string }> = [];
   try {
@@ -911,6 +921,8 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
     ui.field({ label: '关联频道', children: chatListEl, help: '勾选后 Bot 回复会参考这些频道的最近消息' }),
     ui.field({ label: 'Repo 路径', children: repoPathSelect, help: '从已绑定仓库选择(D1 GitHub 集成),也可手动输入 owner/repo' }),
     ui.field({ label: 'Repo 路径(手动)', children: repoPathInput, help: 'GitHub 仓库标识 owner/repo' }),
+    ui.field({ label: '本地仓库路径', children: repoLocalPathInput, help: '本地目录优先于 GitHub;留空则回退 repo_path' }),
+    ui.field({ label: '沙箱模式', children: sandboxModeSelect, help: 'repo 限本地仓库目录(默认),any 允许任意相对路径' }),
     ui.field({ label: 'GitHub Token', children: githubTokenInput, help: '每 Bot 独立 token,留空则回退全局设置 token' }),
     testLabel,
     (() => { const a = document.createElement('div'); a.style.cssText = 'display:flex;gap:8px'; a.appendChild(testBtn); a.appendChild(saveBtn); return a; })(),
@@ -945,6 +957,8 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
   if (pc) {
     if (pc.description) pcDescArea.value = pc.description;
     if (pc.github_token) githubTokenInput.value = pc.github_token;
+    if (pc.repo_local_path) repoLocalPathInput.value = pc.repo_local_path;
+    if (pc.sandbox_mode) sandboxModeSelect.value = pc.sandbox_mode;
   }
 
   function collectConfig(): LlmConfig {
@@ -994,6 +1008,8 @@ async function renderLlmTab(bot: BotDto, content: HTMLElement, getCfg: () => Bot
           chat_ids: [...selectedChatIds],
           description: pcDescArea.value.trim() || null,
           repo_path: repoPathInput.value.trim() || null,
+          repo_local_path: repoLocalPathInput.value.trim() || null,
+          sandbox_mode: sandboxModeSelect.value || null,
           github_token: githubTokenInput.value.trim() || null,
         },
       };

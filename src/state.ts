@@ -21,6 +21,7 @@ export const state: AppState = {
   detailTab: 'members',
   currentGithubRepo: null,
   githubTab: 'issues',
+  intelligenceTab: 'knowledge',
   self: null,
   roles: [],
   wsMembers: {},

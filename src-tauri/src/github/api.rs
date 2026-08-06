@@ -21,9 +21,20 @@ fn with_query(base: String, name: &str, value: Option<&str>) -> String {
     }
 }
 
-/// Issue 列表(state: "open"|"closed"|"all",None 不拼 query)。
+/// 追加 query 参数(已有 query 用 & 连接)。
+fn append_query(url: &mut String, name: &str, value: &str) {
+    let sep = if url.contains('?') { '&' } else { '?' };
+    url.push(sep);
+    url.push_str(name);
+    url.push('=');
+    url.push_str(value);
+}
+
+/// Issue 列表(state: "open"|"closed"|"all",None 不拼 state;per_page=100)。
 pub fn url_list_issues(owner: &str, repo: &str, state: Option<&str>) -> String {
-    with_query(format!("{}/issues", url_repo(owner, repo)), "state", state)
+    let mut url = with_query(format!("{}/issues", url_repo(owner, repo)), "state", state);
+    append_query(&mut url, "per_page", "100");
+    url
 }
 
 /// Issue 详情。
@@ -31,9 +42,11 @@ pub fn url_get_issue(owner: &str, repo: &str, n: i64) -> String {
     format!("{}/issues/{n}", url_repo(owner, repo))
 }
 
-/// Pull Request 列表(state: "open"|"closed"|"all",None 不拼 query)。
+/// Pull Request 列表(state: "open"|"closed"|"all",None 不拼 state;per_page=100)。
 pub fn url_list_pulls(owner: &str, repo: &str, state: Option<&str>) -> String {
-    with_query(format!("{}/pulls", url_repo(owner, repo)), "state", state)
+    let mut url = with_query(format!("{}/pulls", url_repo(owner, repo)), "state", state);
+    append_query(&mut url, "per_page", "100");
+    url
 }
 
 /// Pull Request 详情(含 diff 统计)。
@@ -41,9 +54,14 @@ pub fn url_get_pull(owner: &str, repo: &str, n: i64) -> String {
     format!("{}/pulls/{n}", url_repo(owner, repo))
 }
 
-/// Commit 列表(path: 限定路径,None 不拼 query)。
-pub fn url_list_commits(owner: &str, repo: &str, path: Option<&str>) -> String {
-    with_query(format!("{}/commits", url_repo(owner, repo)), "path", path)
+/// Commit 列表(path: 限定路径,None 不拼 path;per_page=100,page>1 才拼 page)。
+pub fn url_list_commits(owner: &str, repo: &str, path: Option<&str>, page: Option<u32>) -> String {
+    let mut url = with_query(format!("{}/commits", url_repo(owner, repo)), "path", path);
+    append_query(&mut url, "per_page", "100");
+    if let Some(p) = page.filter(|p| *p > 1) {
+        append_query(&mut url, "page", &p.to_string());
+    }
+    url
 }
 
 /// Commit 详情。
@@ -72,14 +90,22 @@ pub fn url_get_content(owner: &str, repo: &str, path: &str) -> String {
     }
 }
 
+/// 仓库 git 树(`?recursive=1` 一次拉全树)。branch 可为分支名或 commit SHA。
+/// 经 code::source 的 Github 回退使用。
+pub fn url_git_trees(owner: &str, repo: &str, branch: &str) -> String {
+    format!("{}/git/trees/{}?recursive=1", url_repo(owner, repo), enc(branch))
+}
+
 /// README。
 pub fn url_get_readme(owner: &str, repo: &str) -> String {
     format!("{}/readme", url_repo(owner, repo))
 }
 
-/// 仓库动态事件列表。
+/// 仓库动态事件列表(per_page=100)。
 pub fn url_list_events(owner: &str, repo: &str) -> String {
-    format!("{}/events", url_repo(owner, repo))
+    let mut url = format!("{}/events", url_repo(owner, repo));
+    append_query(&mut url, "per_page", "100");
+    url
 }
 
 // ---- 写入端点 ----
@@ -166,25 +192,26 @@ mod tests {
     #[test]
     fn test_url_list_issues_state() {
         let base = "https://api.github.com/repos/o/r/issues";
-        assert_eq!(url_list_issues("o", "r", Some("open")), format!("{base}?state=open"));
-        assert_eq!(url_list_issues("o", "r", None), base);
-        assert_eq!(url_list_issues("o", "r", Some("  ")), base);
+        assert_eq!(url_list_issues("o", "r", Some("open")), format!("{base}?state=open&per_page=100"));
+        assert_eq!(url_list_issues("o", "r", None), format!("{base}?per_page=100"));
+        assert_eq!(url_list_issues("o", "r", Some("  ")), format!("{base}?per_page=100"));
     }
 
     #[test]
     fn test_url_list_pulls_state() {
         assert_eq!(
             url_list_pulls("o", "r", Some("closed")),
-            "https://api.github.com/repos/o/r/pulls?state=closed"
+            "https://api.github.com/repos/o/r/pulls?state=closed&per_page=100"
         );
-        assert_eq!(url_list_pulls("o", "r", None), "https://api.github.com/repos/o/r/pulls");
+        assert_eq!(url_list_pulls("o", "r", None), "https://api.github.com/repos/o/r/pulls?per_page=100");
     }
 
     #[test]
-    fn test_url_list_commits_path() {
+    fn test_url_list_commits_path_and_page() {
         let base = "https://api.github.com/repos/o/r/commits";
-        assert_eq!(url_list_commits("o", "r", Some("src/lib.rs")), format!("{base}?path=src%2Flib.rs"));
-        assert_eq!(url_list_commits("o", "r", None), base);
+        assert_eq!(url_list_commits("o", "r", Some("src/lib.rs"), None), format!("{base}?path=src%2Flib.rs&per_page=100"));
+        assert_eq!(url_list_commits("o", "r", None, None), format!("{base}?per_page=100"));
+        assert_eq!(url_list_commits("o", "r", None, Some(3)), format!("{base}?per_page=100&page=3"));
     }
 
     #[test]
@@ -226,9 +253,21 @@ mod tests {
     }
 
     #[test]
+    fn test_url_git_trees_recursive() {
+        assert_eq!(
+            url_git_trees("o", "r", "main"),
+            "https://api.github.com/repos/o/r/git/trees/main?recursive=1"
+        );
+        assert_eq!(
+            url_git_trees("o", "r", "feat/x y"),
+            "https://api.github.com/repos/o/r/git/trees/feat%2Fx%20y?recursive=1"
+        );
+    }
+
+    #[test]
     fn test_url_get_readme_and_events() {
         assert_eq!(url_get_readme("o", "r"), "https://api.github.com/repos/o/r/readme");
-        assert_eq!(url_list_events("o", "r"), "https://api.github.com/repos/o/r/events");
+        assert_eq!(url_list_events("o", "r"), "https://api.github.com/repos/o/r/events?per_page=100");
     }
 
     #[test]

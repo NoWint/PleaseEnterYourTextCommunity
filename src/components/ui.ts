@@ -221,6 +221,13 @@ export function card(opts: { title?: string; children?: HTMLElement | string; ac
 export function listItem(opts: { title: string; subtitle?: string; icon?: IconName; onClick?: () => void; danger?: boolean; trailing?: HTMLElement }): HTMLDivElement {
   const el = document.createElement('div');
   el.className = `ui-list-item${opts.danger ? ' ui-list-item-danger' : ''}`;
+  if (opts.onClick) {
+    el.setAttribute('role', 'button');
+    el.tabIndex = 0;
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); opts.onClick!(); }
+    });
+  }
   if (opts.icon) el.insertAdjacentHTML('afterbegin', iconSvg(opts.icon, { width: 16, height: 16 }));
   const meta = document.createElement('div');
   meta.className = 'ui-list-meta';
@@ -474,10 +481,14 @@ export function spinner(): HTMLDivElement {
   return el;
 }
 
-export function empty(text: string): HTMLDivElement {
+export function empty(text: string, icon?: IconName): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'ui-empty';
-  el.textContent = text;
+  if (icon) el.insertAdjacentHTML('afterbegin', `<span class="ui-empty-icon">${iconSvg(icon, { width: 24, height: 24, strokeWidth: 1.5 })}</span>`);
+  const label = document.createElement('span');
+  label.className = 'ui-empty-text';
+  label.textContent = text;
+  el.appendChild(label);
   return el;
 }
 
