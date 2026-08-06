@@ -292,7 +292,7 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   const nav = `
     <div class="sd-nav">
       <div class="sd-nav-title">会话主题分析</div>
-      <canvas class="sd-canvas" width="240" height="150"></canvas>
+      <canvas class="sd-canvas" width="210" height="190"></canvas>
       <div class="sd-nav-list">${navList}</div>
     </div>`;
 
@@ -435,7 +435,7 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   bindCollapse(overlay.querySelector<HTMLElement>('[data-sd-content]')!);
   bindNavScroll(overlay.querySelector<HTMLElement>('[data-sd-content]')!);
 
-  // 画词云:真实 jieba 分词 → 复用 wordCloud 的 drawWordCloud(DPR 缩放)
+  // 画词云:真实 jieba 分词 → 3D 球状词云(mountCloudSphere 内部处理 DPR + 渲染循环 + 交互)
   requestAnimationFrame(() => {
     const canvas = overlay.querySelector<HTMLCanvasElement>('.sd-canvas');
     if (canvas) void drawCloudAsync(canvas, msgs, resolve);
@@ -726,29 +726,21 @@ export function scheduleRefresh(chatId: number): void {
 }
 
 /**
- * 词云:真实 jieba 分词(initSegmenter + computeTopWords) → 复用 wordCloud 的 drawWordCloud。
- * drawWordCloud 已做 词频→字号/颜色的瀑布堆叠;这里只负责取词 + DPR 缩放画布。
+ * 词云:真实 jieba 分词(initSegmenter + computeTopWords) → 3D 球状词云(mountCloudSphere)。
+ * mountCloudSphere 内部处理 DPR 缩放 + 渲染循环 + 拖拽/点击交互。
  * 失败(分词初始化异常)静默留空,不阻断看板。
  */
 async function drawCloudAsync(canvas: HTMLCanvasElement, msgs: MsgDto[], resolve: (t: string) => string): Promise<void> {
   try {
     const { initSegmenter, computeTopWords } = await import('../utils/wordAnalysis.js');
-    const { drawWordCloud } = await import('./wordCloud.js');
+    const { mountCloudSphere } = await import('./cloudSphere.js');
     await initSegmenter(); // 幂等单例
-    const words = computeTopWords(msgs, resolve, 14); // 212px 宽画布放 ~14 词合适
+    const words = computeTopWords(msgs, resolve, 14);
     if (words.length === 0) return;
-    // DPR 缩放:画布物理分辨率 = CSS 尺寸 × devicePixelRatio,防高分屏模糊(§11)
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width > 0 && (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr))) {
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
-    }
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(dpr, dpr);
-    drawWordCloud(canvas, words);
+    // 3D 球状词云(mountCloudSphere 内部处理 DPR + 渲染循环 + 交互)
+    mountCloudSphere(canvas, words);
   } catch (err) {
-    console.warn('[summary-cloud] 词云绘制失败:', err);
+    console.warn('[summary-cloud] 3D 词云绘制失败:', err);
   }
 }
 
