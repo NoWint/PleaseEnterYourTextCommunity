@@ -399,37 +399,34 @@ function enqueueOverlay(overlay: HTMLElement, chatId: number, kind: AnalysisKind
   }
   if (body && reset) body.textContent = '分析中…';
   detailCache.delete(`${chatId}:${kind}`);
+  beginDetailRequest(chatId, kind); // 入队即标记请求开始(kind 级去重)
   void call('summary_enqueue', { chatId, lane: 'detail', kind, prompt }).catch(() => {
+    endDetailRequest(chatId, kind); // 入队失败 → 请求未发出,结束标记
     if (body) body.textContent = '分析失败';
   });
 }
 
-// 每个 chat 正在进行的 detail 请求数(streaming 中)。>0 → 气泡蓝色呼吸灯 + 旋转 loading。
-const detailActive = new Map<number, number>();
+// 每个 chat 正在进行的 detail 请求 kind 集合(kind 级去重配对)。
+// 入队时 begin(+1),收到 done/error 时 end(-1)。streaming 不参与计数——
+// 否则请求在生成前失败(网络/超时/API 拒绝)只有 error 无 streaming,计数错乱。
+const detailPending = new Map<number, Set<string>>();
 // 绿勾消失定时器(上次 detail 完成后 5s 移除)
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
 
-/**
- * detail 请求计数变化 → 气泡状态:
- * - 计数>0:蓝色呼吸灯 + 右侧旋转 loading
- * - 计数=0:呼吸灯灭 + 绿色勾 5s 后消失
- */
-function updateDetailBreathing(chatId: number, delta: number): void {
-  const cur = (detailActive.get(chatId) ?? 0) + delta;
-  if (cur > 0) detailActive.set(chatId, cur);
-  else detailActive.delete(chatId);
+/** 应用气泡状态:有请求 pending → 蓝灯+旋转 loading;无 → 灭灯+绿勾 5s。 */
+function applyBubbleState(chatId: number): void {
   const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
   if (!chip) return;
   // 仅当该 chat 是当前激活会话时控制气泡
   if (state.currentChatId !== chatId) return;
+  const pending = detailPending.get(chatId);
+  const active = !!pending && pending.size > 0;
   const indicator = chip.querySelector<HTMLElement>('.ch-bubble-indicator');
-  if (cur > 0) {
+  if (active) {
     chip.classList.add('breathing-detail');
-    // 旋转 loading(复用 refresh-cw + CSS spin)
     if (indicator) indicator.innerHTML = `<svg class="ch-bubble-loading" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
   } else {
     chip.classList.remove('breathing-detail');
-    // 绿勾 5s 后消失
     if (indicator) indicator.innerHTML = `<svg class="ch-bubble-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
     if (checkTimer) clearTimeout(checkTimer);
     checkTimer = setTimeout(() => {
@@ -440,6 +437,24 @@ function updateDetailBreathing(chatId: number, delta: number): void {
   }
 }
 
+/** 入队时调用:标记该 kind 请求开始(kind 已 pending 则忽略,防重复入队重复计数)。 */
+export function beginDetailRequest(chatId: number, kind: string): void {
+  if (!detailPending.has(chatId)) detailPending.set(chatId, new Set());
+  const s = detailPending.get(chatId)!;
+  if (s.has(kind)) return; // 已在请求中,不重复 +1
+  s.add(kind);
+  applyBubbleState(chatId);
+}
+
+/** done/error 时调用:标记该 kind 请求结束。 */
+export function endDetailRequest(chatId: number, kind: string): void {
+  const s = detailPending.get(chatId);
+  if (!s) return;
+  s.delete(kind);
+  if (s.size === 0) detailPending.delete(chatId);
+  applyBubbleState(chatId);
+}
+
 let fullscreenBound = false;
 function bindFullscreenEvents(): void {
   if (fullscreenBound) return;
@@ -448,9 +463,9 @@ function bindFullscreenEvents(): void {
     void listen('summary-event', (ev) => {
       const p = ev.payload as { chatId: number; lane: string; kind: string; status: string; delta?: string; result?: string; error?: { code: string } };
       if (p.lane !== 'detail') return;
-      // 请求计数:streaming 开始 +1, done/error 结束 -1(驱动气泡蓝色呼吸灯)
-      if (p.status === 'streaming') updateDetailBreathing(p.chatId, 1);
-      else if (p.status === 'done' || p.status === 'error') updateDetailBreathing(p.chatId, -1);
+      // 请求结束标记(done/error 配对入队时的 begin)。streaming 不参与计数——
+      // 请求在生成前失败只有 error 无 streaming,靠 kind 级配对避免计数错乱。
+      if (p.status === 'done' || p.status === 'error') endDetailRequest(p.chatId, p.kind);
       // 先更新 detailCache(无论 popup 是否打开):预请求(打开聊天时与气泡一起发)的结果
       // 在此缓存,popup 打开时直接命中;无 popup 时仅缓存不渲染。
       const key = `${p.chatId}:${p.kind}`;
@@ -522,7 +537,10 @@ export async function prefetchSummary(chatId: number, msgs: MsgDto[], resolve: (
   const prompt = formatWindowLines(win);
   for (const t of ANALYSIS_TYPES) {
     detailCache.delete(`${chatId}:${t.kind}`);
-    void call('summary_enqueue', { chatId, lane: 'detail', kind: t.kind, prompt }).catch(() => {});
+    beginDetailRequest(chatId, t.kind);
+    void call('summary_enqueue', { chatId, lane: 'detail', kind: t.kind, prompt }).catch(() => {
+      endDetailRequest(chatId, t.kind);
+    });
   }
 }
 
