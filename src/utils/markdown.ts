@@ -23,7 +23,9 @@ const ALLOWED_TAGS = new Set([
 function placeholderTags(text: string): { text: string; tags: Map<string, { kind: 'user' | 'message'; value: string }> } {
   const tags = new Map<string, { kind: 'user' | 'message'; value: string }>();
   let n = 0;
-  const out = text.replace(/<(user|message)='([^'\n]*)'>/g, (_m, kind: string, val: string) => {
+  // 兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>)两种 AI 输出,
+  // 与 tagParser 的 TAG_RE 对齐 —— 否则无引号标签会被 sanitizeHtml 剥成纯文本而非 chip。
+  const out = text.replace(/<(user|message)=['"]?([^'"\n\s>]+)['"]?>/g, (_m, kind: string, val: string) => {
     if (!val) return _m; // 空值不替换
     const tok = `${kind === 'user' ? U_PREFIX : M_PREFIX}${n++}${SUFFIX}`;
     tags.set(tok, { kind: kind as 'user' | 'message', value: val });
@@ -55,8 +57,14 @@ function sanitizeHtml(html: string): string {
           const name = attr.name.toLowerCase();
           if (name.startsWith('on')) { el.removeAttribute(attr.name); continue; }
           if (name === 'href' || name === 'src') {
-            const v = (attr.value || '').trim().toLowerCase();
-            if (v.startsWith('javascript:')) { el.removeAttribute(attr.name); continue; }
+            // 剥控制字符(\\t\\n\\r\\f 空格可绕过 startsWith 判断),仅放行 http/https
+            const v = (attr.value || '').replace(/[\t\n\r\f ]/g, '');
+            let ok = false;
+            try {
+              const u = new URL(v);
+              ok = u.protocol === 'http:' || u.protocol === 'https:';
+            } catch { ok = false; }
+            if (!ok) { el.removeAttribute(attr.name); continue; }
           }
           if (!['href', 'target', 'rel'].includes(name) && !['class'].includes(name)) {
             el.removeAttribute(attr.name);

@@ -326,6 +326,12 @@ async function refreshMessages(chatId: number): Promise<void> {
   box.scrollTop = box.scrollHeight;
   // 消息更新(切会话/新消息/发送后)→ 防抖重算主题词频气泡
   scheduleTopicRefresh();
+  // 打开 chat 时预请求看板数据(仅首次/无缓存时整批;新消息重算交 60s 窗口,不在此触发)
+  if (state.currentChatId != null) {
+    void import('../components/summaryDashboard.js').then((m) => {
+      void m.prefetchSummary(state.currentChatId!, state.messages, resolveMessageText).catch(() => {});
+    });
+  }
 }
 
 // 已读系统:批量拉取发出的消息的已读人数,填充 readCountMap(气泡渲染「N 人已读」)。
@@ -733,12 +739,8 @@ function scheduleTopicRefresh(): void {
         chip.innerHTML = renderBubbleHtml(st);
         syncChipTitle(chip);
         bindTopicChipClick(); // 委托已在,幂等
-      }
-      // 与气泡一起预请求看板数据(7 个 kind 后台并发,popup 打开直接命中缓存)
-      if (state.currentChatId != null) {
-        void import('../components/summaryDashboard.js').then((m) => {
-          void m.prefetchSummary(state.currentChatId!, state.messages, resolveMessageText).catch(() => {});
-        });
+        // 防抖窗口内 re-render → 恢复「Xs总结」读秒
+        void import('../components/summaryDashboard.js').then((m) => m.restoreBubbleIndicator());
       }
       return;
     }
@@ -795,6 +797,8 @@ function bindSummaryEvents(): void {
       chip.innerHTML = renderBubbleHtml(st);
       syncChipTitle(chip);
       bindTopicChipClick(); // 委托已在,幂等
+      // re-render 重建了空 indicator span → 恢复读秒/loading/绿勾状态
+      void import('../components/summaryDashboard.js').then((m) => m.restoreBubbleIndicator());
     }
   });
 }

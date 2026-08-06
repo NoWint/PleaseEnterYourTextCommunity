@@ -9,9 +9,11 @@ export interface ParsedSegment {
   value: string;   // message/user 的参数值;text 为已转义内容
 }
 
-const TAG_RE = /<(message|user)='([^'\n]*)'>/g;
+// 兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>)两种 AI 输出。
+// 值:可选单/双引号包裹,或裸值(不含引号/空白/右尖括号)。
+const TAG_RE = /<(message|user)=['"]?([^'"\s>]+)['"]?>/g;
 
-/** 解析标签:只放行 <message='..'> / <user='..'>, 其余 <...> 形状整体转义。 */
+/** 解析标签:只放行 <message=..> / <user=..>(值可带引号或裸),其余 <...> 整体转义。 */
 export function parseTags(text: string): ParsedSegment[] {
   const segments: ParsedSegment[] = [];
   let last = 0;
@@ -19,11 +21,7 @@ export function parseTags(text: string): ParsedSegment[] {
   let m: RegExpExecArray | null;
   while ((m = TAG_RE.exec(text))) {
     if (m.index > last) segments.push({ type: 'text', value: escapeHtml(text.slice(last, m.index)) });
-    if (m[2]) {
-      segments.push({ type: m[1] === 'message' ? 'message' : 'user', value: escapeHtml(m[2]) });
-    } else {
-      segments.push({ type: 'text', value: escapeHtml(m[0]) });
-    }
+    segments.push({ type: m[1] === 'message' ? 'message' : 'user', value: escapeHtml(m[2]) });
     last = m.index + m[0].length;
   }
   if (last < text.length) segments.push({ type: 'text', value: escapeHtml(text.slice(last)) });

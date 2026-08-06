@@ -12,6 +12,7 @@ import { buildContextWindow, formatWindowLines } from '../utils/summaryContext.j
 import type { WindowMsg } from '../utils/summaryContext.js';
 import { computeParticipation } from '../utils/participation.js';
 import { getSummaryPrefs, loadSummaryPrefs } from '../utils/summaryPrefs.js';
+import { resolveMessageText } from '../utils/envelope.js';
 import { renderMarkdown } from '../utils/markdown.js';
 
 export type AnalysisKind = 'summary' | 'participation' | 'action_items'
@@ -49,6 +50,18 @@ function safeParseJson(text: string): unknown {
   try { return JSON.parse(text); } catch { return null; }
 }
 
+/** URL scheme 白名单:剥控制字符后仅放行 http/https,否则返回 null(渲染成不可点)。 */
+function safeUrl(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/[\t\n\r\f ]/g, '');
+  try {
+    const u = new URL(cleaned);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? cleaned : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 跳转引用 chip(当前占位,后续接入消息定位)。 */
 function refChip(id: number | string | undefined): string {
   if (id == null) return '';
@@ -78,7 +91,12 @@ function renderResources(text: string): string {
   if (!d || (!Array.isArray(d.links) && !Array.isArray(d.files))) return fallbackJson(text);
   const links = (d.links ?? []).map((l) => {
     const label = l.title || l.url || '链接';
-    return `<div class="sd-res-link">${iconSvg('external-link', { width: 14, height: 14 })}<a href="${escapeHtml(l.url ?? '#')}" target="_blank" rel="noopener">${escapeHtml(label)}</a>${l.sender ? `<span class="sd-chip">${escapeHtml(l.sender)}</span>` : ''}${refChip(l.ref)}</div>`;
+    const url = safeUrl(l.url);
+    // 仅 http/https 可点;非法 scheme(javascript:/data: 等)渲染纯文本防 XSS
+    const anchor = url
+      ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`
+      : `<span>${escapeHtml(label)}</span>`;
+    return `<div class="sd-res-link">${iconSvg('external-link', { width: 14, height: 14 })}${anchor}${l.sender ? `<span class="sd-chip">${escapeHtml(l.sender)}</span>` : ''}${refChip(l.ref)}</div>`;
   }).join('');
   const files = (d.files ?? []).map((f) =>
     `<div class="sd-res-file">${iconSvg('file-text', { width: 14, height: 14 })}<span>${escapeHtml(f.name ?? '文件')}</span>${refChip(f.ref)}</div>`).join('');
@@ -379,6 +397,9 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   });
 
   bindFullscreenEvents();
+  // 兜底:若该 chat 缓存为空(60s 防抖刚清缓存/从冷启动直接开 popup)且无请求在途,
+  // 补批预请求(anyCached 守卫保证不重复整批;beginDetailRequest 按 kind 幂等)。
+  void prefetchSummary(chatId, msgs, resolve).catch(() => {});
 }
 
 function kindOf(k: AnalysisKind): AnalysisKind { return k; }
@@ -413,7 +434,24 @@ const detailPending = new Map<number, Set<string>>();
 // 绿勾消失定时器(上次 detail 完成后 5s 移除)
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** 应用气泡状态:有请求 pending → 蓝灯+旋转 loading;无 → 灭灯+绿勾 5s。 */
+const LOADING_SVG = `<svg class="ch-bubble-loading" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
+const CHECK_SVG = `<svg class="ch-bubble-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+// 60s 防抖窗口读秒:scheduleRefresh 启动时气泡右侧显示「Xs总结」,窗口期内不闲置。
+let countdownTimer: ReturnType<typeof setInterval> | null = null;
+let countdownChatId: number | null = null;
+let countdownRemaining = 0;
+
+function clearCountdown(): void {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  countdownChatId = null;
+  countdownRemaining = 0;
+}
+
+/**
+ * 统一渲染气泡指示器(优先级:detail pending > 60s 读秒 > 绿勾 5s)。
+ * pending → 呼吸灯+旋转 loading;读秒 → 「Xs总结」;完成 → 绿勾 5s 后清空。
+ */
 function applyBubbleState(chatId: number): void {
   const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
   if (!chip) return;
@@ -422,12 +460,23 @@ function applyBubbleState(chatId: number): void {
   const pending = detailPending.get(chatId);
   const active = !!pending && pending.size > 0;
   const indicator = chip.querySelector<HTMLElement>('.ch-bubble-indicator');
+  if (!indicator) return;
   if (active) {
+    // detail 请求在途 → 呼吸灯 + 旋转 loading(读秒让位)
+    if (checkTimer) clearTimeout(checkTimer);
     chip.classList.add('breathing-detail');
-    if (indicator) indicator.innerHTML = `<svg class="ch-bubble-loading" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
+    indicator.classList.remove('cd');
+    indicator.innerHTML = LOADING_SVG;
+  } else if (countdownChatId === chatId) {
+    // 60s 防抖窗口内 → 读秒「Xs总结」(不闲置)
+    if (checkTimer) clearTimeout(checkTimer);
+    chip.classList.remove('breathing-detail');
+    indicator.classList.add('cd');
+    indicator.innerHTML = `<span class="ch-bubble-countdown">${countdownRemaining}s总结</span>`;
   } else {
     chip.classList.remove('breathing-detail');
-    if (indicator) indicator.innerHTML = `<svg class="ch-bubble-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+    indicator.classList.remove('cd');
+    indicator.innerHTML = CHECK_SVG;
     if (checkTimer) clearTimeout(checkTimer);
     checkTimer = setTimeout(() => {
       const chipNow = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
@@ -435,6 +484,15 @@ function applyBubbleState(chatId: number): void {
       if (ind) ind.innerHTML = '';
     }, 5000);
   }
+}
+
+/**
+ * 气泡 re-render 后恢复指示器:renderBubbleHtml(summaryBubble)会重建空 indicator span,
+ * 读秒/loading 状态由 chatView 在 re-render 后调用本函数恢复。
+ */
+export function restoreBubbleIndicator(): void {
+  if (state.currentChatId == null) return;
+  applyBubbleState(state.currentChatId);
 }
 
 /** 入队时调用:标记该 kind 请求开始(kind 已 pending 则忽略,防重复入队重复计数)。 */
@@ -536,6 +594,9 @@ export async function prefetchSummary(chatId: number, msgs: MsgDto[], resolve: (
   if (win.length === 0) return;
   const prompt = formatWindowLines(win);
   for (const t of ANALYSIS_TYPES) {
+    // 已在请求中的 kind 跳过:等其流式进缓存,不重复入队(60s 刷新边界双请求防浪费)
+    const pendingSet = detailPending.get(chatId);
+    if (pendingSet && pendingSet.has(t.kind)) continue;
     detailCache.delete(`${chatId}:${t.kind}`);
     beginDetailRequest(chatId, t.kind);
     void call('summary_enqueue', { chatId, lane: 'detail', kind: t.kind, prompt }).catch(() => {
@@ -549,19 +610,47 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshChatId: number | null = null;
 
 /**
- * 新消息后 5s 防抖重新请求:5s 内有更多新消息则重置计时器。
- * 计时器到点 → 若该 chat 的 popup 开着则重新入队刷新;关着则缓存已清,下次打开自然请求。
+ * 新消息后 60s 防抖重新请求:60s 内有更多新消息则重置计时器。
+ * 启动时气泡右侧显示「Xs总结」读秒(不闲置);到期 → 若该 chat 的 popup 开着则重新入队
+ * 刷新,关着则缓存已清,下次打开自然请求。计时被重置 → 读秒从头再来。
  */
 export function scheduleRefresh(chatId: number): void {
   refreshChatId = chatId;
   if (refreshTimer) clearTimeout(refreshTimer);
+  clearCountdown();
+  countdownChatId = chatId;
+  countdownRemaining = 60;
+  applyBubbleState(chatId); // 立即显示「60s总结」,不闲置
+  countdownTimer = setInterval(() => {
+    const cid = countdownChatId;
+    countdownRemaining -= 1;
+    if (countdownRemaining <= 0) {
+      clearCountdown();
+      // 到期:读秒消失。popup 开着 → refreshTimer 回调稍后入队会显示 loading;
+      // 关着 → 恢复绿勾/空(applyBubbleState 评估当前状态)
+      if (cid != null && state.currentChatId === cid) applyBubbleState(cid);
+      return;
+    }
+    // detail pending 在途 → loading SVG 优先,不覆盖(读秒冻结在背景,pending 结束由
+    // applyBubbleState 恢复剩余秒数)
+    const pendingSet = cid != null ? detailPending.get(cid) : undefined;
+    if (pendingSet && pendingSet.size > 0) return;
+    const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
+    const ind = chip?.querySelector<HTMLElement>('.ch-bubble-indicator');
+    if (ind) {
+      ind.classList.add('cd');
+      ind.innerHTML = `<span class="ch-bubble-countdown">${countdownRemaining}s总结</span>`;
+    }
+  }, 1000);
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    // 清理缓存后,若 popup 开着则重新入队
+    // 清理缓存后,若 popup 开着则重新入队。用最新 state.messages 重建窗口
+    // (含 60s 窗口内到达的新消息),而非打开时的 fsWin 快照。
     invalidateChatCache(chatId);
     const popup = document.querySelector<HTMLElement>('.sd-overlay[data-sd-chat]');
     if (popup && popup.dataset.sdChat === String(chatId)) {
-      const win = fsWin;
+      const prefs = getSummaryPrefs();
+      const win = buildContextWindow(state.messages, resolveMessageText, prefs.contextN);
       const prompt = formatWindowLines(win);
       for (const t of ANALYSIS_TYPES) {
         // 重新入队所有 detail(participation 统计也重算)

@@ -23,9 +23,10 @@ pub fn parse_sse_line(line: &str) -> Option<SseDelta> {
 }
 
 /// 从字节流分帧出 SSE 事件文本。返回 String(已完成的一段 data)。
-/// 仅按 \n\n 分帧(OpenAI 与 llama-server 均用 \n\n)。CRLF(\r\n\r\n)服务器不会命中 → 静默丢流;如需支持 CRLF 需在此归一化。
+/// 先把 \r 字节归一化掉(CRLF 服务器用 \r\n\r\n 分帧,直接按 \n\n 会静默丢流),
+/// 再按 \n\n 切事件;消费已完整的事件返回,残留留在 buf。
 pub fn extract_sse_text(buf: &mut Vec<u8>) -> Option<String> {
-    // 按 \n\n 切事件;消费已完整的事件返回,残留留在 buf
+    buf.retain(|&b| b != b'\r'); // 归一化 CRLF → LF(幂等,可对残留重复调用)
     let pos = buf.windows(2).position(|w| w == b"\n\n")?;
     let ev = String::from_utf8_lossy(&buf[..pos]).to_string();
     buf.drain(..pos + 2);
@@ -64,5 +65,27 @@ mod tests {
         let first = extract_sse_text(&mut buf).unwrap();
         assert!(first.contains("choices"));
         assert!(!buf.is_empty());
+    }
+
+    #[test]
+    fn extract_events_crlf() {
+        // CRLF 服务器(\r\n\r\n 分帧)也能正确切事件,不静默丢流
+        let mut buf = b"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n".to_vec();
+        let first = extract_sse_text(&mut buf).unwrap();
+        assert!(first.contains("hi"));
+        let second = extract_sse_text(&mut buf).unwrap();
+        assert!(second.contains("[DONE]"));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn extract_events_mixed_lf_crlf() {
+        // 同一流内 LF 与 CRLF 混杂(部分 chunk 已归一化)
+        let mut buf = b"data: {\"choices\":[]}\n\ndata: {\"x\":1}\r\n\r\n".to_vec();
+        let first = extract_sse_text(&mut buf).unwrap();
+        assert!(first.contains("choices"));
+        let second = extract_sse_text(&mut buf).unwrap();
+        assert!(second.contains("x"));
+        assert!(buf.is_empty());
     }
 }

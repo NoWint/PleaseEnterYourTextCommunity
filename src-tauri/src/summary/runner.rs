@@ -1,6 +1,7 @@
 // llama-server 子进程生命周期:懒启动(GET /health 未就绪才 spawn)、
 // 空闲 10 分钟 kill 回收、崩溃重启一次、流式调用(断连即取消生成)。
-// 注意:不存 model_path —— 模型档位可切换(0.5B/1.5B),调用时由队列传入。
+// spawned_model 记录本次 spawn 的模型档位,供 ensure_running 检测切换需重载
+// (0.5B/1.5B 切换时 health ok 但档位不同 → 重启换模型)。
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -13,6 +14,8 @@ pub struct LocalRunner {
     pub engine_path: PathBuf,
     pub child: Mutex<Option<tokio::process::Child>>,
     pub port: Mutex<u16>,
+    /// 当前已 spawn 的模型文件路径。用于检测档位切换:health ok 但路径不同 → 重启换模型。
+    pub spawned_model: Mutex<Option<PathBuf>>,
     pub http: reqwest::Client,
 }
 
@@ -22,6 +25,7 @@ impl LocalRunner {
             engine_path,
             child: Mutex::new(None),
             port: Mutex::new(12700),
+            spawned_model: Mutex::new(None),
             http: reqwest::Client::new(),
         }
     }
@@ -30,17 +34,31 @@ impl LocalRunner {
         self.engine_path.exists() && model_path.exists()
     }
 
-    /// 确保子进程在跑且模型就绪。未 spawn → spawn(用给定 model_path);health != ok → 等。
+    /// 确保子进程在跑且模型就绪。未 spawn → spawn(用给定 model_path);
+    /// health ok 但已加载档位与请求不同(用户切换 0.5B/1.5B)→ 重启换模型;
+    /// health != ok → 等(加载中/崩溃重启)。
     pub async fn ensure_running(&self, model_path: &Path) -> AppResult<()> {
         if !self.is_downloaded(model_path) {
             return Err(AppError::Core("engine_not_ready".into()));
         }
         let base = self.base_url().await;
         let ok = self.health_ok(&base).await;
-        if ok { return Ok(()); }
+        if ok {
+            // 引擎在跑;比对已加载模型档位,不一致 → 重启(spawn 内部 kill 旧进程)
+            let need_reload = self.spawned_model.lock().await.as_deref() != Some(model_path);
+            if need_reload {
+                self.spawn(model_path).await?;
+                return self.wait_health().await;
+            }
+            return Ok(());
+        }
         // 子进程可能没起/崩了 → spawn
         self.spawn(model_path).await?;
         // 等模型加载(0.5B 约 1s;1.5B 约几秒),轮询 /health 直到 ok,上限 60s
+        self.wait_health().await
+    }
+
+    async fn wait_health(&self) -> AppResult<()> {
         let deadline = std::time::Instant::now() + Duration::from_secs(60);
         loop {
             if self.health_ok(&self.base_url().await).await { return Ok(()); }
@@ -104,6 +122,8 @@ impl LocalRunner {
         {
             let mut guard = self.child.lock().await;
             *guard = Some(child);
+            // 记录本次 spawn 的模型档位(ensure_running 据此检测切换需重载)
+            *self.spawned_model.lock().await = Some(model_path.to_path_buf());
         }
         Ok(())
     }
@@ -126,6 +146,8 @@ impl LocalRunner {
             }
         }
         *guard = None;
+        // 清掉模型档位记录:下次 ensure_running 视为全新 spawn
+        *self.spawned_model.lock().await = None;
     }
 
     /// 流式调用本地引擎。on_delta 回调增量。model_path 为当前选中档位模型文件。

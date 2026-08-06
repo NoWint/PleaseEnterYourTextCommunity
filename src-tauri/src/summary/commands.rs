@@ -34,7 +34,9 @@ impl SummaryService {
                         // 并发跑:不 await,spawn 独立 task;worker 立即拉下一个 job
                         crate::summary::queue::SummaryQueue::spawn_job(&queue, job);
                     } else {
-                        if last_active.elapsed() >= std::time::Duration::from_secs(600) {
+                        // 仅当完全空闲(pending+running 均空)才回收引擎进程:
+                        // running 非空(本地串行慢任务在跑)时回收会误杀进行中的推理
+                        if last_active.elapsed() >= std::time::Duration::from_secs(600) && queue.is_idle() {
                             queue.runner.stop_if_idle().await;
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -239,6 +241,7 @@ pub async fn summary_enqueue(
     // prompt = 前端 formatWindowLines 已组装好的行(含绝对时间 + 可选上次分析块),后端不重格式化
     let messages = SummaryService::build_messages(&prompt, &lane, &kind);
     let job = SummaryJob {
+        gen: 0, // enqueue 内分配 scope 代际(旧代际输出被丢弃)
         chat_id,
         lane: if lane == "bubble" { Lane::Bubble } else { Lane::Detail },
         kind,

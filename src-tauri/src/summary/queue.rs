@@ -1,50 +1,69 @@
-// 推理队列:本地串行(信号量=1)+ API 并发;bubble 抢占正在跑的 detail;
-// 同 chat 同 lane 丢旧留新;结果/流经回调 emit summary-event。
+// 推理队列:本地串行(信号量=1)+ API 并发(信号量=4);bubble 插队。
+// 去重/代际机制:每 scope(chat+lane+kind)维护版本号,enqueue 时 +1;
+// running 注册表记录正在跑的任务。过期任务(版本落后)的 delta/result 整体丢弃,
+// 根治「同 scope 双任务流污染 + 过期结果写缓存」。
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::Semaphore;
+use tokio::sync::Mutex as AsyncMutex;
 use crate::error::{AppError, AppResult};
 use crate::llm::{ChatMessage, LlmClient};
 use crate::summary::runner::LocalRunner;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Lane { Bubble, Detail }
 
 #[derive(Clone)]
 pub struct SummaryJob {
+    pub gen: u64,          // scope 代际(enqueue 时分配;旧任务版本落后 → 结果丢弃)
     pub chat_id: u64,
     pub lane: Lane,
-    pub kind: String,        // analysis kind(Detail), bubble 填 "bubble"
+    pub kind: String,        // analysis kind(Detail),bubble 填 "bubble"
     pub messages: Vec<ChatMessage>, // system+user(prompt 已含上次分析块)
     pub timeout: Duration,
 }
 
+type ScopeKey = (u64, Lane, String);
+
 pub struct QueueInner {
     pub pending: VecDeque<SummaryJob>,
+    /// scope → 正在跑的任务代际。同一 scope 只保留最新代际(新任务登记时覆盖旧)。
+    pub running: HashMap<ScopeKey, u64>,
+    /// scope → 已入队最新代际(pending+running 的并集最大值)。
+    pub versions: HashMap<ScopeKey, u64>,
 }
 
 pub struct SummaryQueue {
-    pub inner: Mutex<QueueInner>,
+    /// std Mutex:临界区无 await(enqueue/next_job/emit 校验都是短操作),
+    /// 换成 std 让 emit_delta(同步回调)也能校验代际。
+    pub inner: std::sync::Mutex<QueueInner>,
     pub local_sem: Arc<Semaphore>, // 本地 llama-server 单进程 → 串行(容量 1);API 模式不占
+    pub api_sem: Arc<Semaphore>,   // API 并发上限(容量 4),防撞 RPS 限流
     pub app: AppHandle,
     pub runner: Arc<LocalRunner>,
     pub api: LlmClient,
-    pub api_cfg: Mutex<Option<crate::dto::LlmConfig>>,
-    pub current_model: Mutex<PathBuf>, // 当前选中档位的模型文件(可切换)
+    pub api_cfg: AsyncMutex<Option<crate::dto::LlmConfig>>,
+    pub current_model: AsyncMutex<PathBuf>, // 当前选中档位的模型文件(可切换)
 }
 
 impl SummaryQueue {
     pub fn new(app: AppHandle, runner: Arc<LocalRunner>, default_model: PathBuf) -> Arc<Self> {
         Arc::new(Self {
-            inner: Mutex::new(QueueInner { pending: VecDeque::new() }),
+            inner: std::sync::Mutex::new(QueueInner {
+                pending: VecDeque::new(),
+                running: HashMap::new(),
+                versions: HashMap::new(),
+            }),
             local_sem: Arc::new(Semaphore::new(1)),
+            api_sem: Arc::new(Semaphore::new(4)),
             app, runner,
             api: LlmClient::new(),
-            api_cfg: Mutex::new(None),
-            current_model: Mutex::new(default_model),
+            api_cfg: AsyncMutex::new(None),
+            current_model: AsyncMutex::new(default_model),
         })
     }
 
@@ -53,16 +72,18 @@ impl SummaryQueue {
         *self.current_model.lock().await = p;
     }
 
-    /// 入队。bubble 插队到队头(优先级);同 chat 同 lane 旧任务丢弃。
+    /// 入队。bubble 插队到队头(优先级);同 scope 只留最新代际:
+    /// 旧的 pending 移除,正在跑的旧任务靠版本校验丢弃其输出。
     /// 注:bubble「抢占」v1 用优先级重排实现 —— 正在跑的 detail 自然跑完再跑 bubble,
     /// 不做物理中止(CancellationToken 贯穿 SSE 循环复杂度高,0.5B 下 detail 仅几秒,收益低)。
-    /// 入队。去重键:
-    /// - Bubble:同 chat 只留最新(气泡一句话,旧任务过期)。
-    /// - Detail:同 chat 同 kind 只留最新(summary/action_items/... 各分析类型独立,
-    ///   不能按 lane 去重 —— 否则打开看板入队 7 个 detail 时互相顶掉,只剩最后一个)。
     pub async fn enqueue(&self, job: SummaryJob) -> AppResult<()> {
-        let mut inner = self.inner.lock().await;
-        inner.pending.retain(|j| !same_scope(&j, &job));
+        let mut inner = self.inner.lock().unwrap();
+        let key = scope_key(&job);
+        let ver = inner.versions.entry(key.clone()).or_insert(0);
+        *ver += 1;
+        let job = SummaryJob { gen: *ver, ..job };
+        // 移除 pending 里同 scope 的旧代际任务(新代际已入队,旧的等不到 spawn 即废弃)
+        inner.pending.retain(|j| scope_key(j) != key);
         if job.lane == Lane::Bubble {
             inner.pending.push_front(job);
         } else {
@@ -71,15 +92,26 @@ impl SummaryQueue {
         Ok(())
     }
 
-    /// 取下一个任务(worker 循环调用,非阻塞)。同 scope 若队列里还有更新的 → 这个过期,丢。
+    /// 取下一个任务(worker 循环调用,非阻塞)。仅放行当前最新代际:
+    /// pop 到过期任务(已有更新版本入队)→ 丢弃继续取下一个。
     pub async fn next_job(&self) -> Option<SummaryJob> {
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().unwrap();
         loop {
             let job = inner.pending.pop_front()?;
-            let newer = inner.pending.iter().any(|j| same_scope(&j, &job));
-            if newer { continue; }
+            let key = scope_key(&job);
+            if inner.versions.get(&key) != Some(&job.gen) {
+                continue; // 过期代际 → 丢
+            }
+            // 登记 running(覆盖旧的同 scope 代际);旧任务继续跑但输出被版本校验丢弃
+            inner.running.insert(key, job.gen);
             return Some(job);
         }
+    }
+
+    /// 是否完全空闲:无 pending 且无 running(供 worker 决定回收引擎进程)。
+    pub fn is_idle(&self) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.pending.is_empty() && inner.running.is_empty()
     }
 
     /// spawn 一个独立 task 跑 job —— 支持 API 模式并发(多个 detail 同时跑)。
@@ -127,6 +159,8 @@ impl SummaryQueue {
     async fn run_api(&self, job: &SummaryJob) -> AppResult<String> {
         let cfg = self.api_cfg.lock().await.clone();
         let cfg = cfg.ok_or_else(|| AppError::Core("api_not_configured".into()))?;
+        // API 并发上限:容量 4,超出的 detail 排队,防并发 7 请求撞 DeepSeek RPS 限流
+        let _permit = self.api_sem.clone().acquire_owned().await;
         tokio::time::timeout(
             job.timeout,
             self.api.complete_stream_openai(&cfg, job.messages.clone(), is_json_kind(&job.kind), |delta| {
@@ -138,7 +172,14 @@ impl SummaryQueue {
         .map_err(|_| AppError::Core("api_timeout".into()))?
     }
 
+    /// 该 job 是否已过期(scope 有新代际入队)。同步:emit_delta 回调内调用。
+    fn is_stale(&self, job: &SummaryJob) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.versions.get(&scope_key(job)) != Some(&job.gen)
+    }
+
     fn emit_delta(&self, job: &SummaryJob, delta: &str) {
+        if self.is_stale(job) { return; } // 过期任务:不流任何增量,防交叉污染
         let _ = self.app.emit("summary-event", &serde_json::json!({
             "chatId": job.chat_id, "lane": lane_str(job.lane), "kind": job.kind,
             "status": "streaming", "delta": delta,
@@ -146,6 +187,19 @@ impl SummaryQueue {
     }
 
     async fn emit_result(&self, job: &SummaryJob, result: AppResult<String>) {
+        let key = scope_key(job);
+        let stale = {
+            let inner = self.inner.lock().unwrap();
+            inner.versions.get(&key) != Some(&job.gen)
+        };
+        // 无论是否过期都清理 running 中本代际条目(新代际登记时会覆盖,这里兜底)
+        {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.running.get(&key) == Some(&job.gen) {
+                inner.running.remove(&key);
+            }
+        }
+        if stale { return; } // 过期:done/error 均不 emit(不覆盖新结果,不落盘)
         match result {
             Ok(text) => {
                 let _ = self.app.emit("summary-event", &serde_json::json!({
@@ -176,13 +230,8 @@ pub fn lane_str(l: Lane) -> &'static str {
     match l { Lane::Bubble => "bubble", Lane::Detail => "detail" }
 }
 
-/// 任务去重判定:Bubble 同 chat;Detail 同 chat 同 kind。
-fn same_scope(a: &SummaryJob, b: &SummaryJob) -> bool {
-    if a.chat_id != b.chat_id || a.lane != b.lane { return false; }
-    match a.lane {
-        Lane::Bubble => true,
-        Lane::Detail => a.kind == b.kind,
-    }
+fn scope_key(job: &SummaryJob) -> ScopeKey {
+    (job.chat_id, job.lane, job.kind.clone())
 }
 
 /// 该 kind 是否输出 JSON(用于 API 请求加 response_format:json_object)。

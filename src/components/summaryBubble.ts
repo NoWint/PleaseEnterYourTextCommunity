@@ -25,7 +25,14 @@ export function initSummaryBubble(cid: number, resolve: (t: string) => string): 
     // 从 summary_cache 恢复上次气泡摘要(done),不重新生成(§8.4)
     void import('../api.js').then(({ call }) =>
       call<string | null>('summary_load_cache', { chatId: cid, kind: 'bubble' })
-        .then((cached) => { if (cached) store.set(cid, { status: 'done', text: cached }); })
+        .then((cached) => {
+          // 仅当仍是 idle 时恢复缓存;期间若已开始新的 summarizing(done 前在途),
+          // 用旧缓存覆盖会打断新任务 → 保留新状态。
+          if (cached) {
+            const cur = store.get(cid);
+            if (cur && cur.status === 'idle') store.set(cid, { status: 'done', text: cached });
+          }
+        })
         .catch(() => {}));
   }
 }
@@ -36,28 +43,31 @@ export async function scheduleSummary(
   resolve: (t: string) => string,
   n: number,
 ): Promise<BubbleState | null> {
+  // 入口先捕获 chatId:下方 await loadSummaryPrefs 期间可能切会话,
+  // 若 await 后才读模块级 chatId,会拿「新 chatId + 旧 msgs」错配入队。
+  const cid = chatId;
   await loadSummaryPrefs(); // 拉最新偏好(后端 SQL;防抖后调用,频率可接受)
   const prefs = getSummaryPrefs();
   if (prefs.mode !== 'llm') return null; // 词频/off 走原 computeTopics
-  if (chatId == null) return null;
+  if (cid == null) return null;
   // 前端去重 + 防抖:同 chat 已有 summarizing 则不重复
-  const st = store.get(chatId);
+  const st = store.get(cid);
   if (st && st.status === 'summarizing') return st;
   const win = buildContextWindow(msgs, resolve, prefs.contextN);
   if (win.length === 0) return { status: 'fallback', text: '暂无主题词' };
   // 方式2(§4.4):上次分析 + 最近 N 条。prev 分析拼在 prompt 开头作历史上下文块。
   const prev = st && st.status === 'done' ? st.text : null;
   const prompt = (prev ? `历史上下文(之前的分析结果):\n${prev}\n\n` : '') + formatWindowLines(win);
-  store.set(chatId, { status: 'summarizing', text: prev ?? '' });
+  store.set(cid, { status: 'summarizing', text: prev ?? '' });
   try {
     const { call } = await import('../api.js');
-    await call('summary_enqueue', { chatId, lane: 'bubble', kind: 'bubble', prompt });
+    await call('summary_enqueue', { chatId: cid, lane: 'bubble', kind: 'bubble', prompt });
   } catch {
     // 入队失败:把 fallback 写回 store,否则 status 卡在 summarizing → 去重挡住后续重试
-    store.set(chatId, { status: 'fallback', text: '暂无主题词' });
-    return store.get(chatId)!;
+    store.set(cid, { status: 'fallback', text: '暂无主题词' });
+    return store.get(cid)!;
   }
-  return store.get(chatId)!;
+  return store.get(cid)!;
 }
 
 /** 处理 summary-event(delta 流式追加 / done / error)。返回新状态。 */

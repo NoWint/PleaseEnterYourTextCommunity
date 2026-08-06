@@ -588,27 +588,51 @@ impl LlmClient {
             }
             b
         };
-        let resp = self
-            .http
-            .post(&url)
-            .bearer_auth(key)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| AppError::Core(format!("llm stream: {e}")))?;
-        let status = resp.status();
-        if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            // 余额/配额识别:402 一律;429/400 时查 body 特征
-            let is_quota = status == reqwest::StatusCode::PAYMENT_REQUIRED
-                || (status == reqwest::StatusCode::TOO_MANY_REQUESTS
-                    || status == reqwest::StatusCode::BAD_REQUEST)
-                    && ["quota", "insufficient", "billing", "credit"]
-                        .iter()
-                        .any(|k| text.to_lowercase().contains(*k));
-            let code = if is_quota { "api_quota" } else if status.as_u16() == 401 || status.as_u16() == 403 { "api_auth" } else if status.as_u16() == 429 { "api_rate_limit" } else { "api_network" };
-            return Err(AppError::Core(format!("llm stream {code}: {status} {text}")));
-        }
+        // 初始 POST 瞬时错误重试(网络抖动/429/5xx),与 B1 非流式路径同策略。
+        // 注意:流中途断连无法整体重试(部分 delta 已推给前端,重发会重复),surface 为 api_network 由前端刷新兜底。
+        let max_retries = cfg.max_retries;
+        let resp = {
+            let mut chosen: Option<reqwest::Response> = None;
+            for attempt in 0..=max_retries {
+                match self.http.post(&url).bearer_auth(key).json(&body).send().await {
+                    Ok(r) if r.status().is_success() => { chosen = Some(r); break; }
+                    Ok(r) => {
+                        let status = r.status();
+                        let text = r.text().await.unwrap_or_default();
+                        // 瞬时(429/5xx)退避重试;4xx(401/400/402…)直接判错
+                        let transient = status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error();
+                        if transient && attempt < max_retries {
+                            log::warn!("llm stream attempt {attempt} failed (will retry): {status} {text}");
+                            tokio::time::sleep(backoff_delay(attempt)).await;
+                            continue;
+                        }
+                        // 余额/配额识别:402 一律;429/400 时查 body 特征
+                        let is_quota = status == reqwest::StatusCode::PAYMENT_REQUIRED
+                            || (status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                                || status == reqwest::StatusCode::BAD_REQUEST)
+                                && ["quota", "insufficient", "billing", "credit"]
+                                    .iter()
+                                    .any(|k| text.to_lowercase().contains(*k));
+                        let code = if is_quota { "api_quota" }
+                            else if status.as_u16() == 401 || status.as_u16() == 403 { "api_auth" }
+                            else if status.as_u16() == 429 { "api_rate_limit" }
+                            else if status.as_u16() == 400 { "api_bad_request" }
+                            else { "api_network" };
+                        return Err(AppError::Core(format!("llm stream {code}: {status} {text}")));
+                    }
+                    Err(e) => {
+                        let retryable = is_retryable(&AppError::Network(e.to_string()));
+                        if retryable && attempt < max_retries {
+                            log::warn!("llm stream attempt {attempt} failed (will retry): {e}");
+                            tokio::time::sleep(backoff_delay(attempt)).await;
+                            continue;
+                        }
+                        return Err(AppError::Core(format!("llm stream: {e}")));
+                    }
+                }
+            }
+            chosen.ok_or_else(|| AppError::Core("llm stream: no response".into()))?
+        };
         let mut full = String::new();
         let mut bytes = resp.bytes_stream();
         let mut buf: Vec<u8> = Vec::new();
