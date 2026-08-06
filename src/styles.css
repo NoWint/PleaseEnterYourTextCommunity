@@ -4594,3 +4594,16 @@ body {
 .sd-markdown hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 /* mention-chip 在 markdown 里(与旧一致,但确保可点手感) */
 .sd-markdown .mention-chip { cursor: pointer; }
+
+/* === 主题气泡加载/完成指示器 === */
+/* 指示器固定在气泡右侧;文字 span(flex:1)填满剩余空间 */
+.ch-bubble-indicator {
+  flex: 0 0 auto; margin-left: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; color: var(--text-mute);
+}
+/* 旋转 loading */
+.ch-bubble-loading { animation: ch-bubble-spin 1s linear infinite; }
+@keyframes ch-bubble-spin { to { transform: rotate(360deg); } }
+/* 绿色勾完成 */
+.ch-bubble-check { color: var(--success); }

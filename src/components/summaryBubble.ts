@@ -100,18 +100,24 @@ export function applySummaryEvent(ev: { chatId: number; lane: string; status: st
 let fallbackClusters: TopicCluster[] = [];
 export function setFallbackClusters(c: TopicCluster[]): void { fallbackClusters = c; }
 
-/** 渲染气泡内容(直接作为 .ch-topic-chip 的 innerHTML,无内层 topic-bubble)。 */
+/** 状态指示器 span(空壳):loading 旋转/绿勾 由 dashboard 的呼吸灯逻辑注入。 */
+export function indicatorSpan(): string {
+  return `<span class="ch-bubble-indicator"></span>`;
+}
+
+/** 渲染气泡内容(直接作为 .ch-topic-chip 的 innerHTML,无内层 topic-bubble)。
+ * 文字 span flex:1 填满;右侧指示器由 dashboard 按请求状态注入(加载旋转/完成绿勾)。 */
 export function renderBubbleHtml(st: BubbleState): string {
   if (st.status === 'summarizing') {
     const body = st.text ? escapeHtml(st.text) : '总结中…';
-    return `${iconSvg('hash', { width: 14, height: 14 })}<span>${body}</span>`;
+    return `${iconSvg('hash', { width: 14, height: 14 })}<span>${body}</span>${indicatorSpan()}`;
   }
   if (st.status === 'done') {
     const html = renderParsed(parseTags(st.text), () => {});
-    return `${iconSvg('hash', { width: 14, height: 14 })}<span>${html}</span>`;
+    return `${iconSvg('hash', { width: 14, height: 14 })}<span>${html}</span>${indicatorSpan()}`;
   }
   // idle / error / fallback → 降级显示词频簇短语
-  return renderTopicBubbleHtml(fallbackClusters);
+  return renderTopicBubbleHtml(fallbackClusters) + indicatorSpan();
 }
 
 /**

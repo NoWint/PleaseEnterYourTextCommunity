@@ -404,20 +404,40 @@ function enqueueOverlay(overlay: HTMLElement, chatId: number, kind: AnalysisKind
   });
 }
 
-// 每个 chat 正在进行的 detail 请求数(streaming 中)。>0 → 气泡蓝色呼吸灯。
+// 每个 chat 正在进行的 detail 请求数(streaming 中)。>0 → 气泡蓝色呼吸灯 + 旋转 loading。
 const detailActive = new Map<number, number>();
+// 绿勾消失定时器(上次 detail 完成后 5s 移除)
+let checkTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** detail 请求计数变化 → 更新气泡蓝色呼吸灯(第一个开始亮,最后一个结束灭)。 */
+/**
+ * detail 请求计数变化 → 气泡状态:
+ * - 计数>0:蓝色呼吸灯 + 右侧旋转 loading
+ * - 计数=0:呼吸灯灭 + 绿色勾 5s 后消失
+ */
 function updateDetailBreathing(chatId: number, delta: number): void {
   const cur = (detailActive.get(chatId) ?? 0) + delta;
   if (cur > 0) detailActive.set(chatId, cur);
   else detailActive.delete(chatId);
   const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
   if (!chip) return;
-  // 仅当该 chat 是当前激活会话时控制气泡呼吸灯
+  // 仅当该 chat 是当前激活会话时控制气泡
   if (state.currentChatId !== chatId) return;
-  if (cur > 0) chip.classList.add('breathing-detail');
-  else chip.classList.remove('breathing-detail');
+  const indicator = chip.querySelector<HTMLElement>('.ch-bubble-indicator');
+  if (cur > 0) {
+    chip.classList.add('breathing-detail');
+    // 旋转 loading(复用 refresh-cw + CSS spin)
+    if (indicator) indicator.innerHTML = `<svg class="ch-bubble-loading" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
+  } else {
+    chip.classList.remove('breathing-detail');
+    // 绿勾 5s 后消失
+    if (indicator) indicator.innerHTML = `<svg class="ch-bubble-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+    if (checkTimer) clearTimeout(checkTimer);
+    checkTimer = setTimeout(() => {
+      const chipNow = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
+      const ind = chipNow?.querySelector<HTMLElement>('.ch-bubble-indicator');
+      if (ind) ind.innerHTML = '';
+    }, 5000);
+  }
 }
 
 let fullscreenBound = false;
