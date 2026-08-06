@@ -213,13 +213,14 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     attachBtn.parentElement?.appendChild(fileInput);
     attachBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      // 菜单向上弹(composer 在屏幕底部,向下会超出视口)
       showDropdown(attachBtn, [
         {
           label: '附件上传',
           icon: 'paperclip',
           action: () => fileInput.click(),
         },
-      ], { position: 'bottom-left' });
+      ], { position: 'top-left' });
     });
   }
   // md 开关:仅控制本条消息发送的 markdown 字段(不碰引用块渲染)
