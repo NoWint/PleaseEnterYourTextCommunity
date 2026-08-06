@@ -1161,16 +1161,22 @@ pub async fn get_reactions(
 //   chat::send_msg(&Context, ChatId, &mut Message) -> Result<MsgId>          (line 2616)
 // All signatures match the brief.
 
+/// 发送引用回复，返回新消息 id。
+/// 正文组装成 `{"type":"reply",...,"payload":{"text":...,"quote_msg_id":...,"markdown":bool}}` 信封，
+/// 同时保留 core `set_quote`（引用关系供通知/跨端使用）。
 #[tauri::command]
 pub async fn send_reply(
     state: State<'_, AppState>,
     chat_id: u32,
     text: String,
     quote_msg_id: u32,
+    markdown: Option<bool>,
 ) -> AppResult<u32> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
     let chat_id = deltachat::chat::ChatId::new(chat_id);
-    let mut msg = Message::new_text(text);
+    let payload = serde_json::json!({ "text": text, "quote_msg_id": quote_msg_id, "markdown": markdown.unwrap_or(false) });
+    let envelope = crate::envelope::build_envelope("reply", payload)?;
+    let mut msg = Message::new_text(envelope);
     let quote = Message::load_from_db(&ctx, MsgId::new(quote_msg_id)).await?;
     msg.set_quote(&ctx, Some(&quote)).await?;
     let sent_id = chat::send_msg(&ctx, chat_id, &mut msg).await?;
