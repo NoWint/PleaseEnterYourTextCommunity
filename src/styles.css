@@ -154,7 +154,8 @@
   --danger-bg-hover: rgba(255,85,85,0.2);
   --success: var(--state-success-fg);
   --accent: var(--blue-600);
-  --on-accent: #ffffff;
+  /* --on-accent 必须与 --text 亮度相反:nowint 下 --text 是浅色,强调背景上的字用深色 */
+  --on-accent: #000000;
   /* 自己的消息气泡(各主题可覆盖) */
   --bubble-self: var(--blue-600);
   --bubble-self-text: #ffffff;
@@ -893,44 +894,44 @@ html.window-frame #titlebar-tools { height: 34px; }
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-weak); }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
 
-/* === UI 组件库(opencode 风格)=== */
-/* 按钮 — 中性面:alpha 叠加 hover,不换底色 */
+/* 按钮 — 用 border 实线描边(7297a19c 方案):避免 box-shadow ring 在
+   WebKit 亚像素渲染下出现「边缘一半白一半色」。背景用实色表面(不透渐变)。 */
 .ui-button {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: var(--space-2) var(--space-4); border-radius: var(--radius-md);
-  background: var(--surface-layer-01); color: var(--text-base);
-  box-shadow: inset 0 0 0 1px var(--border-base);
-  border: none;
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm);
+  background: var(--surface-layer-01); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
   font: inherit; font-size: var(--font-scale-body); font-weight: var(--weight-medium); cursor: pointer;
-  transition: transform 120ms var(--ease-out), opacity 120ms var(--ease-out), background 120ms var(--ease-out), color 120ms var(--ease-out);
+  transition: transform 120ms var(--ease-out), opacity 120ms var(--ease-out), background 120ms var(--ease-out),
+              color 120ms var(--ease-out);
 }
-.ui-button:hover { background: var(--overlay-hover); }
-.ui-button:active { transform: scale(0.97); background: var(--overlay-pressed); }
+.ui-button:hover { background: var(--active); }
+.ui-button:active { transform: scale(0.97); }
 .ui-button:disabled { opacity: 0.4; cursor: default; }
 .ui-button-primary {
-  background: var(--blue-600); color: var(--text-on-accent); font-weight: var(--weight-medium);
-  box-shadow: var(--elevation-contrast);
-  text-shadow: 0 0.5px 0.5px rgba(0,0,0,0.3);
+  /* 前景必须用 --on-accent:--panel 在暗色玻璃主题是 rgba(255,255,255,.10),
+     浅色文字落在浅色背景上会隐形;--on-accent 各主题均与 --text 亮度相反 */
+  background: var(--text); color: var(--on-accent); font-weight: var(--weight-medium);
   border-color: transparent;
 }
-.ui-button-primary:hover { background: var(--blue-700); }
-.ui-button-primary:active { background: var(--blue-800); }
-.ui-button-ghost { background: transparent; color: var(--text-muted); box-shadow: none; }
-.ui-button-ghost:hover { color: var(--text-base); background: var(--overlay-hover); }
-.ui-button-danger { background: transparent; color: var(--state-danger-fg); box-shadow: none; }
-.ui-button-danger:hover { background: var(--state-danger-bg); color: var(--state-danger-fg); }
+.ui-button-primary:hover { background: color-mix(in srgb, var(--text) 88%, var(--bg)); }
+.ui-button-primary:active { background: color-mix(in srgb, var(--text) 82%, var(--bg)); }
+.ui-button-ghost { background: var(--capsule); color: var(--text-mute); }
+.ui-button-ghost:hover { color: var(--text); background: var(--border-strong); }
+.ui-button-danger { background: var(--danger-bg); color: var(--danger); }
+.ui-button-danger:hover { background: var(--danger-bg-hover); }
 
-/* 图标按钮 — 无边框,alpha hover */
+/* 图标按钮 */
 .ui-icon-button {
   width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; border: none; color: var(--icon-muted);
-  border-radius: var(--radius-md); cursor: pointer;
+  background: var(--capsule); border: none; color: var(--text-mute);
+  border-radius: var(--radius-sm); cursor: pointer;
   transition: background 120ms var(--ease-out), color 120ms var(--ease-out), transform 120ms var(--ease-out);
 }
-.ui-icon-button:hover { color: var(--text-base); background: var(--overlay-hover); }
+.ui-icon-button:hover { color: var(--text); background: var(--active); }
 .ui-icon-button:active { transform: scale(0.93); }
-.ui-icon-button.active { background: var(--overlay-pressed); color: var(--text-base); }
-.ui-icon-button-danger:hover { color: var(--state-danger-fg); background: var(--state-danger-bg); }
+.ui-icon-button.active { background: var(--active); color: var(--text); }
+.ui-icon-button-danger:hover { color: var(--danger); border-color: var(--danger); }
 
 /* 遮罩 */
 .ui-overlay {
