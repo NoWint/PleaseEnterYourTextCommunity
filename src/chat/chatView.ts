@@ -12,8 +12,6 @@ import { renderTopicBubbleHtml, openWordAnalysisPopup } from '../components/word
 import { initSegmenter, computeTopics, type TopicCluster } from '../utils/wordAnalysis.js';
 import { SummaryStore, buildContextLines, listenSummaryEvents, type BubbleStatus } from '../utils/summaryState.js';
 import { parseSafeTags } from '../utils/tagParser.js';
-import { renderSummaryDashboard } from '../components/summaryDashboard.js';
-import { mountPopup } from '../components/readReceiptsPopup.js';
 import { iconSvg } from '../components/icon.js';
 import { openEncryptionPopup } from '../components/encryptionPopup.js';
 import { openOnlinePopup } from '../components/onlinePopup.js';
@@ -914,7 +912,9 @@ function renderLlmBubble(chatId: number): void {
   bubble.addEventListener('click', (e) => {
     e.stopPropagation();
     if (bubble.dataset.llmRetry) { void retryLlmBubble(chatId); return; }
-    openLlmDashboard(chatId, bubble);
+    void import('../components/summaryDashboard.js').then((m) => {
+      void m.openSummaryDashboard(bubble as HTMLElement, chatId, state.messages, resolveMessageText);
+    });
   });
 }
 
@@ -926,40 +926,6 @@ function updateLlmStreamingText(chatId: number, text: string): boolean {
   if (!span) return false;
   span.textContent = text;
   return true;
-}
-
-// 气泡点击 → 主题分析看板(detail 车道,复用 mountPopup 弹层壳)
-function openLlmDashboard(chatId: number, anchor: HTMLElement): void {
-  mountPopup(
-    `<div data-sd-holder="1" style="display:flex;flex-direction:column;min-height:0;max-height:66vh;"></div>`,
-    anchor,
-    'rr-popup sd-popup',
-  );
-  const popup = document.querySelector<HTMLElement>('.sd-popup');
-  if (popup) {
-    // 看板内容宽:覆盖 rr-popup 的 420px 上限
-    popup.style.width = 'min(92vw, 700px)';
-    popup.style.maxWidth = 'min(92vw, 700px)';
-  }
-  const holder = document.querySelector<HTMLElement>('[data-sd-holder="1"]');
-  if (!holder) return;
-  renderSummaryDashboard(chatId, holder, {
-    onRefreshAll: () => { void scheduleLlmSummaryRefresh(); },
-    getContext: () => ({
-      lines: buildContextLines(state.messages, (m) => resolveMessageText(m.text), llmSettings?.windowN ?? 50),
-      prevAnalysis: summaryStore.get(chatId)?.status === 'done' ? summaryStore.get(chatId)?.text : undefined,
-    }),
-  });
-  // mountPopup 按空内容测量定位,渲染后超高(锚点贴近底部)时改为向上展开
-  requestAnimationFrame(() => {
-    if (!popup) return;
-    const r = popup.getBoundingClientRect();
-    if (r.bottom > window.innerHeight - 8) {
-      const anchorTop = anchor.getBoundingClientRect().top;
-      popup.style.top = 'auto';
-      popup.style.bottom = `${Math.max(8, window.innerHeight - anchorTop - 8)}px`;
-    }
-  });
 }
 
 // 头部按钮组点击绑定:搜索/相册/「更多」+ ch-head 点击弹群信息。
