@@ -33,10 +33,11 @@ async function memberRow(m: MemberDto): Promise<string> {
     </div>`;
 }
 
-// 弹出在线/离线列表。anchor = chat-header 的「N 人在线」。
-export async function openOnlinePopup(anchor: HTMLElement, chatId: number): Promise<void> {
+// 弹出在线状态。anchor = chat-header 的「N 人在线」/「在线」气泡。
+// 群聊:在线/离线成员列表;单聊:仅对方一人的状态(不写死「群成员」)。
+export async function openOnlinePopup(anchor: HTMLElement, chatId: number, isGroup: boolean): Promise<void> {
   mountPopup(`
-    <div class="enc-head">群成员在线状态</div>
+    <div class="enc-head">${isGroup ? '群成员在线状态' : '在线状态'}</div>
     <div class="ol-body">
       <div class="ui-spinner"></div>
     </div>
@@ -51,9 +52,19 @@ export async function openOnlinePopup(anchor: HTMLElement, chatId: number): Prom
     return;
   }
 
-  const members = (info.members || []).filter((m) => !m.is_self);
   const body = document.querySelector('.ol-popup .ol-body');
   if (!body) return;
+
+  // 单聊:只显示对方一人的状态(成员列表里非自己的那个),不分组。
+  if (!isGroup) {
+    const other = (info.members || []).find((m) => !m.is_self);
+    body.innerHTML = other
+      ? await memberRow(other)
+      : '<div class="enc-empty">无联系人信息</div>';
+    return;
+  }
+
+  const members = (info.members || []).filter((m) => !m.is_self);
   if (members.length === 0) {
     body.innerHTML = `<div class="enc-empty">暂无成员</div>`;
     return;

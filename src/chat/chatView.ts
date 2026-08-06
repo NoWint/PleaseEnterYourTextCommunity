@@ -185,10 +185,10 @@ export async function renderChatView(chatId: number): Promise<void> {
       e.stopPropagation();
       openEncryptionPopup(e.currentTarget as HTMLElement, chatId);
     });
-    // 在线气泡点击 → 在线/离线成员列表 popup
+    // 在线气泡点击 → 在线状态 popup(群聊成员列表 / 单聊对方状态)
     main.querySelector('[data-online-block="1"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
-      openOnlinePopup(e.currentTarget as HTMLElement, chatId);
+      openOnlinePopup(e.currentTarget as HTMLElement, chatId, headerIsGroup);
     });
     // 分页状态已在函数开头按频道切换判断重置,此处不再重复
     // Task 12: 在 mark_chat_noticed 之前拉取 unread count,
