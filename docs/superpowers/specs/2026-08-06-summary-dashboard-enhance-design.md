@@ -106,6 +106,34 @@ Schema(JSON 字段)加可选 `status`(`done|pending`)、`impact`(影响范围字
 - 进度条(已完成/总数,本地勾选统计)。
 - 勾选状态 localStorage 持久化(`sd-action-done:{chatId}:{kind}:{index}`)。
 
+### 4.5 视觉与动效(apple-design)
+
+现有看板已应用 §4 弹簧、§7 对称路径、§12 玻璃材料。新板块/深化补充:
+
+**情绪氛围(核心视觉焦点)**
+- 大号 emoji 容器:56px 圆形容器 + `color-mix` 色带底(绿/黄/红按 score),弹簧入场 `scale(0.8)→1` damping 0.8(§4 因情绪本身有「动量」可轻微过冲)。
+- overall 徽章:毛玻璃 chip(§12 材料),`backdrop-filter: blur(12px)`。
+- 色带:score 0-100 → 三段渐变条,`border-radius: 999px`,入场宽度动画(§8 方向提示)。
+- highlights 列表:每条 emoji + 文本,`sd-reveal` stagger 复用。
+
+**参与度可视化**
+- 时段柱状条:24h 分桶,柱高 = 消息数,`border-radius` 顶部圆角,逐柱 stagger 入场(§4 弹簧)。
+- 最活跃对比条:相对宽度,同色系不同透明度(§12 材料层次,避免堆叠浅色)。
+
+**深化板块(优先级/状态/进度)**
+- priority high:红色左缘 accent 药丸(§12 材料强调),非描边。
+- status done:绿勾 + 微透明度(0.85),pending 正常。
+- 进度条:`border-radius: 999px`,填充色 `--accent`,动画宽度(§8)。
+
+**交互反馈(§1/§10)**
+- 板块头 hover:微背景提升(`--surface-2` 混合),pointer-down 即反馈。
+- 折叠/展开:高度过渡用 `--ease-out`,内容 opacity 交叉淡化(§14 reduced-motion 时禁滑动)。
+- `<time>` chip hover:accent 下划线 + 微底,点击后反馈。
+
+**reduced-motion(§14)**
+- 所有新动画 `@media (prefers-reduced-motion: reduce)` 降级为 opacity 交叉淡化/静态。
+- 呼吸灯、柱状条动画在 reduce 下禁用。
+
 ## 5. 提示词优化
 
 ### 5.1 summary/commands.rs system_prompt
