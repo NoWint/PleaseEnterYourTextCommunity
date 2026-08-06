@@ -440,8 +440,8 @@ html.window-frame #titlebar-tools { height: 34px; }
 .chat-header .ch-head,
 .chat-header .ch-topic-chip,
 .chat-header .ch-online-block {
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-lg);
   animation: ch-tag-drop 0.4s var(--ease-out) both;
 }
@@ -504,8 +504,8 @@ html.window-frame #titlebar-tools { height: 34px; }
   position: relative;
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; border-radius: 50%;
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--text-mute);
   cursor: pointer; padding: 0; line-height: 0; flex-shrink: 0;
   transition: background 120ms var(--ease-out), transform 120ms var(--ease-out), color 120ms var(--ease-out);
