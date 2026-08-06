@@ -1,5 +1,6 @@
 import { call, transformBlobURL } from '../api.js';
-import { resolveMessageText } from '../utils/envelope.js';
+import { resolveMessageText, tryParseEnvelope, envelopeMarkdown } from '../utils/envelope.js';
+import { renderMarkdown } from '../utils/markdown.js';
 import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { ui } from '../components/ui.js';
@@ -177,19 +178,27 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   const isSingle = !state.currentChatIsGroup;
   const roleName = !isOut && msg.from_id && !isSingle ? getRoleName(msg.from_id) : '';
   const roleTag = roleName ? `<span class="msg-role">${escapeHtml(roleName)}</span>` : '';
-  // Reply mark: ↩ replaced with reply SVG icon per Task 14 brief step 1.6
-  const replyIcon = iconSvg('reply', { width: 12, height: 12 });
+  // Reply mark: 本土化 —— 「回复 用户名」。用户名可点击 → 打开发送者名片
+  // (data-reply-contact 传 from_id,data-reply-name 传名字;头像经成员表反查加载)
   const replyMark = msg.quote_from
-    ? `<span class="msg-reply-mark">${replyIcon} reply to ${escapeHtml(msg.quote_from)}</span>`
+    ? `<span class="msg-reply-mark">回复 <span class="msg-reply-name" data-reply-contact="${msg.from_id || ''}" data-reply-name="${escapeAttr(msg.quote_from)}">${escapeHtml(msg.quote_from)}</span></span>`
     : '';
+  // 引用块:遵循被引用消息信封内的 markdown 字段(quote_text 即被引用消息完整信封)
+  const qEnv = msg.quote_text ? tryParseEnvelope(msg.quote_text) : null;
+  const qIsMd = qEnv ? envelopeMarkdown(qEnv) : false;
+  const qText = msg.quote_text ? resolveMessageText(msg.quote_text).slice(0, 80) : '';
   const quoteBlock = msg.quote_text
-    ? `<div class="msg-quote">
+    ? `<div class="msg-quote" data-quote-msg="${msg.quote_msg_id ?? ''}" title="点击跳转原文">
         <span class="msg-quote-name">${escapeHtml(msg.quote_from || '')}</span>
-        <span class="msg-quote-text">${escapeHtml(resolveMessageText(msg.quote_text).slice(0, 80))}</span>
+        <span class="msg-quote-text">${qIsMd ? renderMarkdown(qText) : escapeHtml(qText)}</span>
       </div>`
     : '';
-  // 正文: 信封消息取 payload.text(约定所有 type 都有 text 字段), 否则显示原文。
-  const textHtml = renderText(resolveMessageText(msg.text));
+  // 正文:信封带 markdown:true → md 渲染;否则纯文本
+  const env = tryParseEnvelope(msg.text);
+  const isMd = env ? envelopeMarkdown(env) : false;
+  const textHtml = isMd
+    ? renderMarkdown(resolveMessageText(msg.text))
+    : renderText(resolveMessageText(msg.text));
   // 链接卡片: 正文里所有网页 URL → 消息体下方各渲染一张链接卡片(标题/描述/favicon)。
   // 先渲染壳(host + url), 预览由 hydrateLinkCard 异步水合, 避免阻塞渲染。
   const linkCardHtml = extractWebUrls(resolveMessageText(msg.text))
@@ -719,6 +728,43 @@ export function bindMessageActions(container: HTMLElement): void {
           color: member?.color,
           lastSeen: member?.last_seen,
           anchor: av,
+        });
+      })();
+    });
+  });
+
+  // 引用块点击 → 跳转被引用消息原文(jumpToMessage 滚动定位 + 高亮)。
+  // 动态 import 避免循环依赖(chatView import message,message 反向只按需加载)。
+  container.querySelectorAll<HTMLElement>('.msg-quote').forEach((q) => {
+    const quoteMsgId = Number(q.dataset.quoteMsg || 0);
+    if (!quoteMsgId) return;
+    q.style.cursor = 'pointer';
+    q.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void import('../chat/chatView.js').then(({ jumpToMessage }) => jumpToMessage(quoteMsgId));
+    });
+  });
+
+  // 「回复 XXX」用户名点击 → 打开发送者名片(带头像)。
+  // 优先用当前会话成员反查完整资料(avatar/addr/color),成员表缺失时用 quote_from 名。
+  container.querySelectorAll<HTMLElement>('.msg-reply-name').forEach((rn) => {
+    rn.style.cursor = 'pointer';
+    rn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const contactId = Number(rn.dataset.replyContact || 0);
+      const name = rn.dataset.replyName || '';
+      const member = contactId ? state.currentMembers?.find((m) => m.contact_id === contactId) : undefined;
+      void (async () => {
+        const { openContactCard } = await import('../components/contactCard.js');
+        openContactCard({
+          // 优先用成员表反查的 contact_id;查不到(引用的可能是非本会话成员)则回退 data 里的 id
+          contactId: member?.contact_id ?? (contactId || null),
+          name: member?.name || name,
+          addr: member?.addr || '',
+          avatar: member?.avatar,
+          color: member?.color,
+          lastSeen: member?.last_seen,
+          anchor: rn,
         });
       })();
     });
