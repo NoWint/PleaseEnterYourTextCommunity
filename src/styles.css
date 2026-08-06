@@ -4349,6 +4349,15 @@ body {
   0%, 100% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }
   50% { box-shadow: 0 0 12px 4px rgba(52, 199, 89, 0.25); }
 }
+/* detail 请求期间气泡蓝色呼吸灯(与气泡自身绿色 summarizing 区分) */
+.ch-topic-chip.breathing-detail { box-shadow: 0 0 0 0 rgba(74, 144, 217, 0.5); }
+@media (prefers-reduced-motion: no-preference) {
+  .ch-topic-chip.breathing-detail { animation: bubble-breathe-detail 1.6s ease-in-out infinite; }
+}
+@keyframes bubble-breathe-detail {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 144, 217, 0.5); }
+  50% { box-shadow: 0 0 12px 4px rgba(74, 144, 217, 0.3); }
+}
 /* 标签引用 chip(Apple 风格):accent 胶囊,玻璃质感,active 缩放反馈(§1) */
 .mention-chip {
   display: inline-flex; align-items: center; gap: 3px;

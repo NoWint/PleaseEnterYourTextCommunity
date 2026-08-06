@@ -404,6 +404,22 @@ function enqueueOverlay(overlay: HTMLElement, chatId: number, kind: AnalysisKind
   });
 }
 
+// 每个 chat 正在进行的 detail 请求数(streaming 中)。>0 → 气泡蓝色呼吸灯。
+const detailActive = new Map<number, number>();
+
+/** detail 请求计数变化 → 更新气泡蓝色呼吸灯(第一个开始亮,最后一个结束灭)。 */
+function updateDetailBreathing(chatId: number, delta: number): void {
+  const cur = (detailActive.get(chatId) ?? 0) + delta;
+  if (cur > 0) detailActive.set(chatId, cur);
+  else detailActive.delete(chatId);
+  const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
+  if (!chip) return;
+  // 仅当该 chat 是当前激活会话时控制气泡呼吸灯
+  if (state.currentChatId !== chatId) return;
+  if (cur > 0) chip.classList.add('breathing-detail');
+  else chip.classList.remove('breathing-detail');
+}
+
 let fullscreenBound = false;
 function bindFullscreenEvents(): void {
   if (fullscreenBound) return;
@@ -412,6 +428,9 @@ function bindFullscreenEvents(): void {
     void listen('summary-event', (ev) => {
       const p = ev.payload as { chatId: number; lane: string; kind: string; status: string; delta?: string; result?: string; error?: { code: string } };
       if (p.lane !== 'detail') return;
+      // 请求计数:streaming 开始 +1, done/error 结束 -1(驱动气泡蓝色呼吸灯)
+      if (p.status === 'streaming') updateDetailBreathing(p.chatId, 1);
+      else if (p.status === 'done' || p.status === 'error') updateDetailBreathing(p.chatId, -1);
       // 先更新 detailCache(无论 popup 是否打开):预请求(打开聊天时与气泡一起发)的结果
       // 在此缓存,popup 打开时直接命中;无 popup 时仅缓存不渲染。
       const key = `${p.chatId}:${p.kind}`;
