@@ -187,10 +187,11 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   const qEnv = msg.quote_text ? tryParseEnvelope(msg.quote_text) : null;
   const qIsMd = qEnv ? envelopeMarkdown(qEnv) : false;
   const qText = msg.quote_text ? resolveMessageText(msg.quote_text).slice(0, 80) : '';
+  // 用 div 承载 md 渲染(renderMarkdown 输出块元素 p/ul/pre,span 会被浏览器自动闭合破坏布局)
   const quoteBlock = msg.quote_text
     ? `<div class="msg-quote" data-quote-msg="${msg.quote_msg_id ?? ''}" title="点击跳转原文">
         <span class="msg-quote-name">${escapeHtml(msg.quote_from || '')}</span>
-        <span class="msg-quote-text">${qIsMd ? renderMarkdown(qText) : escapeHtml(qText)}</span>
+        <div class="msg-quote-text">${qIsMd ? renderMarkdown(qText) : escapeHtml(qText)}</div>
       </div>`
     : '';
   // 正文:信封带 markdown:true → md 渲染;否则纯文本

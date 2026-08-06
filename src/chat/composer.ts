@@ -690,15 +690,18 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
   }
 
   const replyTo = area.dataset.replyTo;
-  // 乐观更新:插入临时消息
+  // md 开关状态从 localStorage 读(发送时取最新,跨重渲染一致)
+  const mdOn = localStorage.getItem('peyt.md.enabled') !== '0';
+  // 乐观更新:插入临时消息。md 开 → 临时消息也包信封(markdown:true),避免气泡闪 md 原文
   const tmpId = `tmp_${Date.now()}`;
+  const optText = mdOn ? JSON.stringify({ type: 'text', id: `tmp_${Date.now()}`, payload: { text, markdown: true } }) : text;
   const tmpMsg: TmpMsg = {
     msg_id: tmpId,
     from_id: state.self?.id || 0,
     from_name: state.self?.name || '我',
     from_avatar: state.self?.avatar || null,
     from_color: state.self?.color || null,
-    text,
+    text: optText,
     ts: Math.floor(Date.now() / 1000),
     is_out: true,
     _state: 'sending',
@@ -725,8 +728,6 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
   closeMentionList();
   // 发送
   try {
-    // md 开关状态从 localStorage 读(发送时取最新,跨重渲染一致)
-    const mdOn = localStorage.getItem('peyt.md.enabled') !== '0';
     if (replyTo) {
       await call('send_reply', { chatId, text, quoteMsgId: Number(replyTo), markdown: mdOn });
       delete area.dataset.replyTo;
