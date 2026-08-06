@@ -635,9 +635,9 @@ pub async fn get_chat_msgs(
 
 /// 发送文本消息，返回新消息 id（供 send_text 与 bot_send_text 复用）。
 /// 普通文本统一组装成 `{"type":"text",...,"payload":{"text":...,"markdown":bool}}` 信封发出。
-async fn send_text_impl(ctx: &Context, chat_id: u32, text: String, markdown: bool) -> AppResult<MsgId> {
+async fn send_text_impl(ctx: &Context, chat_id: u32, text: String, markdown: Option<bool>) -> AppResult<MsgId> {
     let chat_id = deltachat::chat::ChatId::new(chat_id);
-    let payload = serde_json::json!({ "text": text, "markdown": markdown });
+    let payload = serde_json::json!({ "text": text, "markdown": markdown.unwrap_or(false) });
     let envelope = crate::envelope::build_envelope("text", payload)?;
     Ok(chat::send_text_msg(ctx, chat_id, envelope).await?)
 }
@@ -647,7 +647,7 @@ pub async fn send_text(
     state: State<'_, AppState>,
     chat_id: u32,
     text: String,
-    markdown: bool,
+    markdown: Option<bool>,
 ) -> AppResult<u32> {
     let ctx = state
         .current()
@@ -3693,7 +3693,7 @@ pub async fn bot_send_text(
     text: String,
 ) -> AppResult<MsgDto> {
     let ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
-    let msg_id = send_text_impl(&ctx, chat_id, text, false).await?;
+    let msg_id = send_text_impl(&ctx, chat_id, text, None).await?;
     msg_to_dto(&ctx, msg_id).await
 }
 
