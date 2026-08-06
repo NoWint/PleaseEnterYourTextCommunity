@@ -521,22 +521,15 @@ function bindFullscreenEvents(): void {
     void listen('summary-event', (ev) => {
       const p = ev.payload as { chatId: number; lane: string; kind: string; status: string; delta?: string; result?: string; error?: { code: string } };
       if (p.lane !== 'detail') return;
-      // 请求结束标记(done/error 配对入队时的 begin)。streaming 不参与计数——
-      // 请求在生成前失败只有 error 无 streaming,靠 kind 级配对避免计数错乱。
-      if (p.status === 'done' || p.status === 'error') endDetailRequest(p.chatId, p.kind);
-      // 先更新 detailCache(无论 popup 是否打开):预请求(打开聊天时与气泡一起发)的结果
-      // 在此缓存,popup 打开时直接命中;无 popup 时仅缓存不渲染。
-      const key = `${p.chatId}:${p.kind}`;
-      const cur = detailCache.get(key) ?? { kind: p.kind as AnalysisKind, status: 'idle', text: '' };
-      if (p.status === 'streaming') { cur.status = 'streaming'; cur.text += p.delta ?? ''; }
-      else if (p.status === 'done') { cur.status = 'done'; cur.text = p.result ?? cur.text; }
-      else if (p.status === 'error') { cur.status = 'error'; }
-      detailCache.set(key, cur);
+      // 全局处理(done/error 配对计数 + 缓存):prefetchSummary 在打开聊天时已 beginDetailRequest,
+      // 即使看板未打开,detail 的 done/error 也必须 endDetailRequest,否则呼吸灯/loading 永不熄灭。
+      handleDetailEvent(p);
       // 仅当该 chat 的 popup 打开时才渲染 DOM
       const popup = document.querySelector<HTMLElement>('.sd-overlay[data-sd-chat]');
       if (!popup || popup.dataset.sdChat !== String(p.chatId)) return;
       const body = popup.querySelector<HTMLElement>(`[data-body="${p.kind}"]`);
       if (!body) return;
+      const cur = detailCache.get(`${p.chatId}:${p.kind}`) ?? { kind: p.kind as AnalysisKind, status: 'idle', text: '' };
       // participation:统计(.sd-p-stat)保留,只更新 LLM 解读(.sd-p-insight)
       const target = p.kind === 'participation' ? body.querySelector<HTMLElement>('.sd-p-insight') : body;
       if (!target) return;
@@ -562,6 +555,25 @@ function bindFullscreenEvents(): void {
       else target.innerHTML = renderStreaming(p.kind as AnalysisKind, cur.text);
     });
   });
+}
+
+/**
+ * 全局处理 detail 事件:配对呼吸灯计数 + 更新 detailCache。
+ * 由 chatView 的全局 summary-event 监听调用(无论看板是否打开),
+ * 确保 prefetchSummary 预请求的 done/error 都能 endDetailRequest → 呼吸灯正常熄灭。
+ */
+export function handleDetailEvent(p: { chatId: number; kind: string; status: string; delta?: string; result?: string }): void {
+  // 请求结束标记(done/error 配对入队时的 begin)。streaming 不参与计数——
+  // 请求在生成前失败只有 error 无 streaming,靠 kind 级配对避免计数错乱。
+  if (p.status === 'done' || p.status === 'error') endDetailRequest(p.chatId, p.kind);
+  const key = `${p.chatId}:${p.kind}`;
+  const cur = detailCache.get(key) ?? { kind: p.kind as AnalysisKind, status: 'idle', text: '' };
+  if (p.status === 'streaming') { cur.status = 'streaming'; cur.text += p.delta ?? ''; }
+  else if (p.status === 'done') { cur.status = 'done'; cur.text = p.result ?? cur.text; }
+  else if (p.status === 'error') { cur.status = 'error'; }
+  detailCache.set(key, cur);
+  // 同步气泡指示器(呼吸灯/loading 随 detail 请求状态)
+  restoreBubbleIndicator();
 }
 
 // ── 缓存失效 + 预请求 + 防抖刷新(供 chatView 调用) ─────────

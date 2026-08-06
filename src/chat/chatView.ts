@@ -325,13 +325,8 @@ async function refreshMessages(chatId: number): Promise<void> {
   await renderAllMessages(box);
   box.scrollTop = box.scrollHeight;
   // 消息更新(切会话/新消息/发送后)→ 防抖重算主题词频气泡
+  // (LLM 分支内与 detail 预请求同步触发,见 scheduleTopicRefresh)
   scheduleTopicRefresh();
-  // 打开 chat 时预请求看板数据(仅首次/无缓存时整批;新消息重算交 60s 窗口,不在此触发)
-  if (state.currentChatId != null) {
-    void import('../components/summaryDashboard.js').then((m) => {
-      void m.prefetchSummary(state.currentChatId!, state.messages, resolveMessageText).catch(() => {});
-    });
-  }
 }
 
 // 已读系统:批量拉取发出的消息的已读人数,填充 readCountMap(气泡渲染「N 人已读」)。
@@ -732,9 +727,14 @@ function scheduleTopicRefresh(): void {
     const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
     if (!chip) return;
     if (prefs.mode === 'llm') {
-      // LLM 模式:先算词频簇作降级兜底,再交给气泡状态机(流式追加/失败降级)
+      // LLM 模式:先算词频簇作降级兜底,再交给气泡状态机(流式追加/失败降级)。
+      // 与气泡总结同步预请求看板 detail(7 类并发;呼吸灯随 detail 计数点亮/熄灭)。
       setFallbackClusters(computeTopics(state.messages, resolveMessageText, 4));
       const st = await scheduleSummary(state.messages, resolveMessageText, prefs.contextN);
+      // detail 预请求与气泡总结同时触发(仅首次/无缓存时整批;新消息重算交 60s 窗口)
+      void import('../components/summaryDashboard.js').then((m) => {
+        void m.prefetchSummary(state.currentChatId!, state.messages, resolveMessageText).catch(() => {});
+      });
       if (st) {
         chip.innerHTML = renderBubbleHtml(st);
         syncChipTitle(chip);
@@ -789,7 +789,14 @@ function bindSummaryEvents(): void {
   if (summaryEventBound) return;
   summaryEventBound = true;
   void listen('summary-event', (ev) => {
-    const p = ev.payload as { chatId: number; lane: string; status: string; delta?: string; result?: string; error?: { code: string } };
+    const p = ev.payload as { chatId: number; lane: string; kind: string; status: string; delta?: string; result?: string; error?: { code: string } };
+    // detail lane:全局处理(配对呼吸灯计数 + 缓存),不依赖看板是否打开。
+    // prefetchSummary 在打开聊天时已 beginDetailRequest,此处 done/error 必须 endDetailRequest,
+    // 否则 detailPending 永不归零 → 呼吸灯/loading 常亮。
+    if (p.lane === 'detail') {
+      void import('../components/summaryDashboard.js').then((m) => m.handleDetailEvent(p));
+      return;
+    }
     const st = applySummaryEvent(p);
     if (!st) return;
     const chip = document.querySelector<HTMLElement>('[data-topic-chip="1"]');
