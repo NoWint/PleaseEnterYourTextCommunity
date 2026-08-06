@@ -4551,7 +4551,7 @@ body {
   overflow-y: auto;
 }
 .sd-nav-title { font-size: 16px; font-weight: 650; letter-spacing: -0.02em; color: var(--text); padding: 0 6px; }
-.sd-canvas { width: 100%; height: auto; border-radius: 10px; background: color-mix(in srgb, var(--surface, #fff) 70%, transparent); }
+.sd-canvas { width: 190px; height: 190px; border-radius: 10px; background: color-mix(in srgb, var(--surface, #fff) 70%, transparent); }
 .sd-nav-list { display: flex; flex-direction: column; gap: 2px; }
 .sd-nav-item {
   display: flex; align-items: center; gap: 10px;

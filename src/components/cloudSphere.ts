@@ -120,9 +120,10 @@ export function mountCloudSphere(canvas: HTMLCanvasElement, words: WordFreq[]): 
   const onMove = (e: PointerEvent) => {
     if (!dragging) return;
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
-    rotY += dx * 0.005; rotX += dy * 0.005;
+    // 纵轴反转: 鼠标向下拖 → 球顶部朝下(内容上移), rotX 反向。横轴保持。
+    rotY += dx * 0.005; rotX -= dy * 0.005;
     // 角速度 = 本帧角增量 / 帧时长(16.7ms), 松手后 tick 按 vx*dt 续转并 ×0.9 衰减
-    vx = dy * 0.005 / 16.7; vy = dx * 0.005 / 16.7;
+    vx = -dy * 0.005 / 16.7; vy = dx * 0.005 / 16.7;
     lastX = e.clientX; lastY = e.clientY;
   };
   const end = () => { dragging = false; };

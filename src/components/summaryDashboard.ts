@@ -292,7 +292,7 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   const nav = `
     <div class="sd-nav">
       <div class="sd-nav-title">会话主题分析</div>
-      <canvas class="sd-canvas" width="210" height="190"></canvas>
+      <canvas class="sd-canvas" width="190" height="190"></canvas>
       <div class="sd-nav-list">${navList}</div>
     </div>`;
 
