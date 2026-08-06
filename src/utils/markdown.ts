@@ -8,6 +8,16 @@ import { escapeHtml } from '../components/escape.js';
 /** 占位 token 前缀(避免与真实内容冲突:含非 ASCII 括号,正常文本几乎不会出现)。 */
 const U_PREFIX = '⟦U:'; // ⟦U:
 const M_PREFIX = '⟦M:'; // ⟦M:
+
+/** 剥最外层同型包裹引号:<user='张三'> → 张三;裸值原样。 */
+function stripQuote(v: string): string {
+  const s = v.trim();
+  if (s.length >= 2) {
+    const a = s[0], b = s[s.length - 1];
+    if ((a === "'" && b === "'") || (a === '"' && b === '"')) return s.slice(1, -1);
+  }
+  return s;
+}
 const SUFFIX = '⟧';      // ⟧
 
 /** 白名单标签:markdown 允许的块/行内元素,其余(script/iframe/img 等)剥掉。 */
@@ -25,7 +35,9 @@ function placeholderTags(text: string): { text: string; tags: Map<string, { kind
   let n = 0;
   // 兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>)两种 AI 输出,
   // 与 tagParser 的 TAG_RE 对齐 —— 否则无引号标签会被 sanitizeHtml 剥成纯文本而非 chip。
-  const out = text.replace(/<(user|message)=['"]?([^'"\n\s>]+)['"]?>/g, (_m, kind: string, val: string) => {
+  // 值扫描到右尖括号前,剥最外层同型引号 —— 值内可含撇号(如 <user='NoWint'sBot'>)。
+  const out = text.replace(/<(user|message)=([^>\n]*?)>/g, (_m, kind: string, raw: string) => {
+    const val = stripQuote(raw);
     if (!val) return _m; // 空值不替换
     const tok = `${kind === 'user' ? U_PREFIX : M_PREFIX}${n++}${SUFFIX}`;
     tags.set(tok, { kind: kind as 'user' | 'message', value: val });

@@ -11,21 +11,40 @@ export interface MsgRef {
 }
 
 // 原文本上的标签形态:兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>/<user=张三>)。
-// 值:可选单/双引号包裹,或裸值(不含引号/空白/右尖括号)。值内引号视为注入 → 不解包。
-const TAG_SRC = /<(message|user)=['"]?([^'"\s>]+)['"]?>/g;
+// 值扫描到右尖括号前,剥最外层同型包裹引号 —— 值内可含异引号/撇号(如 <user='NoWint'sBot'>)。
+// 安全:值经 escapeHtml 转义;含 `>` 才可能误匹配,AI 正常输出可控。
+const TAG_SRC = /<(message|user)=([^>\n]*?)>/g;
+
+/** 剥最外层同型包裹引号:<user='张三'> → 张三;裸值原样。 */
+function stripQuotes(v: string): string {
+  const s = v.trim();
+  if (s.length >= 2) {
+    const a = s[0], b = s[s.length - 1];
+    if ((a === "'" && b === "'") || (a === '"' && b === '"')) return s.slice(1, -1);
+  }
+  return s;
+}
 
 // 转义后文本上的白名单匹配:escapeHtml 后标签形如 &lt;message=&#39;…&#39;&gt;
-// (&#39;=单引号, &quot;=双引号, 裸值无引号)。值内禁止出现实体序列本身(escapeHtml 已把 & < > " '
-// 全转义;值内出现 &lt;/&gt;/&#39;/&quot; 说明原值含危险字符 → 保持转义不解包)。
-// 可选引号 + 裸值:&#39;…&#39; | &quot;…&quot; | 裸值(不含实体/空格/&gt;)。
-const TAG_ESCAPED =
-  /&lt;(message|user)=(&#39;|&quot;)?((?:[^&]|&(?!gt;|lt;|#39;|quot;))+?)\2?&gt;/g;
+// (&#39;=单引号, &quot;=双引号, 裸值无引号)。值扫描到 &gt; 前(值内可含 &amp;/&#39;/&quot; 实体,
+// 即原值含撇号/引号/& 的都可匹配)。剥最外层同型引号实体。
+const TAG_ESCAPED = /&lt;(message|user)=([^>\n]*?)&gt;/g;
+
+/** 剥转义文本外层同型引号实体:&#39;…&#39;(5字符) | &quot;…&quot;(6字符) → 内层;裸值原样。 */
+function stripEscapedQuotes(v: string): string {
+  const s = v.trim();
+  if (s.startsWith('&#39;') && s.endsWith('&#39;') && s.length >= 10) return s.slice(5, -5);
+  if (s.startsWith('&quot;') && s.endsWith('&quot;') && s.length >= 12) return s.slice(6, -6);
+  return s;
+}
 
 /** 转义整段输入并把白名单标签替换成受控 HTML;其它 <tag> 保持转义状态。 */
 export function parseSafeTags(input: string): string {
   const escaped = escapeHtml(input);
-  return escaped.replace(TAG_ESCAPED, (_full, kind: string, _quote: string, rawValue: string) => {
-    const value = escapeHtml(rawValue);
+  return escaped.replace(TAG_ESCAPED, (_full, kind: string, rawValue: string) => {
+    // 值已是转义后文本(整体已 escapeHtml),剥外层引号实体即可,不再二次转义。
+    // 值内 &#39; 等实体是合法转义,渲染时浏览器解码成原始字符。
+    const value = stripEscapedQuotes(rawValue);
     return kind === 'message'
       ? `<span class="ref-msg" data-ref="${value}">引用</span>`
       : `<span class="ref-user" data-user="${value}">@${value}</span>`;
@@ -36,7 +55,7 @@ export function parseSafeTags(input: string): string {
 export function extractRefs(input: string): MsgRef[] {
   const refs: MsgRef[] = [];
   for (const m of input.matchAll(TAG_SRC)) {
-    refs.push({ type: m[1] as MsgRef['type'], value: m[2] });
+    refs.push({ type: m[1] as MsgRef['type'], value: stripQuotes(m[2]) });
   }
   return refs;
 }
@@ -92,10 +111,10 @@ export interface ParsedSegment {
 }
 
 // 兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>)两种 AI 输出。
-// 值:可选单/双引号包裹,或裸值(不含引号/空白/右尖括号)。
-const TAG_RE = /<(message|user)=['"]?([^'"\s>]+)['"]?>/g;
+// 值扫描到右尖括号前,剥最外层同型引号 —— 值内可含异引号/撇号(如 <user='NoWint'sBot'>)。
+const TAG_RE = /<(message|user)=([^>\n]*?)>/g;
 
-/** 解析标签:只放行 <message=..> / <user=..>(值可带引号或裸),其余 <...> 整体转义。 */
+/** 解析标签:只放行 <message=..> / <user=..>(值可带引号或裸,可含撇号),其余 <...> 整体转义。 */
 export function parseTags(text: string): ParsedSegment[] {
   const segments: ParsedSegment[] = [];
   let last = 0;
@@ -103,7 +122,7 @@ export function parseTags(text: string): ParsedSegment[] {
   let m: RegExpExecArray | null;
   while ((m = TAG_RE.exec(text))) {
     if (m.index > last) segments.push({ type: 'text', value: escapeHtml(text.slice(last, m.index)) });
-    segments.push({ type: m[1] === 'message' ? 'message' : 'user', value: escapeHtml(m[2]) });
+    segments.push({ type: m[1] === 'message' ? 'message' : 'user', value: escapeHtml(stripQuotes(m[2])) });
     last = m.index + m[0].length;
   }
   if (last < text.length) segments.push({ type: 'text', value: escapeHtml(text.slice(last)) });
