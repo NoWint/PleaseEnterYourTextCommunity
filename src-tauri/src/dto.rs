@@ -158,6 +158,34 @@ pub struct DeepLinkPayload {
     pub url: String,
 }
 
+/// 消息主题(QQ 式「消息主题」):发送者账号的配置,随 [PEYT] 信封 payload.theme 传输。
+/// 所有字段可选:发送端只填有值的字段(信封保持小体积),接收端按 id 合并内置主题。
+/// JSON 键 snake_case,与前端 MsgTheme 一致。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MsgThemeDto {
+    /// 内置主题 id('default' 表示不启用;接收端据此查内置主题定义)。
+    pub id: String,
+    /// 字体(font-family 值,如 "'Kaiti SC', cursive")。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub font_family: Option<String>,
+    /// 正文/气泡字色(十六进制或 CSS 颜色)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_color: Option<String>,
+    /// 气泡背景(纯色或渐变)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bubble_bg: Option<String>,
+    /// 气泡内字色(优先级高于 text_color,用于渐变/深色背景配白字)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bubble_text_color: Option<String>,
+    /// 气泡圆角(px)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bold: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ContactDto {
     pub id: u32,

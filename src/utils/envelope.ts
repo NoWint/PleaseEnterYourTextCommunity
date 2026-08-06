@@ -43,3 +43,18 @@ export function resolveMessageText(text: string): string {
   if (!env) return text;
   return envelopeText(env) ?? text;
 }
+
+/**
+ * 取信封携带的「消息主题」(payload.theme)。
+ * 发送端(send_text_impl)把当前账号的主题配置注入 payload.theme,接收端据此按发送者渲染。
+ * 无 theme 或结构不合法 → null(走默认样式)。
+ */
+export function envelopeTheme(text: string): { id: string; [k: string]: unknown } | null {
+  const env = tryParseEnvelope(text);
+  if (!env) return null;
+  const t = env.payload.theme;
+  if (typeof t !== 'object' || t === null) return null;
+  const theme = t as Record<string, unknown>;
+  if (typeof theme.id !== 'string') return null;
+  return theme as { id: string; [k: string]: unknown };
+}

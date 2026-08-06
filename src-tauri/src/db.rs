@@ -296,6 +296,10 @@ impl Db {
                     api_key TEXT,
                     model TEXT,
                     updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS msg_theme (
+                    account_id INTEGER PRIMARY KEY,
+                    config_json TEXT NOT NULL
                 );",
             )?;
             Ok(())
@@ -1978,6 +1982,49 @@ impl Db {
                    model = excluded.model, updated_at = excluded.updated_at",
                 params![mode, source, model_tier, window_n, base_url, api_key, model, now],
             )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    // ── 消息主题(按账号存储的 MsgThemeDto JSON) ─────────────────────────
+
+    /// 读取某个账号的消息主题配置(config_json)。未配置 → None。
+    pub async fn get_msg_theme(&self, account_id: u32) -> AppResult<Option<String>> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
+            let c = conn.blocking_lock();
+            let row = c
+                .query_row(
+                    "SELECT config_json FROM msg_theme WHERE account_id = ?1",
+                    params![account_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            Ok(row)
+        })
+        .await?
+    }
+
+    /// 写入某个账号的消息主题配置(None = 清除,回默认)。
+    pub async fn set_msg_theme(&self, account_id: u32, config_json: Option<&str>) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let config_json = config_json.map(|s| s.to_string());
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            match config_json {
+                Some(cfg) => {
+                    c.execute(
+                        "INSERT INTO msg_theme (account_id, config_json) VALUES (?1, ?2)
+                         ON CONFLICT(account_id) DO UPDATE SET config_json = excluded.config_json",
+                        params![account_id, cfg],
+                    )?;
+                }
+                None => {
+                    c.execute("DELETE FROM msg_theme WHERE account_id = ?1", params![account_id])?;
+                }
+            }
             Ok(())
         })
         .await??;

@@ -1,5 +1,6 @@
 import { call, transformBlobURL } from '../api.js';
-import { resolveMessageText } from '../utils/envelope.js';
+import { resolveMessageText, envelopeTheme, tryParseEnvelope } from '../utils/envelope.js';
+import { msgThemeAttrs, registerSenderTheme, themeForSender } from '../msgTheme.js';
 import { state } from '../state.js';
 import { showToast } from '../toast.js';
 import { ui } from '../components/ui.js';
@@ -306,6 +307,22 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
     ? `<span class="msg-resend" data-msg-id="${msg.msg_id}">重发</span>`
     : '';
   const isOutAttr = isOut ? ' data-is-out="1"' : '';
+  // 消息主题(QQ 式):从信封 payload.theme 读取,注册到发送者缓存;
+  // 无主题的 text 信封表示发送者未启用主题 → 清缓存(回默认)。
+  // 非信封(乐观消息/旧消息)不动缓存,沿用发送者最新主题。
+  const senderId = msg.from_id || (isOut && state.self ? state.self.id : 0);
+  const envTheme = envelopeTheme(msg.text);
+  if (envTheme) {
+    registerSenderTheme(senderId, envTheme as unknown as import('../types.js').MsgTheme);
+  } else if (msg.view_type === 'Text') {
+    // 无主题的 text 信封 → 发送者未启用主题,清缓存回默认。
+    // 仅 type==='text' 信封会清(卡片/邀请等其他信封不携带主题,不清)。
+    const env = tryParseEnvelope(msg.text);
+    if (env && env.type === 'text') registerSenderTheme(senderId, { id: 'default' });
+  }
+  const { id: themeId, style: themeStyle } = msgThemeAttrs(themeForSender(senderId));
+  const themeAttrs = themeId ? ` data-msg-theme="${escapeAttr(themeId)}"` : '';
+  const themeStyleAttr = themeStyle ? ` style="${escapeAttr(themeStyle)}"` : '';
   // 折叠时:头像隐藏改为由 CSS 的 .collapsed 类控制(见 styles.css .msg.collapsed .msg-avatar)——
   // 这样 applyGroupRole 只改类,头像/圆角即时同步,不会出现"类已折叠但头像还在"的错乱。
   // 头像始终渲染在 DOM,折叠/展开只切类。
@@ -322,7 +339,7 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
     </footer>
   `;
   const bubble = `
-    <div class="msg-bubble">
+    <div class="msg-bubble"${themeAttrs}${themeStyleAttr}>
       ${hoverActionsHtml}
       <div class="msg-meta">
         ${nameDisplay}
