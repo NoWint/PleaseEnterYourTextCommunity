@@ -4597,8 +4597,9 @@ body {
 
 /* === 主题气泡加载/完成指示器 === */
 /* 指示器固定在气泡右侧;文字 span(flex:1)填满剩余空间 */
-.ch-bubble-indicator {
-  flex: 0 0 auto; margin-left: 2px;
+/* 用高特异性覆盖 .ch-topic-chip span 的 flex:1(否则 indicator 被当文字 span 均分空间) */
+.ch-topic-chip .ch-bubble-indicator {
+  flex: 0 0 14px; margin-left: 2px;
   display: inline-flex; align-items: center; justify-content: center;
   width: 14px; height: 14px; color: var(--text-mute);
 }
