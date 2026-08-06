@@ -102,7 +102,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         <div class="composer-tools">
           <button type="button" class="composer-tool" id="composer-attach" title="添加">${iconSvg('plus', { width: 18, height: 18 })}</button>
           <label class="composer-md-toggle" title="Markdown 渲染">
-            <span class="composer-md-label">M↓</span>
+            <span class="composer-md-label">Markdown</span>
             <span class="toggle-switch">
               <input type="checkbox" id="composer-md" ${mdEnabled ? 'checked' : ''} />
               <span class="toggle-slider"></span>
