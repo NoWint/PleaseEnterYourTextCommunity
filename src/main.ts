@@ -7,6 +7,7 @@ import { saveState } from './persist.js';
 import { createNavBanner } from './components/navBanner.js';
 import { renderRail } from './shell/rail.js';
 import { renderNavPanel } from './shell/navPanel.js';
+import { seedSelfMsgTheme } from './msgTheme.js';
 
 interface EnsurePeytResult {
   role: string;
@@ -34,6 +35,7 @@ async function boot(): Promise<void> {
   const configured = await call<boolean>('is_configured');
   if (configured) {
     await renderShell();
+    await seedSelfMsgTheme();
     // 已配置账号: 静默确保 PEYT Studio 存在 (existing/founder)
     await ensurePeytStudio();
     // 冷启动补收:启动早于事件注册时的深链
@@ -42,6 +44,7 @@ async function boot(): Promise<void> {
     const { renderLogin } = await import('./views/login.js');
     renderLogin(async () => {
       await renderShell();
+      await seedSelfMsgTheme();
       // 首次登录: 创建 PEYT Studio, founder 显示 nav banner 欢迎指引
       await ensurePeytStudio();
       // 登录后处理暂存的深链(dclogin 预填 / 邀请)
