@@ -342,13 +342,26 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
   window.addEventListener('keydown', onKey, { once: true });
 
-  // 标签点击委托:<message> → 关看板跳原文;<user> → 打开成员名片。
-  // 覆盖 .sd-ref / .mention-chip[data-msg-ref] / .mention-chip[data-user-ref]
+  // 标签点击委托:<message>/<time> → 关看板跳原文;<user> → 打开成员名片。
+  // 覆盖 .sd-ref / .ref-msg / .ref-time / .mention-chip[data-msg-ref] / .mention-chip[data-user-ref] / .mention-chip[data-time-ref]
   overlay.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
-    const refEl = t.closest<HTMLElement>('.mention-chip[data-msg-ref], .mention-chip[data-user-ref], .sd-ref[data-ref]');
+    const refEl = t.closest<HTMLElement>('.mention-chip[data-msg-ref], .mention-chip[data-user-ref], .mention-chip[data-time-ref], .sd-ref[data-ref], .ref-time[data-time], .ref-msg[data-ref], .ref-user[data-user]');
     if (!refEl) return;
     e.stopPropagation();
+    // time 分支:解析 <time> 值 → 跳转到该时刻最近消息(非 async 监听器,动态 import 异步跳转)
+    const timeVal = refEl.dataset.timeRef ?? refEl.dataset.time;
+    if (timeVal != null) {
+      void import('../chat/chatView.js').then(({ parseTimeToTs, jumpToTime }) => {
+        const ts = parseTimeToTs(timeVal);
+        if (ts != null) {
+          overlay.remove();
+          if (fullscreenEl === overlay) fullscreenEl = null;
+          void jumpToTime(ts);
+        }
+      });
+      return;
+    }
     // user 分支:模糊匹配成员 → 单名片/多人列表(AI 名字常不带空格/错字,精确找不到走 fuzzyMatchMembers)
     if (refEl.dataset.userRef != null) {
       const name = refEl.dataset.userRef;

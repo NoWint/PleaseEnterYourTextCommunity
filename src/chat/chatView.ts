@@ -614,6 +614,29 @@ export async function jumpToMessage(msgId: number): Promise<void> {
   }
 }
 
+/** 解析 <time> 值 → unix 秒。支持 14:30 / 2026-08-05 / 2026-08-05 14:30。非法 → null。 */
+export function parseTimeToTs(v: string): number | null {
+  const t = v.trim();
+  const full = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/.exec(t);
+  if (full) {
+    const [, y, mo, d, h, mi] = full;
+    return Math.floor(new Date(Number(y), Number(mo) - 1, Number(d), Number(h || 0), Number(mi || 0)).getTime() / 1000);
+  }
+  const hm = /^(\d{1,2}):(\d{2})$/.exec(t);
+  if (hm) {
+    const now = new Date();
+    return Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), Number(hm[1]), Number(hm[2])).getTime() / 1000);
+  }
+  return null;
+}
+
+/** 跳转到指定时间最近的消息(>= ts 第一条)。复用 jumpToMessage 高亮。 */
+export async function jumpToTime(ts: number): Promise<void> {
+  const target = state.messages.find((m) => m.ts >= ts);
+  if (!target) { ui.toast('未找到该时间的消息'); return; }
+  await jumpToMessage(target.msg_id);
+}
+
 // 全量重渲染(读最新 reactionsCache/状态),用于反应/消息状态实时更新。
 export function refreshVisibleMessages(): void {
   const box = document.getElementById('messages');
@@ -769,10 +792,16 @@ function bindTopicChipClick(): void {
   if (topicChipClickBound) return;
   topicChipClickBound = true;
   document.addEventListener('click', (e) => {
-    // 优先:点击气泡内可交互 chip(<user>/<message> 标签) → 弹名片/跳原文,不打开看板
-    const mention = (e.target as HTMLElement).closest<HTMLElement>('.mention-chip[data-user-ref], .mention-chip[data-msg-ref]');
+    // 优先:点击气泡内可交互 chip(<user>/<message>/<time> 标签) → 弹名片/跳原文,不打开看板
+    const mention = (e.target as HTMLElement).closest<HTMLElement>('.mention-chip[data-user-ref], .mention-chip[data-msg-ref], .mention-chip[data-time-ref]');
     if (mention) {
       e.stopPropagation();
+      // time 分支:解析 <time> 值 → 跳转到该时刻最近消息(复用 jumpToMessage 高亮)
+      if (mention.dataset.timeRef != null) {
+        const ts = parseTimeToTs(mention.dataset.timeRef);
+        if (ts != null) void jumpToTime(ts);
+        return;
+      }
       const userRef = mention.dataset.userRef;
       if (userRef != null) {
         // 「我」→ self 名片
