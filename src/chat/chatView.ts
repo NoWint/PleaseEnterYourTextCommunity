@@ -734,6 +734,12 @@ function scheduleTopicRefresh(): void {
         syncChipTitle(chip);
         bindTopicChipClick(); // 委托已在,幂等
       }
+      // 与气泡一起预请求看板数据(7 个 kind 后台并发,popup 打开直接命中缓存)
+      if (state.currentChatId != null) {
+        void import('../components/summaryDashboard.js').then((m) => {
+          void m.prefetchSummary(state.currentChatId!, state.messages, resolveMessageText).catch(() => {});
+        });
+      }
       return;
     }
     // 词频/off:原 computeTopics

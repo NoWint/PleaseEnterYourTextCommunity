@@ -333,16 +333,22 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
     }
   });
 
-  // 默认全部 7 个 kind 并发入队(缓存命中则直接显示):
-  // participation 统计即时渲染 + LLM 解读入队;其余 6 个(含 summary)直接入队。
-  const pBody = overlay.querySelector<HTMLElement>(`[data-body="participation"]`);
-  if (pBody) {
-    pBody.innerHTML = `<div class="sd-p-stat">${renderParticipationStat(win)}</div><div class="sd-p-insight">分析中…</div>`;
-    enqueueOverlay(overlay, chatId, kindOf('participation'), prompt, false);
-  }
+  // 数据已在打开聊天时预请求(prefetchSummary,与气泡一起);popup 打开只渲染:
+  // 缓存命中直接显示,未命中显示「分析中…」(等预请求 streaming/done 实时填充)。
   for (const t of ANALYSIS_TYPES) {
-    if (t.kind === 'participation') continue; // 已在上方处理
-    enqueueOverlay(overlay, chatId, t.kind, prompt);
+    const body = overlay.querySelector<HTMLElement>(`[data-body="${t.kind}"]`);
+    if (!body) continue;
+    const cached = detailCache.get(`${chatId}:${t.kind}`);
+    if (cached && cached.status === 'done' && cached.text) {
+      // participation:统计前端即时算 + 缓存解读
+      body.innerHTML = t.kind === 'participation'
+        ? `<div class="sd-p-stat">${renderParticipationStat(win)}</div><div class="sd-p-insight"><div class="sd-insight-text">${renderMarkdown(cached.text)}</div></div>`
+        : renderDetailBody(t.kind, cached.text);
+    } else if (t.kind === 'participation') {
+      // participation 统计即时渲染(0 token),解读等预请求
+      body.innerHTML = `<div class="sd-p-stat">${renderParticipationStat(win)}</div><div class="sd-p-insight">分析中…</div>`;
+    }
+    // 其余未命中:保持初始「分析中…」(bindFullscreenEvents 流式实时填充)
   }
 
   // 导航点击 → 滚动定位到块
@@ -406,14 +412,17 @@ function bindFullscreenEvents(): void {
     void listen('summary-event', (ev) => {
       const p = ev.payload as { chatId: number; lane: string; kind: string; status: string; delta?: string; result?: string; error?: { code: string } };
       if (p.lane !== 'detail') return;
-      const popup = document.querySelector<HTMLElement>('.sd-overlay[data-sd-chat]');
-      if (!popup || popup.dataset.sdChat !== String(p.chatId)) return;
+      // 先更新 detailCache(无论 popup 是否打开):预请求(打开聊天时与气泡一起发)的结果
+      // 在此缓存,popup 打开时直接命中;无 popup 时仅缓存不渲染。
       const key = `${p.chatId}:${p.kind}`;
       const cur = detailCache.get(key) ?? { kind: p.kind as AnalysisKind, status: 'idle', text: '' };
       if (p.status === 'streaming') { cur.status = 'streaming'; cur.text += p.delta ?? ''; }
       else if (p.status === 'done') { cur.status = 'done'; cur.text = p.result ?? cur.text; }
       else if (p.status === 'error') { cur.status = 'error'; }
       detailCache.set(key, cur);
+      // 仅当该 chat 的 popup 打开时才渲染 DOM
+      const popup = document.querySelector<HTMLElement>('.sd-overlay[data-sd-chat]');
+      if (!popup || popup.dataset.sdChat !== String(p.chatId)) return;
       const body = popup.querySelector<HTMLElement>(`[data-body="${p.kind}"]`);
       if (!body) return;
       // participation:统计(.sd-p-stat)保留,只更新 LLM 解读(.sd-p-insight)
@@ -443,11 +452,33 @@ function bindFullscreenEvents(): void {
   });
 }
 
-// ── 缓存失效 + 防抖刷新(供 chatView 新消息时调用) ─────────
+// ── 缓存失效 + 预请求 + 防抖刷新(供 chatView 调用) ─────────
 /** 新消息到达:清该 chat 全部 detail 缓存(下次打开重新请求)。 */
 export function invalidateChatCache(chatId: number): void {
   for (const key of [...detailCache.keys()]) {
     if (key.startsWith(`${chatId}:`)) detailCache.delete(key);
+  }
+}
+
+/**
+ * 预请求:打开聊天时与气泡文字一起并发请求全部 7 个 kind(不挂 popup DOM)。
+ * 结果经 summary-event 进 detailCache(bindFullscreenEvents 无 popup 也缓存),
+ * popup 打开时直接命中显示,不必等打开后才请求。
+ */
+export async function prefetchSummary(chatId: number, msgs: MsgDto[], resolve: (t: string) => string): Promise<void> {
+  const { getSummaryPrefs, loadSummaryPrefs } = await import('../utils/summaryPrefs.js');
+  await loadSummaryPrefs();
+  const prefs = getSummaryPrefs();
+  if (prefs.mode !== 'llm') return; // 非 LLM 模式不预请求(词频气泡无面板数据)
+  const win = buildContextWindow(msgs, resolve, prefs.contextN);
+  if (win.length === 0) return;
+  const prompt = formatWindowLines(win);
+  // 每个 kind:已有 done 缓存跳过,否则入队
+  for (const t of ANALYSIS_TYPES) {
+    const cached = detailCache.get(`${chatId}:${t.kind}`);
+    if (cached && cached.status === 'done' && cached.text) continue;
+    detailCache.delete(`${chatId}:${t.kind}`);
+    void call('summary_enqueue', { chatId, lane: 'detail', kind: t.kind, prompt }).catch(() => {});
   }
 }
 
@@ -481,7 +512,7 @@ export function scheduleRefresh(chatId: number): void {
         }
       }
     }
-  }, 5000);
+  }, 10000); // 防抖窗口 10s:10s 内有新消息则重置
 }
 
 /**
