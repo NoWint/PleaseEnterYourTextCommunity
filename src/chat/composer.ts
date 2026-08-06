@@ -175,24 +175,14 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     e.preventDefault();
     const startY = e.clientY;
     const startH = input.getBoundingClientRect().height;
-    let collapsePending = false;
     const onMove = (ev: PointerEvent): void => {
       const delta = ev.clientY - startY; // 向上拖 = 负增量 = 增高
       const h = Math.min(320, Math.max(40, startH - delta));
       input.style.height = h + 'px';
-      // 拖到单行高度 → 标记待切回(松手时生效,实时无跳变)
-      collapsePending = h <= 46;
-      // 输入框变高 → 消息区底部让位,若在底部则同步上顶,保持最新消息可见
-      const messagesEl = document.getElementById('messages');
-      if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
     };
     const onUp = (): void => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      if (collapsePending) {
-        expanded = false;
-        applyExpanded();
-      }
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
