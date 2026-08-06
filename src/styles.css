@@ -4601,13 +4601,6 @@ body {
 .sd-ref:hover { background: color-mix(in srgb, var(--accent, #4a90d9) 20%, transparent); }
 .sd-ref:active { transform: scale(0.9); }
 
-/* 资源:链接/文件行 */
-.sd-res-link, .sd-res-file { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; }
-.sd-res-link:hover, .sd-res-file:hover { background: color-mix(in srgb, var(--surface-2, rgba(128,128,128,.08)) 60%, transparent); }
-.sd-res-link a { color: var(--accent, #4a90d9); text-decoration: none; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sd-res-link a:hover { text-decoration: underline; }
-.sd-res-link svg, .sd-res-file svg { color: var(--text-mute); flex-shrink: 0; }
-
 /* 悬而未决:问号前缀 */
 .sd-q-icon { width: 20px; height: 20px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, #d9a441 16%, transparent); color: #d9a441; font-size: 12px; font-weight: 700; }
 
@@ -4690,12 +4683,12 @@ body {
 /* === AI 总结 popup 增强:卡片 reveal 动画 + markdown 样式 === */
 /* JSON 列表项 done 后逐条出现(Apple 风格 stagger,§4 弹簧)。
    仅 .sd-done 容器内的项初始隐藏;普通状态(缓存命中/未流式完成)保持可见。 */
-.sd-done .sd-item, .sd-done .sd-dec, .sd-done .sd-tl-node, .sd-done .sd-res-link, .sd-done .sd-res-file, .sd-done .sd-p-row {
+.sd-done .sd-item, .sd-done .sd-dec, .sd-done .sd-tl-node, .sd-done .sd-p-row {
   opacity: 0; transform: translateY(6px);
   transition: opacity 320ms var(--anim-ease, cubic-bezier(0.22,1,0.36,1)), transform 320ms var(--anim-ease, cubic-bezier(0.22,1,0.36,1));
   transition-delay: calc(var(--reveal-i, 0) * 40ms);
 }
-.sd-done .sd-item.sd-reveal, .sd-done .sd-dec.sd-reveal, .sd-done .sd-tl-node.sd-reveal, .sd-done .sd-res-link.sd-reveal, .sd-done .sd-res-file.sd-reveal, .sd-done .sd-p-row.sd-reveal {
+.sd-done .sd-item.sd-reveal, .sd-done .sd-dec.sd-reveal, .sd-done .sd-tl-node.sd-reveal, .sd-done .sd-p-row.sd-reveal {
   opacity: 1; transform: translateY(0);
 }
 /* 流式加载态:块 body 显示「分析中」时轻微脉动 */

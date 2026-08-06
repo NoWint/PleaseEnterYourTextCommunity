@@ -52,10 +52,6 @@ fn detail_schema(kind: &str) -> Option<(&'static str, &'static str)> {
             r#"{"phases":[{"period":"","topic":"","key_messages":[]}]}"#,
         ),
         "participation" => ("参与情况", r#"{"active_members":[],"busy_period":""}"#),
-        "resources" => (
-            "资源与链接",
-            r#"{"links":[{"url":"","title":""}],"files":[]}"#,
-        ),
         "open_questions" => (
             "未解决问题",
             r#"{"questions":[{"text":"","asked_by":"","unanswered_since":""}]}"#,
@@ -112,7 +108,7 @@ pub struct SummaryRequest {
     pub chat_id: u32,
     /// 'bubble' | 'detail'
     pub lane: String,
-    /// detail 车道分析类型:summary/action_items/decisions/timeline/participation/resources/open_questions
+    /// detail 车道分析类型:summary/action_items/decisions/timeline/participation/open_questions
     pub kind: Option<String>,
     /// 前端组装的窗口行:`[id=42] 张三 [2026-08-05 09:02]: 下午三点开会`
     pub lines: Vec<String>,
@@ -320,7 +316,6 @@ mod tests {
             ("decisions", r#""decisions""#),
             ("timeline", r#""phases""#),
             ("participation", r#""active_members""#),
-            ("resources", r#""links""#),
             ("open_questions", r#""questions""#),
         ] {
             let msgs = build_prompt("detail", Some(kind), &["[id=1] 张三: 你好".into()], None);

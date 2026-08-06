@@ -16,7 +16,7 @@ import { resolveMessageText } from '../utils/envelope.js';
 import { renderMarkdown } from '../utils/markdown.js';
 
 export type AnalysisKind = 'summary' | 'participation' | 'action_items'
-  | 'resources' | 'open_questions' | 'timeline' | 'decisions';
+  | 'open_questions' | 'timeline' | 'decisions';
 
 interface AnalysisType {
   kind: AnalysisKind;
@@ -30,7 +30,6 @@ const ANALYSIS_TYPES: AnalysisType[] = [
   { kind: 'summary', title: '总结', icon: 'file-text', engine: 'llm', priority: 0 },
   { kind: 'action_items', title: '行动项', icon: 'check', engine: 'llm', priority: 0 },
   { kind: 'participation', title: '参与度', icon: 'users', engine: 'stats_plus_llm', priority: 0 },
-  { kind: 'resources', title: '资源', icon: 'external-link', engine: 'llm', priority: 1 },
   { kind: 'open_questions', title: '悬而未决', icon: 'info', engine: 'llm', priority: 1 },
   { kind: 'timeline', title: '话题演变', icon: 'clock', engine: 'llm', priority: 1 },
   { kind: 'decisions', title: '决策', icon: 'pin', engine: 'llm', priority: 2 },
@@ -48,18 +47,6 @@ let fsWin: WindowMsg[] = [];
 /** 解析 JSON,失败返回 null(调用方降级为 <pre> 转义显示)。 */
 function safeParseJson(text: string): unknown {
   try { return JSON.parse(text); } catch { return null; }
-}
-
-/** URL scheme 白名单:剥控制字符后仅放行 http/https,否则返回 null(渲染成不可点)。 */
-function safeUrl(raw: string | undefined): string | null {
-  if (!raw) return null;
-  const cleaned = raw.replace(/[\t\n\r\f ]/g, '');
-  try {
-    const u = new URL(cleaned);
-    return u.protocol === 'http:' || u.protocol === 'https:' ? cleaned : null;
-  } catch {
-    return null;
-  }
 }
 
 /** 跳转引用 chip(当前占位,后续接入消息定位)。 */
@@ -83,24 +70,6 @@ function renderActionItems(text: string): string {
     })
     .join('');
   return `<div class="sd-list">${rows || '<div class="sd-empty">无行动项</div>'}</div>`;
-}
-
-/** resources: {links:[{url,title?,sender,ref}],files:[{name,ref}]} → 链接/文件卡片。 */
-function renderResources(text: string): string {
-  const d = safeParseJson(text) as { links?: Array<{ url?: string; title?: string; sender?: string; ref?: number }>; files?: Array<{ name?: string; ref?: number }> } | null;
-  if (!d || (!Array.isArray(d.links) && !Array.isArray(d.files))) return fallbackJson(text);
-  const links = (d.links ?? []).map((l) => {
-    const label = l.title || l.url || '链接';
-    const url = safeUrl(l.url);
-    // 仅 http/https 可点;非法 scheme(javascript:/data: 等)渲染纯文本防 XSS
-    const anchor = url
-      ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`
-      : `<span>${escapeHtml(label)}</span>`;
-    return `<div class="sd-res-link">${iconSvg('external-link', { width: 14, height: 14 })}${anchor}${l.sender ? `<span class="sd-chip">${escapeHtml(l.sender)}</span>` : ''}${refChip(l.ref)}</div>`;
-  }).join('');
-  const files = (d.files ?? []).map((f) =>
-    `<div class="sd-res-file">${iconSvg('file-text', { width: 14, height: 14 })}<span>${escapeHtml(f.name ?? '文件')}</span>${refChip(f.ref)}</div>`).join('');
-  return `<div class="sd-list">${links}${files || '<div class="sd-empty">无资源</div>'}</div>`;
 }
 
 /** open_questions: {questions:[{text,asked_by,ref}]} → 问题列表。 */
@@ -165,7 +134,7 @@ function renderStreaming(kind: AnalysisKind, text: string): string {
 }
 
 function isJsonKind(kind: AnalysisKind): boolean {
-  return kind === 'action_items' || kind === 'resources' || kind === 'open_questions'
+  return kind === 'action_items' || kind === 'open_questions'
     || kind === 'timeline' || kind === 'decisions';
 }
 
@@ -174,7 +143,6 @@ function renderDetailBody(kind: AnalysisKind, text: string): string {
   switch (kind) {
     case 'summary': return renderSummary(text);
     case 'action_items': return renderActionItems(text);
-    case 'resources': return renderResources(text);
     case 'open_questions': return renderOpenQuestions(text);
     case 'timeline': return renderTimeline(text);
     case 'decisions': return renderDecisions(text);
