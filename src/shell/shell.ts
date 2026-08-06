@@ -91,6 +91,13 @@ export async function renderShell(): Promise<void> {
     if (state.currentChatId != null) void refreshCurrentChat();
     void refreshSidebar();
     void updateBadge();
+    // 新消息 → 60s 防抖窗口:顶部气泡右侧显示「Xs总结」读秒(不闲置),到期清缓存重算。
+    // 仅 LLM 模式有意义;summaryDashboard.scheduleRefresh 内部 applyBubbleState 判断指示器。
+    if (state.currentChatId != null) {
+      void import('../components/summaryDashboard.js').then((m) => {
+        m.scheduleRefresh(state.currentChatId!);
+      }).catch(() => {});
+    }
   });
   onEvent('IncomingMsg', (e) => {
     void handleIncomingMsg(e);
