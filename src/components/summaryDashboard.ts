@@ -461,22 +461,27 @@ export function invalidateChatCache(chatId: number): void {
 }
 
 /**
- * 预请求:打开聊天时与气泡文字一起并发请求全部 7 个 kind(不挂 popup DOM)。
+ * 预请求(仅首次打开):并发请求全部 7 个 kind。仅当该 chat 完全无 detail 缓存时
+ * 才整批预请求(首次打开/缓存被清);新消息后的重算由 scheduleRefresh 的 60s 窗口驱动,
+ * 避免对话中每消息都重算 7 个 detail 浪费 token。
  * 结果经 summary-event 进 detailCache(bindFullscreenEvents 无 popup 也缓存),
- * popup 打开时直接命中显示,不必等打开后才请求。
+ * popup 打开时直接命中显示。
  */
 export async function prefetchSummary(chatId: number, msgs: MsgDto[], resolve: (t: string) => string): Promise<void> {
   const { getSummaryPrefs, loadSummaryPrefs } = await import('../utils/summaryPrefs.js');
   await loadSummaryPrefs();
   const prefs = getSummaryPrefs();
   if (prefs.mode !== 'llm') return; // 非 LLM 模式不预请求(词频气泡无面板数据)
+  // 已有任一 done 缓存 → 该 chat 已分析过,不整批重算(对话中的更新交给窗口)
+  const anyCached = ANALYSIS_TYPES.some((t) => {
+    const c = detailCache.get(`${chatId}:${t.kind}`);
+    return c && c.status === 'done' && c.text;
+  });
+  if (anyCached) return;
   const win = buildContextWindow(msgs, resolve, prefs.contextN);
   if (win.length === 0) return;
   const prompt = formatWindowLines(win);
-  // 每个 kind:已有 done 缓存跳过,否则入队
   for (const t of ANALYSIS_TYPES) {
-    const cached = detailCache.get(`${chatId}:${t.kind}`);
-    if (cached && cached.status === 'done' && cached.text) continue;
     detailCache.delete(`${chatId}:${t.kind}`);
     void call('summary_enqueue', { chatId, lane: 'detail', kind: t.kind, prompt }).catch(() => {});
   }
@@ -512,7 +517,7 @@ export function scheduleRefresh(chatId: number): void {
         }
       }
     }
-  }, 10000); // 防抖窗口 10s:10s 内有新消息则重置
+  }, 60000); // 防抖窗口 60s:60s 内有新消息则重置(正常聊天停顿才重算 detail,省 token)
 }
 
 /**
