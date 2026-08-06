@@ -460,10 +460,14 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .chat-header .ch-head-clickable:hover { background: var(--surface-hover); }
 .chat-header .ch-head-clickable:active { transform: scale(0.98); }
-/* 词频气泡:独立于主信息气泡,放在其右侧,材质与 ch-head 一致(命名 topic-chip 避免与旧 topic-bar 混淆) */
+/* 词频气泡:独立于主信息气泡,放在其右侧,材质与 ch-head 一致(命名 topic-chip 避免与旧 topic-bar 混淆)。
+   高度与 ch-head 对齐:ch-head 内 28px 头像 + 6px×2 padding = 40px,故这里 line-height:28px 同高;
+   横向 flex:1 填充 ch-head 到右侧按钮组之间的剩余空间(内容过长内部省略)。 */
 .chat-header .ch-topic-chip {
   display: flex; align-items: center;
   padding: 6px 16px;
+  line-height: 28px;
+  flex: 1; min-width: 0;
 }
 /* 右侧按钮组:一个按钮一个圆形气泡,玻璃质感,居右 */
 .chat-header .ch-ctls {
@@ -1578,7 +1582,6 @@ html.window-frame #titlebar-tools { height: 34px; }
   /* 行高对齐 ch-head 头像高度(28px):3px×2 padding + 22px = 28px,三气泡等高 */
   line-height: 22px;
   cursor: pointer;
-  max-width: 300px;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
