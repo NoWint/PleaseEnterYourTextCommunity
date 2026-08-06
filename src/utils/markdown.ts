@@ -5,6 +5,8 @@
 import { marked } from 'marked';
 import { escapeHtml } from '../components/escape.js';
 import { displayTime } from './tagParser.js';
+import { state } from '../state.js';
+import { resolveMessageText } from './envelope.js';
 
 /** 占位 token 前缀(避免与真实内容冲突:含非 ASCII 括号,正常文本几乎不会出现)。 */
 const U_PREFIX = '⟦U:'; // ⟦U:
@@ -99,12 +101,24 @@ function sanitizeHtml(html: string): string {
   return template.innerHTML;
 }
 
+/** 查消息原文(id → 文本,截断 40 字)。找不到 → null。 */
+function msgText(id: string): string | null {
+  const mid = Number(id);
+  if (Number.isNaN(mid)) return null;
+  const m = state.messages.find((x) => x.msg_id === mid);
+  if (!m) return null;
+  const text = resolveMessageText(m.text).replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  return text.length > 40 ? text.slice(0, 40) + '…' : text;
+}
+
 /** 把占位 token 替换成可点击 chip。 */
 function restoreTags(html: string, tags: Map<string, { kind: TagKind; value: string }>): string {
   let out = html;
   for (const [tok, t] of tags) {
     const chip = t.kind === 'message'
-      ? `<a class="mention-chip" data-msg-ref="${escapeHtml(t.value)}">@消息 ${escapeHtml(t.value)}</a>`
+      // 显示原文(不同颜色区分),找不到才回退「消息 XXX」
+      ? `<a class="mention-chip mention-chip-msg" data-msg-ref="${escapeHtml(t.value)}">${escapeHtml(msgText(t.value) ?? `消息 ${t.value}`)}</a>`
       : t.kind === 'time'
         ? `<span class="mention-chip" data-time-ref="${escapeHtml(t.value)}">🕐 ${escapeHtml(displayTime(t.value))}</span>`
         : `<span class="mention-chip" data-user-ref="${escapeHtml(t.value)}">@${escapeHtml(t.value)}</span>`;

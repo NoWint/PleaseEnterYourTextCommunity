@@ -4500,6 +4500,16 @@ body {
 .mention-chip:active { transform: scale(0.95); }
 /* 消息引用 chip 加轻微下划线示意「可跳转」 */
 .mention-chip[data-msg-ref] { text-decoration: underline dotted; text-underline-offset: 3px; }
+/* 消息原文 chip:绿色调,与用户/时间(accent 蓝)区分 */
+.mention-chip-msg {
+  background: color-mix(in srgb, var(--success, #34c759) 12%, transparent);
+  color: var(--success, #34c759);
+  border-color: color-mix(in srgb, var(--success, #34c759) 25%, transparent);
+}
+.mention-chip-msg:hover {
+  background: color-mix(in srgb, var(--success, #34c759) 20%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--success, #34c759) 20%, transparent);
+}
 
 /* === Task 10: 主题分析看板(大号居中弹窗 + 横向分栏) === */
 /* 弹窗遮罩:.ui-overlay 已 flex 居中 + 模糊背景;这里微调强调 */

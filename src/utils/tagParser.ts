@@ -4,6 +4,8 @@
 import { escapeHtml } from '../components/escape.js';
 import type { WindowMsg } from './summaryContext.js';
 import type { MemberDto } from '../types.js';
+import { state } from '../state.js';
+import { resolveMessageText } from './envelope.js';
 
 export interface MsgRef {
   type: 'message' | 'user' | 'time';
@@ -23,6 +25,17 @@ function stripQuotes(v: string): string {
     if ((a === "'" && b === "'") || (a === '"' && b === '"')) return s.slice(1, -1);
   }
   return s;
+}
+
+/** 查消息原文(id → 文本,截断 40 字)。找不到 → null。 */
+function msgText(id: string): string | null {
+  const mid = Number(id);
+  if (Number.isNaN(mid)) return null;
+  const m = state.messages.find((x) => x.msg_id === mid);
+  if (!m) return null;
+  const text = resolveMessageText(m.text).replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  return text.length > 40 ? text.slice(0, 40) + '…' : text;
 }
 
 // 转义后文本上的白名单匹配:escapeHtml 后标签形如 &lt;message=&#39;…&#39;&gt;
@@ -62,7 +75,7 @@ export function parseSafeTags(input: string): string {
     // 值已是转义后文本(整体已 escapeHtml),剥外层引号实体即可,不再二次转义。
     // 值内 &#39; 等实体是合法转义,渲染时浏览器解码成原始字符。
     const value = stripEscapedQuotes(rawValue);
-    if (kind === 'message') return `<span class="ref-msg" data-ref="${value}">引用</span>`;
+    if (kind === 'message') return `<span class="ref-msg mention-chip-msg" data-ref="${value}">${escapeHtml(msgText(value) ?? `消息 ${value}`)}</span>`;
     if (kind === 'time') {
       // 时间显示只涉及数字/冒号/连字符,实体不影响;文本再 escapeHtml 一次无害(双转义)。
       return `<span class="ref-time" data-time="${value}">🕐 ${escapeHtml(displayTime(value))}</span>`;
@@ -155,7 +168,7 @@ export function parseTags(text: string): ParsedSegment[] {
 export function renderParsed(segments: ParsedSegment[], onRef: (id: string) => void): string {
   return segments
     .map((s) => {
-      if (s.type === 'message') return `<a class="mention-chip" data-msg-ref="${s.value}">@消息 ${s.value}</a>`;
+      if (s.type === 'message') return `<a class="mention-chip mention-chip-msg" data-msg-ref="${s.value}">${escapeHtml(msgText(s.value) ?? `消息 ${s.value}`)}</a>`;
       if (s.type === 'time') return `<span class="mention-chip" data-time-ref="${s.value}">🕐 ${displayTime(s.value)}</span>`;
       if (s.type === 'user') return `<span class="mention-chip" data-user-ref="${s.value}">@${s.value}</span>`;
       return s.value;
