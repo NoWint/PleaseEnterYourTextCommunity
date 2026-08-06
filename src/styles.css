@@ -440,8 +440,11 @@ html.window-frame #titlebar-tools { height: 34px; }
 .chat-header .ch-head,
 .chat-header .ch-topic-chip,
 .chat-header .ch-online-block {
-  background: transparent;
-  border: 1px solid transparent;
+  /* 毛玻璃:半透明 panel + blur,与输入框玻璃卡片同材质 */
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   border-radius: var(--radius-lg);
   animation: ch-tag-drop 0.4s var(--ease-out) both;
 }
@@ -504,8 +507,11 @@ html.window-frame #titlebar-tools { height: 34px; }
   position: relative;
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; border-radius: 50%;
-  background: transparent;
-  border: 1px solid transparent;
+  /* 毛玻璃:半透明 panel + blur,与输入框同材质 */
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   color: var(--text-mute);
   cursor: pointer; padding: 0; line-height: 0; flex-shrink: 0;
   transition: background 120ms var(--ease-out), transform 120ms var(--ease-out), color 120ms var(--ease-out);
