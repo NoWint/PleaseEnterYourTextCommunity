@@ -91,14 +91,6 @@ export async function renderShell(): Promise<void> {
     if (state.currentChatId != null) void refreshCurrentChat();
     void refreshSidebar();
     void updateBadge();
-    // AI 总结缓存:新消息 → 60s 防抖(期内有更多消息则重置)。到期才清缓存并重请求;
-    // 这里不立即 invalidateChatCache —— 否则 prefetchSummary 每条消息都整批重算 7 个 detail,
-    // 60s 防抖形同虚设(invalidateChatCache 由 scheduleRefresh 到期回调统一执行)。
-    if (state.currentChatId != null) {
-      void import('../components/summaryDashboard.js').then((m) => {
-        m.scheduleRefresh(state.currentChatId!);
-      }).catch(() => {});
-    }
   });
   onEvent('IncomingMsg', (e) => {
     void handleIncomingMsg(e);

@@ -549,16 +549,6 @@ pub fn run() {
             commands::send_vcard,
             // 附件发送(media 信封)
             commands::send_attachment,
-            // 主题总结(LLM)
-            summary::commands::summary_get_state,
-            summary::commands::summary_save_prefs,
-            summary::commands::summary_set_api,
-            summary::commands::summary_clear_api,
-            summary::commands::summary_download,
-            summary::commands::summary_list_models,
-            summary::commands::summary_enqueue,
-            summary::commands::summary_load_cache,
-            summary::commands::summary_save_cache,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
