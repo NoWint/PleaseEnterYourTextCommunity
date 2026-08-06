@@ -552,6 +552,10 @@ html.window-frame #titlebar-tools { height: 34px; }
    避免消息紧贴输入框卡片顶边。 */
 .messages {
   flex: 1; overflow-y: auto;
+  /* overflow-x 显式 hidden:单独设 overflow-y 会让 overflow-x 计算为 auto,
+     窄容器下附件(min-width 200px)撑破气泡时出现横向滚动区 → 气泡右侧黑色空白。
+     消息列表本不该横向滚动,溢出内容裁剪即可。 */
+  overflow-x: hidden;
   padding: var(--space-4) var(--space-5);
   padding-bottom: calc(var(--composer-h, 120px) + 36px);
   display: flex; flex-direction: column; gap: 10px;
@@ -565,32 +569,84 @@ html.window-frame #titlebar-tools { height: 34px; }
 /* 消息 meta/text 的排版统一定义在下方 .msg-bubble .msg-* (更高优先级),此处仅保留旧块独有规则 */
 .msg .msg-role { border: 1px solid var(--border-strong); padding: 0 5px; border-radius: var(--radius-xs); font-size: var(--font-scale-micro); color: var(--text-weak); margin-left: 6px; }
 .msg .msg-reply-mark { color: var(--text-faint); margin-left: 8px; }
+/* 「回复 XXX」用户名可点击 → 弹名片。hover accent 色 + 下划线提示可点(Apple §1 按压反馈) */
+.msg-reply-name {
+  color: var(--text-mute);
+  font-weight: 600;
+  border-radius: 3px;
+  padding: 0 2px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  transition: color 140ms var(--ease-out), text-decoration-color 140ms var(--ease-out), background 140ms var(--ease-out);
+}
+.msg-reply-name:hover {
+  color: var(--accent);
+  text-decoration-color: currentColor;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.msg-reply-name:active { opacity: 0.7; }
+/* 我方有色气泡内:--accent 蓝在深绿/深紫底上对比不足 → hover 用气泡文字色加亮变体,
+   下划线仍在提示可点击(Apple §1 按压反馈) */
+.msg[data-is-out="1"] .msg-bubble .msg-reply-name:hover {
+  color: color-mix(in srgb, var(--bubble-self-text) 82%, white);
+  background: color-mix(in srgb, var(--bubble-self-text) 14%, transparent);
+}
 /* 消息正文最大宽度:避免 900px 超长行,保持可读的 50–75 字符行长 */
 .msg-row .msg-body { max-width: 720px; }
-/* 引用回复体:气泡卡片 + 左侧 accent 色条,名字强调色 */
+/* 引用回复体:材料化引用卡 —— 无硬边框,左侧圆角 accent 药丸指示「引用」,
+   内容静音化。Apple 材料层次:强调靠小色块而非描边。 */
 .msg .msg-quote {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 1px;
   background: var(--capsule);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--text-mute);
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
+  padding: 5px 10px 5px 14px; /* 左留白给 accent 药丸 */
   font-size: var(--font-scale-secondary);
   color: var(--text-mute);
-  margin-bottom: 4px;
+  /* 上下留白:与上方 meta 行、下方正文都有呼吸感(引用块是插入层) */
+  margin: 4px 0;
   overflow-wrap: anywhere;
+}
+/* accent 药丸:圆角细条,垂直居中,承接「引用」语义(比硬左色条更柔) */
+.msg .msg-quote::before {
+  content: "";
+  position: absolute;
+  left: 4px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 55%;
+  border-radius: 2px;
+  background: var(--text-mute);
 }
 .msg-quote-name { font-weight: 600; color: var(--text); }
 .msg-quote-text { line-height: 1.4; }
-/* 自己的消息:引用卡片用强调色条 + 适配文字色 */
+/* 引用块 hover:材料响应(背景微提升 + accent 药丸色)暗示可跳转原文。
+   过渡用 Apple 缓动(§4 行为而非动画)。 */
+.msg .msg-quote {
+  cursor: pointer;
+  transition: background 160ms var(--ease-out);
+}
+.msg .msg-quote:hover { background: var(--active); }
+.msg .msg-quote:hover::before { background: var(--accent); }
+.msg .msg-quote:active { background: var(--surface-hover); }
+.msg .msg-quote::before { transition: background 160ms var(--ease-out); }
+/* 自己的消息:引用卡沿用气泡色半透明材质,accent 药丸用文字色 */
 .msg[data-is-out="1"] .msg-bubble .msg-quote {
   background: color-mix(in srgb, var(--bubble-self-text) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--bubble-self-text) 16%, transparent);
-  border-left: 3px solid var(--bubble-self-text);
   color: var(--bubble-self-text);
 }
+/* 自己的消息 hover:气泡色更饱和的微提升(避免 --active 与气泡底色冲突) */
+.msg[data-is-out="1"] .msg-bubble .msg-quote:hover {
+  background: color-mix(in srgb, var(--bubble-self-text) 22%, transparent);
+}
+.msg[data-is-out="1"] .msg-bubble .msg-quote:hover::before { background: var(--bubble-self-text); }
+@media (prefers-reduced-motion: reduce) {
+  .msg .msg-quote, .msg .msg-quote::before, .msg-reply-name { transition: none; }
+}
+.msg[data-is-out="1"] .msg-bubble .msg-quote::before { background: var(--bubble-self-text); }
 .msg[data-is-out="1"] .msg-bubble .msg-quote-name { color: var(--bubble-self-text); }
 .msg .msg-code { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 10px 12px; font-family: var(--font-mono); font-size: var(--font-scale-secondary); line-height: 1.6; margin-top: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
 /* 消息入场动画:极致丝滑 —— 弹簧手感。
@@ -627,28 +683,40 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .msg .msg-reaction:hover { background: var(--active); border-color: var(--text-weak); }
 .msg-reaction-count { font-size: var(--font-scale-micro); font-weight: 600; color: var(--text-mute); line-height: 1; margin-left: 1px; }
-/* 输入区:悬浮玻璃卡片(与 chat-header 同材质)。微信式两段结构:
-   上 .composer-main(融入背景的 textarea + 右上角展开)、下 .composer-toolbar
-   (左侧图标组 / 右侧录音圆形 + 翠绿「发送」胶囊)。 */
+/* 输入区:悬浮玻璃卡片(与 chat-header 同材质),无边沉浸。
+   整个气泡内所有元素(textarea/工具/录音/发送)均无背景,透明融入玻璃卡;
+   唯一稍深背景是回复引用块(.reply-preview),营造「插入」层次。 */
 .composer {
-  position: relative; /* emoji 面板定位锚点 */
+  position: relative; /* 顶缘高光 / 展开 tooltip 定位锚点 */
   display: flex; flex-direction: column;
-  padding: 10px 12px;
+  padding: 8px 12px 10px;
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--panel) 86%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   backdrop-filter: blur(18px) saturate(150%);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.20), inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 40%, transparent);
+  /* 无边沉浸:无 inset 描边,只留外投影衬出玻璃卡层级 */
+  box-shadow: 0 4px 20px rgba(0,0,0,0.20);
+}
+/* 顶缘高光:材质捕捉光(Apple §12)—— 1px 亮边沿卡顶,替代硬描边 */
+.composer::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 14px; right: 14px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 18%, transparent), transparent);
+  border-radius: 2px;
+  pointer-events: none;
 }
 /* 单行布局行:仅 bots 页发送框复用(聊天 composer 用 .composer-main + .composer-toolbar) */
 .composer-row {
   display: flex; align-items: flex-end; gap: 10px;
 }
 
-/* 上部输入区:textarea 融入卡片背景(无独立边框),右上角展开按钮 */
+/* 上部输入区:无背景(无边沉浸)。textarea 直接融入玻璃卡,无任何内层底色/凹陷 */
 .composer-main {
   position: relative;
   display: flex; align-items: flex-end;
+  padding: 0;
 }
 .composer-expand {
   position: absolute; right: 4px; bottom: 6px;
@@ -676,13 +744,13 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .composer-expand:hover .composer-tooltip { opacity: 1; visibility: visible; transform: translateY(0); }
 
-/* 顶部 resize 指示器:仅展开模式显示。悬停/拖动浮现细条,纵向拖拽调高 textarea
-   (拖动区间 [40, 320]px,见 composer.ts;拖回单行高度松手自动切回收起模式)。 */
+/* 顶部 resize 指示器:常驻热区(收起模式也显示,悬停/拖动浮现细条,按下自动切展开)。
+   pointerdown 未展开时立即展开(composer.ts),拖动调高 [40, 320]px。 */
 .composer-resize {
   position: absolute; top: -3px; left: 0; right: 0;
   height: 9px; cursor: row-resize;
   z-index: 20;
-  display: none; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center;
 }
 .composer-resize::before {
   content: ""; width: 40px; height: 3px; border-radius: 2px;
@@ -691,8 +759,7 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 /* 悬停容器边缘即显示抓取条:热区放大但只有中间细条可点 */
 .composer:hover .composer-resize::before, .composer-resize:hover::before, .composer-resize:active::before { opacity: 0.9; }
-/* 展开时:显示指示器,textarea 撑高(默认 88px,可拖到 320px) */
-.composer.expanded .composer-resize { display: flex; }
+/* 展开时:textarea 撑高(默认 88px,可拖到 320px) */
 .composer.expanded textarea {
   min-height: 88px;
   max-height: 320px;
@@ -711,22 +778,25 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .composer-tool:hover { background: var(--active); color: var(--text); }
 .composer-actions { display: flex; align-items: center; gap: 8px; }
+/* md 开关组:label + iOS toggle 内联 */
+.composer-md-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 4px; cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 140ms var(--ease-out);
+}
+.composer-md-toggle:hover { background: var(--active); }
+.composer-md-label { font-size: 11px; font-weight: 600; color: var(--text-mute); }
+/* 关闭时检测到 md 语法 → 呼吸灯 */
+.composer-md-toggle.md-hint { animation: md-breathe 1.6s ease-in-out infinite; }
+@keyframes md-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 144, 217, 0.5); }
+  50% { box-shadow: 0 0 0 4px rgba(74, 144, 217, 0.18); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-md-toggle.md-hint { animation: none; }
+}
 
-/* 表情面板:悬浮于工具条上方,网格排列 */
-.composer-emoji-panel {
-  position: absolute; bottom: calc(100% + 10px); left: 12px;
-  width: 288px; padding: 10px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
-  z-index: 200;
-}
-.composer-emoji {
-  display: flex; align-items: center; justify-content: center;
-  font-size: 20px; padding: 4px; border-radius: var(--radius-xs); cursor: pointer;
-  transition: background 100ms var(--ease-out), transform 100ms var(--ease-out);
-}
-.composer-emoji:hover { background: var(--active); transform: scale(1.15); }
 /* 悬浮输入区容器:贴底、左右留边,脱离文档流浮在消息区之上(与 chat-header 对称) */
 #composer-area {
   position: absolute; bottom: 14px; left: 14px; right: 14px;
@@ -1185,14 +1255,14 @@ html.window-frame #titlebar-tools { height: 34px; }
   40% { opacity: 1; }
 }
 
-/* composer textarea:融入卡片背景(无独立边框),右侧留出展开按钮空间 */
+/* composer textarea:融入凹陷输入字段(透明底),右侧留出展开按钮空间 */
 .composer textarea {
   flex: 1;
   width: 100%;
   background: transparent;
   border: none;
   border-radius: 0;
-  padding: 8px 30px 6px 2px;
+  padding: 9px 30px 7px 4px;
   font-size: var(--font-scale-body);
   color: var(--text);
   font-family: var(--font);
@@ -1207,38 +1277,44 @@ html.window-frame #titlebar-tools { height: 34px; }
 .composer textarea { scrollbar-width: none; }
 .composer textarea::-webkit-scrollbar { display: none; }
 
-/* 发送按钮:跟随主题强调色(--success 底 + --on-accent 字)。
-   已验证 15 主题 success vs on-accent 对比度 ≥3.0(600 粗体大文本),
-   暗色主题尤其高(7 个 ≥4.5);白色在暗色主题会失败,故不用白字。
-   注:bots 页发送框复用 .composer-send(iconSvg 图标),本胶囊样式对二者通用。 */
+/* 发送按钮:无背景(无边沉浸)。聊天页 text 按钮 → 圆角药丸描边;
+   bots 页 icon 按钮(.composer-row 内)→ 圆形描边(见下方区分规则)。 */
 .composer-send {
   flex-shrink: 0;
-  min-width: 64px; height: 34px;
-  padding: 0 16px;
   display: flex; align-items: center; justify-content: center;
-  border: none; border-radius: 6px;
   cursor: pointer;
   font-size: var(--font-scale-body); font-weight: 600;
-  color: var(--on-accent);
-  background: var(--text);
-  transition: transform 100ms ease-out, opacity 120ms, filter 150ms;
+  color: var(--text-mute);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  transition: transform 120ms var(--ease-out), opacity 120ms, color 120ms, border-color 120ms, background 120ms;
 }
 .composer-send svg { display: block; }
-.composer-send:hover { filter: brightness(1.08); }
-.composer-send:active { transform: scale(0.96); }
+.composer-send:hover { color: var(--text); border-color: var(--text-weak); background: var(--active); }
+.composer-send:active { transform: scale(0.95); }
 .composer-send:disabled {
-  background: var(--border-strong); color: var(--text-weak);
-  cursor: default; filter: none;
+  color: var(--text-faint); border-color: var(--border);
+  cursor: default; background: transparent;
+}
+/* 聊天页(text 按钮):34px 高圆角药丸(高度一半);与录音按钮同高。
+   用 .composer textarea 限定:bots 页无 textarea(icon 圆形按钮不误伤)。 */
+.composer textarea ~ .composer-toolbar .composer-send {
+  min-width: 56px; height: 34px; padding: 0 18px; border-radius: 17px;
+}
+/* bots 页(icon 按钮,.composer-row 内):保持圆形 */
+.composer-row .composer-send {
+  width: 34px; height: 34px; padding: 0; border-radius: 50%;
 }
 
-/* 录音麦克风按钮:圆形,与发送按钮同形态,录音态变红 + pulse */
+/* 录音麦克风按钮:圆形,与发送按钮同高(34px),无背景(无边沉浸),
+   录音态变红 + pulse */
 .composer-mic {
   flex-shrink: 0;
-  width: 36px; height: 36px;
+  width: 34px; height: 34px;
   display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-strong); border-radius: 50%;
+  border: none; border-radius: 50%;
   cursor: pointer;
-  background: var(--capsule); color: var(--text-mute);
+  background: transparent; color: var(--text-mute);
   transition: transform 120ms var(--ease-out), color 120ms var(--ease-out), background 120ms var(--ease-out);
 }
 .composer-mic svg { display: block; }
@@ -1304,19 +1380,23 @@ html.window-frame #titlebar-tools { height: 34px; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 12px;
-  background: var(--capsule);
-  border: 1px solid var(--border-strong);
-  border-left: 3px solid var(--text-mute);
+  padding: 7px 10px;
+  /* 引用块:全气泡内唯一稍深背景,营造「插入」的层次感(无边沉浸的锚点) */
+  background: color-mix(in srgb, var(--capsule) 75%, transparent);
   border-radius: var(--radius-md);
   font-size: var(--font-scale-secondary);
   color: var(--text-mute);
-  animation: reply-preview-in 220ms var(--ease-out);
+  /* 弹簧入场:材料「坐定」而非淡入(Apple §4/§17) */
+  animation: reply-preview-in 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes reply-preview-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+@media (prefers-reduced-motion: reduce) {
+  .reply-preview { animation: none; }
+}
+/* 引用图标:无背景,与引用块融为一体 */
 .reply-preview-icon {
   display: flex;
   align-items: center;
@@ -1806,7 +1886,9 @@ html.window-frame #titlebar-tools { height: 34px; }
 .msg-attachment.img img {
   /* min(450px, 100%): 上限 450px 对齐 Delta,但窄容器(气泡 max-width:70%)时收缩到气泡内,防右侧溢出 */
   max-width: min(450px, 100%);
-  min-width: 200px;
+  /* min-width 用 min(200px,100%):宽容器保持 200px 下限,窄容器收缩到气泡内,
+     否则附件撑破气泡 → messages 横向滚动区 → 气泡右侧黑色空白 */
+  min-width: min(200px, 100%);
   border-radius: 16px; cursor: pointer; display: block;
   object-fit: cover; object-position: center;
 }
@@ -1814,7 +1896,8 @@ html.window-frame #titlebar-tools { height: 34px; }
 /* 语音消息播放器:播放按钮 + 进度条 + 时间(iMessage 式) */
 .msg-attachment.voice {
   display: inline-flex; align-items: center; gap: 10px;
-  min-width: 200px; max-width: 260px;
+  /* min-width 用 min(200px,100%):窄容器收缩到气泡内,防撑破气泡产生横向滚动区 */
+  min-width: min(200px, 100%); max-width: min(260px, 100%);
   padding: 8px 10px; border-radius: var(--radius-md);
   background: var(--capsule); box-shadow: var(--shadow-sm);
 }
@@ -2206,10 +2289,11 @@ html.window-frame #titlebar-tools { height: 34px; }
 .msg[data-is-out="1"] .msg-bubble .msg-text,
 .msg[data-is-out="1"] .msg-bubble .msg-name,
 .msg[data-is-out="1"] .msg-bubble .msg-meta,
-.msg[data-is-out="1"] .msg-bubble .msg-quote { color: var(--bubble-self-text); }
+.msg[data-is-out="1"] .msg-bubble .msg-quote,
+.msg[data-is-out="1"] .msg-bubble .msg-reply-mark,
+.msg[data-is-out="1"] .msg-bubble .msg-reply-name { color: var(--bubble-self-text); }
 .msg[data-is-out="1"] .msg-bubble .msg-time,
 .msg[data-is-out="1"] .msg-bubble .msg-state { color: color-mix(in srgb, var(--bubble-self-text) 70%, transparent); }
-.msg[data-is-out="1"] .msg-bubble .msg-quote { border-left-color: color-mix(in srgb, var(--bubble-self-text) 40%, transparent); }
 
 /* 气泡内文字排版:名字在上,正文在下 */
 .msg-bubble .msg-meta { font-size: var(--font-scale-secondary); margin-bottom: 1px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; line-height: 1.3; }
@@ -4608,3 +4692,6 @@ body {
 @keyframes ch-bubble-spin { to { transform: rotate(360deg); } }
 /* 绿色勾完成 */
 .ch-bubble-check { color: var(--success); }
+/* 60s 防抖窗口读秒「Xs总结」:文本比 14px 图标宽,扩成 auto 让文字完整显示 */
+.ch-topic-chip .ch-bubble-indicator.cd { flex: 0 0 auto; width: auto; height: 16px; margin-left: 6px; }
+.ch-bubble-countdown { font-size: 12px; line-height: 1; white-space: nowrap; color: var(--text-mute); font-variant-numeric: tabular-nums; }

@@ -53,25 +53,6 @@ let expanded = false;
 const PLACEHOLDER_COLLAPSED = '发消息到频道... (@提及 / #频道)';
 const PLACEHOLDER_EXPANDED = 'Enter 换行,Ctrl+Enter 发送';
 
-// 表情面板常用 emoji(微信风格常用集,零依赖内嵌)
-const EMOJI_PANEL: string[] = [
-  '😀', '😄', '😁', '😂', '🤣', '😊', '😍', '🥰',
-  '😘', '😉', '😎', '🤔', '😅', '😭', '😤', '😡',
-  '👍', '👎', '👏', '🙏', '💪', '🤝', '❤️', '💔',
-  '✨', '🎉', '🔥', '🌹', '🎂', '🍻', '☕', '💰',
-];
-
-// 在 textarea 光标处插入文本(表情等)
-function insertAtCursor(input: HTMLTextAreaElement, text: string): void {
-  const start = input.selectionStart;
-  const end = input.selectionEnd;
-  input.value = input.value.slice(0, start) + text + input.value.slice(end);
-  const pos = start + text.length;
-  input.selectionStart = pos;
-  input.selectionEnd = pos;
-  input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-}
 
 export async function renderComposer(chatId: number, onSent: () => void): Promise<void> {
   const area = document.getElementById('composer-area');
@@ -98,6 +79,11 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       `;
     }
   }
+  // md 开关:默认开,localStorage 持久化
+  const MD_KEY = 'peyt.md.enabled';
+  const getMdEnabled = (): boolean => localStorage.getItem(MD_KEY) !== '0';
+  const setMdEnabled = (v: boolean): void => localStorage.setItem(MD_KEY, v ? '1' : '0');
+  let mdEnabled = getMdEnabled();
   // 微信式输入框:上部 textarea 区(融入背景 + 右上角展开)+ 下部工具条
   // (左侧图标组,右侧录音圆形 + 翠绿胶囊「发送」)。
   area.innerHTML = `
@@ -113,8 +99,14 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       </div>
       <div class="composer-toolbar">
         <div class="composer-tools">
-          <button type="button" class="composer-tool" id="composer-emoji" title="表情">${iconSvg('smile', { width: 18, height: 18 })}</button>
           <button type="button" class="composer-tool" id="composer-attach" title="附件">${iconSvg('paperclip', { width: 18, height: 18 })}</button>
+          <label class="composer-md-toggle" title="Markdown 渲染">
+            <span class="composer-md-label">M↓</span>
+            <span class="toggle-switch">
+              <input type="checkbox" id="composer-md" ${mdEnabled ? 'checked' : ''} />
+              <span class="toggle-slider"></span>
+            </span>
+          </label>
           <button type="button" class="composer-tool" id="composer-more" title="更多">${iconSvg('more-horizontal', { width: 18, height: 18 })}</button>
         </div>
         <div class="composer-actions">
@@ -154,63 +146,58 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   // 展开按钮:切换两种模式(收起=单行 Enter 发送;展开=大 textarea Enter 换行)。
   // CSS 类 .expanded 驱动高度/指示器显隐/placeholder/键盘语义。
   const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
-  const applyExpanded = (): void => {
+  const applyExpanded = (next: boolean): void => {
+    // 仅当模式真实变化才弹 toast(展开按钮/拖拽进入/拖回单行才弹,重渲染不重复)
+    const changed = expanded !== next;
+    expanded = next;
     composerEl?.classList.toggle('expanded', expanded);
     input.placeholder = expanded ? PLACEHOLDER_EXPANDED : PLACEHOLDER_COLLAPSED;
+    if (changed) {
+      showToast(expanded ? '已切换:Enter 换行 · Ctrl+Enter 发送' : '已切换:Enter 发送 · Ctrl+Enter 换行');
+    }
     // 模式切换:收起 → 单行;展开 → 重置为默认大高度(用户可用顶部指示器再拖)
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     input.focus();
   };
   expandBtn?.addEventListener('click', () => {
-    expanded = !expanded;
-    applyExpanded();
+    applyExpanded(!expanded);
   });
-  // 顶部 resize 指示器:仅展开模式显示。pointerdown → 拖拽纵向调高 textarea
-  // (拖动区间 [40, 320]px),Apple §2 直接操作:1:1 跟随,pointer capture 不丢。
-  // 拖回单行高度松手自动切回收起模式(恢复自适应)。
+  // 顶部 resize 指示器:常驻热区(收起模式悬停浮现细条)。pointerdown 未展开 → 立即展开
+  // (含键盘语义,与右上角展开按钮一致;展开后回填当前高度保持无缝衔接),
+  // 随后拖拽纵向调高 [40, 320]px(Apple §2:1:1 跟随)。拖回单行高度松手自动切回收起模式。
   const resizeHandle = document.getElementById('composer-resize') as HTMLElement | null;
   resizeHandle?.addEventListener('pointerdown', (e) => {
-    if (!expanded) return;
     e.preventDefault();
+    if (!expanded) {
+      const prevH = input.getBoundingClientRect().height;
+      applyExpanded(true);
+      // applyExpanded 重置为默认高度 → 回填拖拽起点,保持无缝
+      input.style.height = Math.max(prevH, 88) + 'px';
+    }
     const startY = e.clientY;
     const startH = input.getBoundingClientRect().height;
+    let collapsePending = false;
     const onMove = (ev: PointerEvent): void => {
       const delta = ev.clientY - startY; // 向上拖 = 负增量 = 增高
       const h = Math.min(320, Math.max(40, startH - delta));
       input.style.height = h + 'px';
+      // 拖到单行高度 → 标记待切回(松手时生效,实时无跳变)
+      collapsePending = h <= 46;
+      // 输入框变高 → 消息区底部让位,若在底部则同步上顶,保持最新消息可见
+      const messagesEl = document.getElementById('messages');
+      if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
     };
     const onUp = (): void => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      if (collapsePending) applyExpanded(false); // 拖回单行 → 自动收起(含 toast)
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
   });
   // 重渲染(回复发送/取消)后让 DOM 与模块级 expanded 保持一致
-  applyExpanded();
-  // 表情按钮:弹出表情面板,点击插入 emoji 到光标处
-  const emojiBtn = document.getElementById('composer-emoji') as HTMLButtonElement | null;
-  emojiBtn?.addEventListener('click', () => {
-    const composer = area.querySelector('.composer');
-    if (!composer) return;
-    const existing = composer.querySelector('.composer-emoji-panel');
-    if (existing) { existing.remove(); return; }
-    const panel = document.createElement('div');
-    panel.className = 'composer-emoji-panel';
-    panel.innerHTML = EMOJI_PANEL
-      .map((e) => `<span class="composer-emoji" data-e="${e}">${e}</span>`)
-      .join('');
-    panel.addEventListener('click', (ev) => {
-      const t = (ev.target as HTMLElement).closest<HTMLElement>('.composer-emoji');
-      if (!t) return;
-      const e = t.dataset.e || '';
-      insertAtCursor(input, e);
-      input.dispatchEvent(new Event('input'));
-      input.focus();
-    });
-    composer.appendChild(panel);
-  });
+  applyExpanded(expanded);
   // 附件按钮:打开文件选择 → base64 → send_attachment(media 信封)
   const attachBtn = document.getElementById('composer-attach') as HTMLButtonElement | null;
   if (attachBtn) {
@@ -227,6 +214,21 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   }
   // 更多按钮:占位
   document.getElementById('composer-more')?.addEventListener('click', () => showToast('更多功能开发中'));
+  // md 开关:仅控制本条消息发送的 markdown 字段(不碰引用块渲染)
+  const mdToggle = document.getElementById('composer-md') as HTMLInputElement | null;
+  const mdWrap = composerEl?.querySelector('.composer-md-toggle');
+  mdToggle?.addEventListener('change', () => {
+    mdEnabled = mdToggle.checked;
+    setMdEnabled(mdEnabled);
+    mdWrap?.classList.remove('md-hint');
+  });
+  // 关闭时检测 md 语法 → 呼吸灯提示(手动开启才熄灭,不自动改)
+  const MD_RE = /#{1,6}\s|\*\*|`{1,3}|^\s*[-*>|]\s|\[.+\]\(.+\)/m;
+  input.addEventListener('input', () => {
+    if (mdEnabled || !mdToggle) return;
+    const hasMd = MD_RE.test(input.value);
+    mdWrap?.classList.toggle('md-hint', hasMd);
+  });
   // 录音按钮:点击开始 MediaRecorder 录音,再点停止发送 (Voice viewtype)
   initVoiceRecorder(chatId, onSent);
   // reply cancel
@@ -723,11 +725,13 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
   closeMentionList();
   // 发送
   try {
+    // md 开关状态从 localStorage 读(发送时取最新,跨重渲染一致)
+    const mdOn = localStorage.getItem('peyt.md.enabled') !== '0';
     if (replyTo) {
-      await call('send_reply', { chatId, text, quoteMsgId: Number(replyTo) });
+      await call('send_reply', { chatId, text, quoteMsgId: Number(replyTo), markdown: mdOn });
       delete area.dataset.replyTo;
     } else {
-      await call('send_text', { chatId, text });
+      await call('send_text', { chatId, text, markdown: mdOn });
     }
     // 草稿:发送成功即清除后端草稿。回复路径在清除完成后再重新渲染,
     // 避免 get_draft 与 set_draft 竞态导致恢复出旧的未发送文本。
