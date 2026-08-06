@@ -3952,6 +3952,47 @@ body {
   color: var(--text-mute);
   text-align: center;
 }
+
+/* 自定义主题卡片:虚线边框 + 中间「+」,区别于内置主题 */
+.msg-theme-custom { border: 1px dashed var(--border-strong); }
+.msg-theme-custom .msg-theme-preview { align-items: center; justify-content: center; }
+.msg-theme-custom .msg-theme-preview-bubble { min-width: 0; font-size: 22px; }
+
+/* 自定义主题编辑器(弹窗内) */
+.msg-theme-editor { display: flex; flex-direction: column; gap: 12px; }
+.msg-theme-editor-preview {
+  display: flex; align-items: flex-start; padding: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.msg-theme-editor-bubble {
+  display: inline-flex; align-items: center;
+  padding: 8px 14px; font-size: 15px; font-weight: 600;
+}
+.msg-theme-editor-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.msg-theme-editor-row input[type="text"] { flex: 1; }
+.msg-theme-editor input[type="color"] {
+  flex: none; width: 44px; height: 30px; padding: 2px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--surface-layer-01); cursor: pointer;
+}
+.msg-theme-editor input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.msg-theme-editor input[type="color"]::-webkit-color-swatch { border: none; border-radius: 4px; }
+.msg-theme-editor input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  flex: 1; height: 4px; border-radius: 2px;
+  background: var(--border-strong); outline: none;
+}
+.msg-theme-editor input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--text); cursor: pointer;
+}
+.msg-theme-editor-radius-val {
+  flex: none; min-width: 34px; text-align: right;
+  font-size: var(--font-scale-secondary); color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+}
 .settings-invite-row { display: flex; gap: var(--space-2); }
 .settings-invite-row input { flex: 1; }
 .settings-btn { display: flex; align-items: center; gap: 6px; background: var(--control-bg); color: var(--text); border: none; padding: 6px 12px; border-radius: var(--radius-sm); font-size: var(--font-scale-body); cursor: pointer; font-family: inherit; }
