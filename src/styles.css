@@ -3194,9 +3194,11 @@ body {
    按钮/输入框恒深、阴影颜色错位。此块把新 token 桥接到主题覆盖的旧别名上,使换主题真正生效。
    nowint(无 data-theme)不受影响,保持 oc-2 深色默认。 */
 [data-theme] {
-  --surface-base: var(--panel);
+  /* 侧边栏/按钮/输入框等"实色表面"必须用 --surface(各主题的不透明浮动表面色):
+     半透明主题的 --panel 是 rgba 半透明,叠在渐变背景上会透出色块(按钮一半白一半对) */
+  --surface-base: var(--surface);
   --surface-deep: var(--bg);
-  --surface-layer-01: var(--panel);
+  --surface-layer-01: var(--surface);
   --surface-layer-02: var(--surface);
   --surface-layer-03: var(--surface-hover);
   --surface-contrast: #ffffff;
