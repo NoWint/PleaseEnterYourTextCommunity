@@ -1,19 +1,19 @@
-// 标签白名单解析(spec §6):AI 输出里的类 XML 标签只放行 <message>/<user>(单双引号均可),
+// 标签白名单解析(spec §6):AI 输出里的类 XML 标签只放行 <message>/<user>/<time>(单双引号均可),
 // 其余一律保持转义。防注入顺序:先整体 escapeHtml,再在转义文本上白名单解包,
-// 标签参数值再次 escapeHtml。模糊跳转数据(data-ref/data-user)由调用方消费。
+// 标签参数值再次 escapeHtml。模糊跳转数据(data-ref/data-user/data-time)由调用方消费。
 import { escapeHtml } from '../components/escape.js';
 import type { WindowMsg } from './summaryContext.js';
 import type { MemberDto } from '../types.js';
 
 export interface MsgRef {
-  type: 'message' | 'user';
+  type: 'message' | 'user' | 'time';
   value: string;
 }
 
 // 原文本上的标签形态:兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>/<user=张三>)。
 // 值扫描到右尖括号前,剥最外层同型包裹引号 —— 值内可含异引号/撇号(如 <user='NoWint'sBot'>)。
 // 安全:值经 escapeHtml 转义;含 `>` 才可能误匹配,AI 正常输出可控。
-const TAG_SRC = /<(message|user)=([^>\n]*?)>/g;
+const TAG_SRC = /<(message|user|time)=([^>\n]*?)>/g;
 
 /** 剥最外层同型包裹引号:<user='张三'> → 张三;裸值原样。 */
 function stripQuotes(v: string): string {
@@ -28,7 +28,7 @@ function stripQuotes(v: string): string {
 // 转义后文本上的白名单匹配:escapeHtml 后标签形如 &lt;message=&#39;…&#39;&gt;
 // (&#39;=单引号, &quot;=双引号, 裸值无引号)。值扫描到 &gt; 前(值内可含 &amp;/&#39;/&quot; 实体,
 // 即原值含撇号/引号/& 的都可匹配)。剥最外层同型引号实体。
-const TAG_ESCAPED = /&lt;(message|user)=([^>\n]*?)&gt;/g;
+const TAG_ESCAPED = /&lt;(message|user|time)=([^>\n]*?)&gt;/g;
 
 /** 剥转义文本外层同型引号实体:&#39;…&#39;(5字符) | &quot;…&quot;(6字符) → 内层;裸值原样。 */
 function stripEscapedQuotes(v: string): string {
@@ -38,6 +38,23 @@ function stripEscapedQuotes(v: string): string {
   return s;
 }
 
+/**
+ * 解析时间值 → 显示标签。支持 14:30 / 2026-08-05 / 2026-08-05 14:30(可带 T)。
+ * 只处理数字/冒号/连字符/空格 —— 转义实体不会命中,非法值原样返回。
+ * 对转义后的值(<time='..'> 经 parseSafeTags/parseTags 时值已 escapeHtml)同样安全。
+ */
+export function displayTime(v: string): string {
+  const t = v.trim();
+  const full = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/.exec(t);
+  if (full) {
+    const [, y, mo, d, h, mi] = full;
+    return h ? `${mo}-${d} ${String(h).padStart(2, '0')}:${mi}` : `${mo}-${d}`;
+  }
+  const hm = /^(\d{1,2}):(\d{2})$/.exec(t);
+  if (hm) return `${String(Number(hm[1])).padStart(2, '0')}:${hm[2]}`;
+  return v;
+}
+
 /** 转义整段输入并把白名单标签替换成受控 HTML;其它 <tag> 保持转义状态。 */
 export function parseSafeTags(input: string): string {
   const escaped = escapeHtml(input);
@@ -45,9 +62,12 @@ export function parseSafeTags(input: string): string {
     // 值已是转义后文本(整体已 escapeHtml),剥外层引号实体即可,不再二次转义。
     // 值内 &#39; 等实体是合法转义,渲染时浏览器解码成原始字符。
     const value = stripEscapedQuotes(rawValue);
-    return kind === 'message'
-      ? `<span class="ref-msg" data-ref="${value}">引用</span>`
-      : `<span class="ref-user" data-user="${value}">@${value}</span>`;
+    if (kind === 'message') return `<span class="ref-msg" data-ref="${value}">引用</span>`;
+    if (kind === 'time') {
+      // 时间显示只涉及数字/冒号/连字符,实体不影响;文本再 escapeHtml 一次无害(双转义)。
+      return `<span class="ref-time" data-time="${value}">🕐 ${escapeHtml(displayTime(value))}</span>`;
+    }
+    return `<span class="ref-user" data-user="${value}">@${value}</span>`;
   });
 }
 
@@ -104,7 +124,7 @@ export function fuzzyMatchMessages(query: string, messages: any[], limit = 3): a
 // 与上方 parseSafeTags 并存:上方走「先转义再白名单解包」的安全路径,返回 HTML;
 // 下方返回受控片段数组,由 renderParsed 渲染成 mention-chip。两者互不干扰。
 
-export type TagType = 'text' | 'message' | 'user';
+export type TagType = 'text' | 'message' | 'user' | 'time';
 export interface ParsedSegment {
   type: TagType;
   value: string;   // message/user 的参数值;text 为已转义内容
@@ -112,9 +132,9 @@ export interface ParsedSegment {
 
 // 兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>)两种 AI 输出。
 // 值扫描到右尖括号前,剥最外层同型引号 —— 值内可含异引号/撇号(如 <user='NoWint'sBot'>)。
-const TAG_RE = /<(message|user)=([^>\n]*?)>/g;
+const TAG_RE = /<(message|user|time)=([^>\n]*?)>/g;
 
-/** 解析标签:只放行 <message=..> / <user=..>(值可带引号或裸,可含撇号),其余 <...> 整体转义。 */
+/** 解析标签:只放行 <message=..> / <user=..> / <time=..>(值可带引号或裸,可含撇号),其余 <...> 整体转义。 */
 export function parseTags(text: string): ParsedSegment[] {
   const segments: ParsedSegment[] = [];
   let last = 0;
@@ -122,7 +142,8 @@ export function parseTags(text: string): ParsedSegment[] {
   let m: RegExpExecArray | null;
   while ((m = TAG_RE.exec(text))) {
     if (m.index > last) segments.push({ type: 'text', value: escapeHtml(text.slice(last, m.index)) });
-    segments.push({ type: m[1] === 'message' ? 'message' : 'user', value: escapeHtml(stripQuotes(m[2])) });
+    const kind = m[1] === 'message' ? 'message' : m[1] === 'time' ? 'time' : 'user';
+    segments.push({ type: kind, value: escapeHtml(stripQuotes(m[2])) });
     last = m.index + m[0].length;
   }
   if (last < text.length) segments.push({ type: 'text', value: escapeHtml(text.slice(last)) });
@@ -135,6 +156,7 @@ export function renderParsed(segments: ParsedSegment[], onRef: (id: string) => v
   return segments
     .map((s) => {
       if (s.type === 'message') return `<a class="mention-chip" data-msg-ref="${s.value}">@消息 ${s.value}</a>`;
+      if (s.type === 'time') return `<span class="mention-chip" data-time-ref="${s.value}">🕐 ${displayTime(s.value)}</span>`;
       if (s.type === 'user') return `<span class="mention-chip" data-user-ref="${s.value}">@${s.value}</span>`;
       return s.value;
     })

@@ -4,10 +4,12 @@
 // 再把占位 token 替换成可点击 chip(客户端点击 → 名片/定位原文)。
 import { marked } from 'marked';
 import { escapeHtml } from '../components/escape.js';
+import { displayTime } from './tagParser.js';
 
 /** 占位 token 前缀(避免与真实内容冲突:含非 ASCII 括号,正常文本几乎不会出现)。 */
 const U_PREFIX = '⟦U:'; // ⟦U:
 const M_PREFIX = '⟦M:'; // ⟦M:
+const T_PREFIX = '⟦T:'; // ⟦T:
 
 /** 剥最外层同型包裹引号:<user='张三'> → 张三;裸值原样。 */
 function stripQuote(v: string): string {
@@ -30,17 +32,20 @@ const ALLOWED_TAGS = new Set([
  * 把 AI 文本中的 <user='..'> / <message='..'> 替换成占位 token。
  * 返回 { text, tags } —— tags 记录 token → 真实标签值,渲染后回填。
  */
-function placeholderTags(text: string): { text: string; tags: Map<string, { kind: 'user' | 'message'; value: string }> } {
-  const tags = new Map<string, { kind: 'user' | 'message'; value: string }>();
+type TagKind = 'user' | 'message' | 'time';
+
+function placeholderTags(text: string): { text: string; tags: Map<string, { kind: TagKind; value: string }> } {
+  const tags = new Map<string, { kind: TagKind; value: string }>();
   let n = 0;
-  // 兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>)两种 AI 输出,
+  // 兼容带引号(<message='52'>/<user="张三">/<time='14:30'>)与无引号(<message=52>)两种 AI 输出,
   // 与 tagParser 的 TAG_RE 对齐 —— 否则无引号标签会被 sanitizeHtml 剥成纯文本而非 chip。
   // 值扫描到右尖括号前,剥最外层同型引号 —— 值内可含撇号(如 <user='NoWint'sBot'>)。
-  const out = text.replace(/<(user|message)=([^>\n]*?)>/g, (_m, kind: string, raw: string) => {
+  const out = text.replace(/<(user|message|time)=([^>\n]*?)>/g, (_m, kind: string, raw: string) => {
     const val = stripQuote(raw);
     if (!val) return _m; // 空值不替换
-    const tok = `${kind === 'user' ? U_PREFIX : M_PREFIX}${n++}${SUFFIX}`;
-    tags.set(tok, { kind: kind as 'user' | 'message', value: val });
+    const prefix = kind === 'user' ? U_PREFIX : kind === 'time' ? T_PREFIX : M_PREFIX;
+    const tok = `${prefix}${n++}${SUFFIX}`;
+    tags.set(tok, { kind: kind as TagKind, value: val });
     return tok;
   });
   return { text: out, tags };
@@ -95,12 +100,14 @@ function sanitizeHtml(html: string): string {
 }
 
 /** 把占位 token 替换成可点击 chip。 */
-function restoreTags(html: string, tags: Map<string, { kind: 'user' | 'message'; value: string }>): string {
+function restoreTags(html: string, tags: Map<string, { kind: TagKind; value: string }>): string {
   let out = html;
   for (const [tok, t] of tags) {
     const chip = t.kind === 'message'
       ? `<a class="mention-chip" data-msg-ref="${escapeHtml(t.value)}">@消息 ${escapeHtml(t.value)}</a>`
-      : `<span class="mention-chip" data-user-ref="${escapeHtml(t.value)}">@${escapeHtml(t.value)}</span>`;
+      : t.kind === 'time'
+        ? `<span class="mention-chip" data-time-ref="${escapeHtml(t.value)}">🕐 ${escapeHtml(displayTime(t.value))}</span>`
+        : `<span class="mention-chip" data-user-ref="${escapeHtml(t.value)}">@${escapeHtml(t.value)}</span>`;
     out = out.split(tok).join(chip);
   }
   return out;
