@@ -16,7 +16,7 @@ import { resolveMessageText } from '../utils/envelope.js';
 import { renderMarkdown } from '../utils/markdown.js';
 
 export type AnalysisKind = 'summary' | 'participation' | 'action_items'
-  | 'open_questions' | 'timeline' | 'decisions';
+  | 'mood' | 'open_questions' | 'timeline' | 'decisions';
 
 interface AnalysisType {
   kind: AnalysisKind;
@@ -28,6 +28,7 @@ interface AnalysisType {
 
 const ANALYSIS_TYPES: AnalysisType[] = [
   { kind: 'summary', title: '总结', icon: 'file-text', engine: 'llm', priority: 0 },
+  { kind: 'mood', title: '情绪氛围', icon: 'smile', engine: 'llm', priority: 0 },
   { kind: 'action_items', title: '行动项', icon: 'check', engine: 'llm', priority: 0 },
   { kind: 'participation', title: '参与度', icon: 'users', engine: 'stats_plus_llm', priority: 0 },
   { kind: 'open_questions', title: '悬而未决', icon: 'info', engine: 'llm', priority: 1 },
@@ -112,6 +113,34 @@ function renderSummary(text: string): string {
   return `<div class="sd-summary sd-markdown">${renderMarkdown(text)}</div>`;
 }
 
+/** mood: {overall, score, emoji, summary, highlights:[{text,emoji}]} → 情绪卡片。 */
+function renderMood(text: string): string {
+  const d = safeParseJson(text) as {
+    overall?: string; score?: number; emoji?: string; summary?: string;
+    highlights?: Array<{ text?: string; emoji?: string }>;
+  } | null;
+  if (!d || typeof d !== 'object') return fallbackJson(text);
+  const score = typeof d.score === 'number' ? Math.max(0, Math.min(100, d.score)) : 50;
+  const tone = score >= 66 ? 'positive' : score >= 34 ? 'neutral' : 'negative';
+  const emoji = d.emoji || '😐';
+  const overall = d.overall || (tone === 'positive' ? '积极' : tone === 'negative' ? '消极' : '中立');
+  const highlights = Array.isArray(d.highlights)
+    ? d.highlights.map((h) =>
+        `<div class="sd-mood-hl"><span class="sd-mood-hl-emoji">${escapeHtml(h.emoji || '•')}</span><span class="sd-mood-hl-text">${escapeHtml(h.text ?? '')}</span></div>`).join('')
+    : '';
+  return `<div class="sd-mood">
+    <div class="sd-mood-top">
+      <div class="sd-mood-emoji sd-mood-${tone}">${escapeHtml(emoji)}</div>
+      <div class="sd-mood-meta">
+        <span class="sd-mood-overall">${escapeHtml(overall)}</span>
+        <div class="sd-mood-bar"><div class="sd-mood-bar-fill sd-mood-${tone}" style="width:${score}%"></div></div>
+      </div>
+    </div>
+    ${d.summary ? `<div class="sd-mood-summary sd-markdown">${renderMarkdown(d.summary)}</div>` : ''}
+    ${highlights ? `<div class="sd-mood-hls">${highlights}</div>` : ''}
+  </div>`;
+}
+
 /** JSON 解析失败降级:整段转义 <pre> 显示,不崩 UI。 */
 function fallbackJson(text: string): string {
   return `<pre class="sd-json">${escapeHtml(text)}</pre>`;
@@ -134,7 +163,7 @@ function renderStreaming(kind: AnalysisKind, text: string): string {
 }
 
 function isJsonKind(kind: AnalysisKind): boolean {
-  return kind === 'action_items' || kind === 'open_questions'
+  return kind === 'action_items' || kind === 'mood' || kind === 'open_questions'
     || kind === 'timeline' || kind === 'decisions';
 }
 
@@ -142,6 +171,7 @@ function isJsonKind(kind: AnalysisKind): boolean {
 function renderDetailBody(kind: AnalysisKind, text: string): string {
   switch (kind) {
     case 'summary': return renderSummary(text);
+    case 'mood': return renderMood(text);
     case 'action_items': return renderActionItems(text);
     case 'open_questions': return renderOpenQuestions(text);
     case 'timeline': return renderTimeline(text);
