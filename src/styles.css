@@ -4500,13 +4500,14 @@ body {
 .mention-chip:active { transform: scale(0.95); }
 /* 消息引用 chip 加轻微下划线示意「可跳转」 */
 .mention-chip[data-msg-ref] { text-decoration: underline dotted; text-underline-offset: 3px; }
-/* 消息原文 chip:绿色调,与用户/时间(accent 蓝)区分 */
-.mention-chip-msg {
+/* 消息原文 chip:绿色调,与用户/时间(accent 蓝)区分。
+   .sd-markdown a(0,1,1)会覆盖 color → 用 .sd-markdown a.mention-chip-msg(0,2,1) 保证绿色。 */
+.mention-chip-msg, .sd-markdown a.mention-chip-msg {
   background: color-mix(in srgb, var(--success, #34c759) 12%, transparent);
   color: var(--success, #34c759);
   border-color: color-mix(in srgb, var(--success, #34c759) 25%, transparent);
 }
-.mention-chip-msg:hover {
+.mention-chip-msg:hover, .sd-markdown a.mention-chip-msg:hover {
   background: color-mix(in srgb, var(--success, #34c759) 20%, transparent);
   box-shadow: 0 1px 4px color-mix(in srgb, var(--success, #34c759) 20%, transparent);
 }
