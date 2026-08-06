@@ -4631,6 +4631,162 @@ body {
 .sd-p-insight { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-mute); }
 .sd-insight-text { color: var(--text); line-height: 1.6; }
 
+/* === Task 6: apple-design 动效增强(情绪/参与度/深度块/time chip) === */
+
+/* --- 情绪卡 mood:56px 圆形 emoji + 玻璃 overall chip + 0-100 情绪条 --- */
+.sd-mood { display: flex; flex-direction: column; gap: 14px; padding: 4px 2px 2px; }
+.sd-mood-top { display: flex; align-items: center; gap: 14px; }
+.sd-mood-emoji {
+  width: 56px; height: 56px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 28px; line-height: 1;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+}
+/* 情绪色调(positive=绿 / neutral=黄 / negative=红,color-mix 保证主题下可读) */
+.sd-mood-positive { --tone: var(--success, #4caf50); }
+.sd-mood-neutral { --tone: #d9a441; }
+.sd-mood-negative { --tone: #e06c6c; }
+.sd-mood-emoji.sd-mood-positive, .sd-mood-emoji.sd-mood-neutral, .sd-mood-emoji.sd-mood-negative {
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+}
+.sd-mood-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+/* 玻璃材质 overall chip(§12) */
+.sd-mood-overall {
+  align-self: flex-start;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.03em;
+  padding: 2px 10px; border-radius: 999px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-2, rgba(128,128,128,.08)) 70%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+.sd-mood-bar { height: 6px; border-radius: 999px; background: var(--surface-2, rgba(128,128,128,.12)); overflow: hidden; }
+.sd-mood-bar-fill { height: 100%; border-radius: 999px; background: var(--tone, var(--accent, #4a90d9)); }
+.sd-mood-summary { color: var(--text); line-height: 1.65; }
+.sd-mood-hls { display: flex; flex-direction: column; gap: 6px; }
+.sd-mood-hl {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2, rgba(128,128,128,.06)) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+.sd-mood-hl-emoji {
+  width: 26px; height: 26px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 14px;
+  background: color-mix(in srgb, var(--accent, #4a90d9) 14%, transparent);
+}
+.sd-mood-hl-text { color: var(--text); line-height: 1.5; min-width: 0; }
+
+/* --- 参与度可视化:活跃时段/消息趋势柱状 + 成员活跃条(柱状底部生长,reveal-i 依次升起) --- */
+.sd-p-subtitle { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-mute); margin: 12px 2px 8px; }
+.sd-p-hours:first-child .sd-p-subtitle, .sd-p-trend:first-child .sd-p-subtitle, .sd-p-members:first-child .sd-p-subtitle { margin-top: 0; }
+.sd-p-h-chart, .sd-p-d-chart { display: flex; align-items: flex-end; gap: 5px; height: 76px; padding: 16px 2px 0; }
+.sd-p-h-bar, .sd-p-d-bar {
+  flex: 1; min-width: 0; position: relative;
+  border-radius: 6px 6px 0 0;
+  background: color-mix(in srgb, var(--accent, #4a90d9) 55%, transparent);
+  transform-origin: bottom;
+}
+.sd-p-h-bar:hover, .sd-p-d-bar:hover { background: color-mix(in srgb, var(--accent, #4a90d9) 78%, transparent); }
+.sd-p-h-label, .sd-p-d-label {
+  position: absolute; left: 50%; top: -15px; transform: translateX(-50%);
+  font-size: 9.5px; color: var(--text-mute); white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sd-p-members { display: flex; flex-direction: column; gap: 2px; }
+.sd-p-m-row { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 8px; }
+.sd-p-m-row:hover { background: color-mix(in srgb, var(--surface-2, rgba(128,128,128,.08)) 60%, transparent); }
+.sd-p-m-track { flex: 1; min-width: 0; height: 8px; border-radius: 999px; background: var(--surface-2, rgba(128,128,128,.12)); overflow: hidden; }
+.sd-p-m-fill { height: 100%; border-radius: 999px; background: color-mix(in srgb, var(--accent, #4a90d9) 72%, transparent); }
+
+/* --- 深度块:问题优先级 / 决策状态 / 行动项进度 --- */
+.sd-item.sd-q-pri-high, .sd-item.sd-q-pri-med { position: relative; padding-left: 12px; }
+.sd-item.sd-q-pri-high::before, .sd-item.sd-q-pri-med::before {
+  content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 999px;
+}
+.sd-item.sd-q-pri-high::before { background: color-mix(in srgb, #e06c6c 70%, transparent); }
+.sd-item.sd-q-pri-med::before { background: color-mix(in srgb, #d9a441 65%, transparent); }
+.sd-dec { position: relative; }
+.sd-dec-status {
+  position: absolute; top: 12px; left: 12px;
+  width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 11px; font-weight: 700;
+}
+.sd-dec-done { color: var(--success, #4caf50); background: color-mix(in srgb, var(--success, #4caf50) 16%, transparent); }
+.sd-dec-pending { color: var(--text-mute); background: color-mix(in srgb, var(--surface-2, rgba(128,128,128,.1)) 70%, transparent); }
+.sd-dec:has(.sd-dec-status) .sd-dec-head { padding-left: 26px; }
+.sd-dec:has(.sd-dec-status) .sd-dec-rationale, .sd-dec:has(.sd-dec-status) .sd-dec-impact { padding-left: 26px; }
+.sd-dec-impact { margin-top: 6px; font-size: 12px; color: var(--text-mute); line-height: 1.5; }
+.sd-dec-impact::before { content: "影响 "; color: var(--text-faint); }
+.sd-action-progress {
+  position: relative; height: 8px; margin: 4px 2px 12px;
+  border-radius: 999px; background: var(--surface-2, rgba(128,128,128,.12));
+}
+.sd-action-p-fill { height: 100%; border-radius: 999px; background: color-mix(in srgb, var(--accent, #4a90d9) 75%, transparent); }
+.sd-action-progress span {
+  position: absolute; right: -4px; top: 50%; transform: translate(50%, -50%);
+  padding: 1px 6px; font-size: 11px; font-weight: 600; color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--surface, #1c1c1e) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+}
+
+/* --- time 引用 chip:悬停 accent 下划线 + 细微底色 --- */
+.ref-time {
+  display: inline-block; padding: 0 4px; border-radius: 4px;
+  color: var(--accent, #4a90d9); font-size: 12px; white-space: nowrap;
+  transition: background 140ms var(--ease-out);
+}
+.ref-time:hover { background: color-mix(in srgb, var(--accent, #4a90d9) 12%, transparent); }
+.mention-chip[data-time-ref] { position: relative; }
+.mention-chip[data-time-ref]:hover { background: color-mix(in srgb, var(--accent, #4a90d9) 20%, transparent); }
+.mention-chip[data-time-ref]:hover::after {
+  content: ""; position: absolute; left: 8px; right: 8px; bottom: 1px; height: 1px;
+  background: var(--accent, #4a90d9); border-radius: 1px;
+}
+
+/* --- 弹簧入场 / 填充生长 / 柱状生长(仅 .sd-done 容器内触发,与既有 reveal 同步) --- */
+@keyframes sd-mood-pop {
+  from { transform: scale(0.8); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes sd-fill-x { from { width: 0; } }
+@keyframes sd-bar-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.sd-done .sd-mood-emoji { animation: sd-mood-pop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.sd-done .sd-mood-bar-fill { animation: sd-fill-x 720ms var(--anim-ease, cubic-bezier(0.22,1,0.36,1)) both; animation-delay: calc(var(--reveal-i, 0) * 40ms); }
+.sd-done .sd-p-m-fill { animation: sd-fill-x 700ms var(--anim-ease, cubic-bezier(0.22,1,0.36,1)) both; animation-delay: calc(var(--reveal-i, 0) * 55ms); }
+.sd-done .sd-action-p-fill { animation: sd-fill-x 700ms var(--anim-ease, cubic-bezier(0.22,1,0.36,1)) both; }
+/* 柱状图逐根升起:JS 只给 reveal 项设 --reveal-i,柱本身用 nth-child 依次延迟 */
+.sd-done .sd-p-h-bar, .sd-done .sd-p-d-bar { animation: sd-bar-y 640ms var(--anim-ease, cubic-bezier(0.22,1,0.36,1)) both; animation-delay: calc(var(--reveal-i, 0) * 26ms); }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(1),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(1) { animation-delay: 0ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(2),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(2) { animation-delay: 30ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(3),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(3) { animation-delay: 60ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(4),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(4) { animation-delay: 90ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(5),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(5) { animation-delay: 120ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(6),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(6) { animation-delay: 150ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(7),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(7) { animation-delay: 180ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(8),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(8) { animation-delay: 210ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(9),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(9) { animation-delay: 240ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(10),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(10) { animation-delay: 270ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(11),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(11) { animation-delay: 300ms; }
+.sd-done .sd-p-h-chart .sd-p-h-bar:nth-child(12),
+.sd-done .sd-p-d-chart .sd-p-d-bar:nth-child(12) { animation-delay: 330ms; }
+
 /* JSON 降级显示 */
 .sd-json { white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 12px; color: var(--text-mute); margin: 0; }
 
@@ -4644,9 +4800,10 @@ body {
   .sd-content { padding: 16px 14px 24px; }
 }
 
-/* reduced-motion:弹簧 → 纯淡入淡出(§14) */
+/* reduced-motion:弹簧/生长 → 静止,不启动画(§14) */
 @media (prefers-reduced-motion: reduce) {
   .sd-overlay { animation: none; }
+  .sd-mood-emoji, .sd-mood-bar-fill, .sd-p-h-bar, .sd-p-d-bar, .sd-p-m-fill, .sd-action-p-fill { animation: none; transition: none; }
 }
 
 /* === 智能页(设置 → 智能):Apple 卡片 + pill === */
@@ -4683,12 +4840,12 @@ body {
 /* === AI 总结 popup 增强:卡片 reveal 动画 + markdown 样式 === */
 /* JSON 列表项 done 后逐条出现(Apple 风格 stagger,§4 弹簧)。
    仅 .sd-done 容器内的项初始隐藏;普通状态(缓存命中/未流式完成)保持可见。 */
-.sd-done .sd-item, .sd-done .sd-dec, .sd-done .sd-tl-node, .sd-done .sd-p-row {
+.sd-done .sd-item, .sd-done .sd-dec, .sd-done .sd-tl-node, .sd-done .sd-p-row, .sd-done .sd-mood-hl {
   opacity: 0; transform: translateY(6px);
   transition: opacity 320ms var(--anim-ease, cubic-bezier(0.22,1,0.36,1)), transform 320ms var(--anim-ease, cubic-bezier(0.22,1,0.36,1));
   transition-delay: calc(var(--reveal-i, 0) * 40ms);
 }
-.sd-done .sd-item.sd-reveal, .sd-done .sd-dec.sd-reveal, .sd-done .sd-tl-node.sd-reveal, .sd-done .sd-p-row.sd-reveal {
+.sd-done .sd-item.sd-reveal, .sd-done .sd-dec.sd-reveal, .sd-done .sd-tl-node.sd-reveal, .sd-done .sd-p-row.sd-reveal, .sd-done .sd-mood-hl.sd-reveal {
   opacity: 1; transform: translateY(0);
 }
 /* 流式加载态:块 body 显示「分析中」时轻微脉动 */

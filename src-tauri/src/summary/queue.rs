@@ -235,7 +235,7 @@ fn scope_key(job: &SummaryJob) -> ScopeKey {
 }
 
 /// 该 kind 是否输出 JSON(用于 API 请求加 response_format:json_object)。
-/// summary(段落 markdown)/participation(统计+解读文本)非 JSON;其余 5 类 JSON。
+/// summary(段落 markdown)/participation(统计+解读文本)非 JSON;其余 6 类 JSON。
 fn is_json_kind(kind: &str) -> bool {
-    matches!(kind, "action_items" | "resources" | "open_questions" | "timeline" | "decisions")
+    matches!(kind, "action_items" | "resources" | "mood" | "open_questions" | "timeline" | "decisions")
 }

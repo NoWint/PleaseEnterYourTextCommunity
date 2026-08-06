@@ -56,6 +56,10 @@ fn detail_schema(kind: &str) -> Option<(&'static str, &'static str)> {
             "未解决问题",
             r#"{"questions":[{"text":"","asked_by":"","unanswered_since":""}]}"#,
         ),
+        "mood" => (
+            "情绪氛围",
+            r#"{"overall":"","score":0,"emoji":"","summary":"","highlights":[{"text":"","emoji":""}]}"#,
+        ),
         _ => return None,
     };
     Some((label, schema))
@@ -317,6 +321,7 @@ mod tests {
             ("timeline", r#""phases""#),
             ("participation", r#""active_members""#),
             ("open_questions", r#""questions""#),
+            ("mood", r#""overall""#),
         ] {
             let msgs = build_prompt("detail", Some(kind), &["[id=1] 张三: 你好".into()], None);
             assert!(msgs[0].content.contains("只输出 JSON"), "{kind}");

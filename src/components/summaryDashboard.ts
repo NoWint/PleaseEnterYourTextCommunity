@@ -590,7 +590,7 @@ function bindFullscreenEvents(): void {
         if (block) {
           block.classList.add('sd-done');
           requestAnimationFrame(() => {
-            target.querySelectorAll('.sd-item, .sd-dec, .sd-tl-node, .sd-res-link, .sd-res-file, .sd-p-row').forEach((el, i) => {
+            target.querySelectorAll('.sd-item, .sd-dec, .sd-tl-node, .sd-res-link, .sd-res-file, .sd-p-row, .sd-mood-hl').forEach((el, i) => {
               (el as HTMLElement).style.setProperty('--reveal-i', String(i));
               el.classList.add('sd-reveal');
             });
