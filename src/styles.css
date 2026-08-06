@@ -97,19 +97,21 @@
   --ease-text: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 旧变量别名层 — 逐面迁移后删除;主题块覆盖旧名仍生效,保持过渡期不破 */
+/* 旧变量别名层 — 逐面迁移后删除;主题块覆盖旧名仍生效,保持过渡期不破。
+   注意:别名默认值必须指向基元而非新语义 token。新 token 在 [data-theme] 桥接块里反向
+   引用这些别名,若这里反向引用新 token 会形成循环(变量全部失效→按钮/面板变透明白底)。 */
 :root {
   /* nowint 默认主题:opencode oc-2 dark 打底 */
-  --bg: var(--surface-deep);
-  --panel: var(--surface-layer-01);
-  --border: var(--border-base);
+  --bg: var(--grey-1200);
+  --panel: var(--grey-1000);
+  --border: var(--alpha-light-10);
   --border-strong: var(--alpha-light-20);
   --active: #222225;
   --capsule: #1a1a1c;
-  --text: var(--text-base);
-  --text-body: var(--text-base);
-  --text-mute: var(--text-muted);
-  --text-weak: var(--text-faint);
+  --text: var(--grey-200);
+  --text-body: var(--grey-200);
+  --text-mute: var(--grey-500);
+  --text-weak: var(--grey-700);
   --text-faint: #545458;
   --border-dashed: var(--alpha-light-14);
   --text-action: var(--grey-600);
@@ -143,7 +145,7 @@
   --gh-label-bg: rgba(110, 118, 129, 0.16);
   --gh-label-border: rgba(110, 118, 129, 0.4);
   /* 语义化颜色 token — 供按钮/菜单/输入框/危险操作等复用,各主题覆盖 */
-  --surface: var(--surface-layer-01);
+  --surface: #1c1c1e;
   --surface-hover: #2a2a2c;
   --control-bg: var(--alpha-light-10);
   --control-bg-hover: var(--alpha-light-14);

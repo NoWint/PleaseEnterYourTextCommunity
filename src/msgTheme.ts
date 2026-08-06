@@ -26,6 +26,12 @@ export const BUILTIN_MSG_THEMES: MsgThemeDef[] = [
     swatch: '#9a7bd8',
   },
   {
+    id: 'serif', label: '衬线体',
+    font_family: "'Songti SC','SimSun','STSong','Noto Serif CJK SC','Source Han Serif SC','Georgia','Times New Roman',serif",
+    text_color: '#b8a88a',
+    swatch: '#b8a88a',
+  },
+  {
     id: 'pixel', label: '像素',
     font_family: "'SF Mono','Menlo','Consolas',monospace",
     text_color: '#4ade80',
