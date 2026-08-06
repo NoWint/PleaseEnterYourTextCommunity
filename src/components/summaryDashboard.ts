@@ -284,27 +284,25 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
     const refEl = t.closest<HTMLElement>('.mention-chip[data-msg-ref], .mention-chip[data-user-ref], .sd-ref[data-ref]');
     if (!refEl) return;
     e.stopPropagation();
-    // user 分支:按名字反查当前成员 → 名片。「我」「你」特殊值映射到 self / 单聊对方
+    // user 分支:模糊匹配成员 → 单名片/多人列表(AI 名字常不带空格/错字,精确找不到走 fuzzyMatchMembers)
     if (refEl.dataset.userRef != null) {
       const name = refEl.dataset.userRef;
-      const self = state.self;
-      // 「我」→ 当前用户 self
-      if (name === '我' && self) {
+      // 「我」→ 当前用户 self(精确)
+      if (name === '我' && state.self) {
         void import('./contactCard.js').then(({ openContactCard }) =>
-          openContactCard({ contactId: self.id, name: self.name, addr: self.addr, avatar: self.avatar ?? null, anchor: refEl }));
+          openContactCard({ contactId: state.self!.id, name: state.self!.name, addr: state.self!.addr, avatar: state.self!.avatar ?? null, anchor: refEl }));
         return;
       }
-      // 「你」→ 单聊对方(非 self 的成员);群聊无法确定「你」→ 回退按名字
-      let member = state.currentMembers.find((m) => m.name === name);
-      if (!member && name === '你') {
-        member = state.currentMembers.find((m) => !m.is_self);
+      // 「你」→ 单聊对方(非 self 成员);群聊回退按名字模糊匹配
+      if (name === '你' && !state.currentChatIsGroup) {
+        const other = state.currentMembers.find((m) => !m.is_self);
+        if (other) {
+          void import('./memberPicker.js').then(({ openUserPicker }) =>
+            openUserPicker(other.name, refEl));
+          return;
+        }
       }
-      if (member) {
-        void import('./contactCard.js').then(({ openContactCard }) =>
-          openContactCard({ contactId: member!.contact_id, name: member!.name, addr: member!.addr, avatar: member!.avatar, anchor: refEl }));
-      } else {
-        ui.toast(`未找到成员:${name}`);
-      }
+      void import('./memberPicker.js').then(({ openUserPicker }) => openUserPicker(name, refEl));
       return;
     }
     // message 分支:跳原文。即使 id 不在当前窗口也尝试(chatView 兜底刷新加载)。

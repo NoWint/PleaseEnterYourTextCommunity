@@ -769,6 +769,27 @@ function bindTopicChipClick(): void {
   if (topicChipClickBound) return;
   topicChipClickBound = true;
   document.addEventListener('click', (e) => {
+    // 优先:点击气泡内可交互 chip(<user>/<message> 标签) → 弹名片/跳原文,不打开看板
+    const mention = (e.target as HTMLElement).closest<HTMLElement>('.mention-chip[data-user-ref], .mention-chip[data-msg-ref]');
+    if (mention) {
+      e.stopPropagation();
+      const userRef = mention.dataset.userRef;
+      if (userRef != null) {
+        // 「我」→ self 名片
+        if (userRef === '我' && state.self) {
+          void import('../components/contactCard.js').then(({ openContactCard }) =>
+            openContactCard({ contactId: state.self!.id, name: state.self!.name, addr: state.self!.addr, avatar: state.self!.avatar ?? null, anchor: mention }));
+        } else {
+          void import('../components/memberPicker.js').then(({ openUserPicker }) => openUserPicker(userRef, mention));
+        }
+      } else {
+        const ref = mention.dataset.msgRef;
+        if (ref != null && !Number.isNaN(Number(ref))) {
+          void jumpToMessage(Number(ref));
+        }
+      }
+      return;
+    }
     const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-topic-bubble="1"]');
     if (!chip) return;
     const prefs = getSummaryPrefs();

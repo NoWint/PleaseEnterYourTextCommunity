@@ -3,21 +3,23 @@
 // 标签参数值再次 escapeHtml。模糊跳转数据(data-ref/data-user)由调用方消费。
 import { escapeHtml } from '../components/escape.js';
 import type { WindowMsg } from './summaryContext.js';
+import type { MemberDto } from '../types.js';
 
 export interface MsgRef {
   type: 'message' | 'user';
   value: string;
 }
 
-// 原文本上的标签形态:<message='...'> / <user="...">(值内不换行,值内引号视为注入 → 不解包)
-const TAG_SRC = /<(message|user)=(['"])([^'"]*)\2>/g;
+// 原文本上的标签形态:兼容带引号(<message='52'>/<user="张三">)与无引号(<message=52>/<user=张三>)。
+// 值:可选单/双引号包裹,或裸值(不含引号/空白/右尖括号)。值内引号视为注入 → 不解包。
+const TAG_SRC = /<(message|user)=['"]?([^'"\s>]+)['"]?>/g;
 
 // 转义后文本上的白名单匹配:escapeHtml 后标签形如 &lt;message=&#39;…&#39;&gt;
-// (&#39;=单引号, &quot;=双引号)。值内禁止出现实体序列本身(escapeHtml 已把 & < > " '
+// (&#39;=单引号, &quot;=双引号, 裸值无引号)。值内禁止出现实体序列本身(escapeHtml 已把 & < > " '
 // 全转义;值内出现 &lt;/&gt;/&#39;/&quot; 说明原值含危险字符 → 保持转义不解包)。
-// 闭合引号用 \2 回引用:必须与开头引号同类型,防止值内引号伪造闭合。
+// 可选引号 + 裸值:&#39;…&#39; | &quot;…&quot; | 裸值(不含实体/空格/&gt;)。
 const TAG_ESCAPED =
-  /&lt;(message|user)=(&#39;|&quot;)((?:[^&]|&(?!gt;|lt;|#39;|quot;))*?)\2&gt;/g;
+  /&lt;(message|user)=(&#39;|&quot;)?((?:[^&]|&(?!gt;|lt;|#39;|quot;))+?)\2?&gt;/g;
 
 /** 转义整段输入并把白名单标签替换成受控 HTML;其它 <tag> 保持转义状态。 */
 export function parseSafeTags(input: string): string {
@@ -34,7 +36,7 @@ export function parseSafeTags(input: string): string {
 export function extractRefs(input: string): MsgRef[] {
   const refs: MsgRef[] = [];
   for (const m of input.matchAll(TAG_SRC)) {
-    refs.push({ type: m[1] as MsgRef['type'], value: m[3] });
+    refs.push({ type: m[1] as MsgRef['type'], value: m[2] });
   }
   return refs;
 }
@@ -139,4 +141,43 @@ export function fuzzyFindMessage(win: WindowMsg[], query: string): WindowMsg[] {
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s);
   return scored.slice(0, 3).map((x) => x.w);
+}
+
+// ── 成员模糊匹配(AI <user> 标签点击兜底)──
+// AI 常输出不带空格/缩写/错字的名字,精确匹配找不到 → 按名字/地址相关度打分,
+// 返回排序候选;调用方决定单名片(1 人)还是列表(多人)。
+
+/** 成员命中:member + 相关度分。 */
+export interface MemberHit {
+  member: MemberDto;
+  score: number;
+}
+
+function memberScore(m: MemberDto, q: string): number {
+  const name = m.name.toLowerCase();
+  const addr = m.addr.toLowerCase();
+  if (name === q) return 100;      // 精确名
+  if (name.includes(q)) return 70; // 名字包含
+  if (addr === q) return 90;       // 精确地址
+  if (addr.includes(q)) return 60; // 地址包含
+  // 名字内每个字都出现在 q 里(错字/乱序兜底):如「张三丰」→ q「张丰」
+  const qChars = new Set(q.split(''));
+  let matched = 0;
+  for (const c of name) if (qChars.has(c)) matched++;
+  if (matched > 0) return 20 + Math.min(30, matched * 5); // 部分字符命中
+  return 0;
+}
+
+/**
+ * 成员模糊匹配:按名字/地址相关度排序,过滤 score>0。
+ * 精确(100)单独列出供调用方直接弹名片;否则返回 TopN 候选列表。
+ */
+export function fuzzyMatchMembers(query: string, members: MemberDto[], limit = 5): MemberHit[] {
+  const q = query.trim().toLowerCase();
+  if (!q || !Array.isArray(members)) return [];
+  return members
+    .map((member) => ({ member, score: memberScore(member, q) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 }
