@@ -85,6 +85,13 @@ let sidebarRefresher: (() => void) | null = null;
 let ghFilesPath = '';
 let ghFilesRepoKey = '';
 
+// Promise 超时保护:GitHub API 慢/不可达时,超时给出明确错误,避免一直空白
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, reject) => {
+    setTimeout(() => reject(new Error('timeout')), ms);
+  })]);
+}
+
 // 标签栏指示线(GitHub 式橙色下划线):仅一个主区实例,页面重入时覆盖指针。
 // 指示线用 active 项相对 .gh-tabbar 的 offsetLeft/offsetWidth 定位,CSS 过渡滑动(§4 行为而非固定动画)。
 let ghTabTarget: { bar: HTMLElement; thumb: HTMLElement } | null = null;
@@ -789,11 +796,17 @@ async function openGhPull(p: PullDto): Promise<void> {
 
 // Commits:mono sha[0:7] + 消息首行 + 作者/日期
 async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<void> {
-  body.innerHTML = '';
-  const list = document.createElement('div');
-  list.style.cssText = 'display:flex;flex-direction:column';
-  body.appendChild(list);
+  // 保留 renderEditorContent 的加载 spinner,数据到达前不空白
   let page = 1; // 后端每页 per_page=100,满页时提供「加载更多」
+  let list: HTMLElement | null = null;
+
+  function ensureList(): HTMLElement {
+    if (list) return list;
+    list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-direction:column';
+    body.appendChild(list);
+    return list;
+  }
 
   function buildRow(c: CommitDto): HTMLElement {
     const row = document.createElement('div');
@@ -814,21 +827,29 @@ async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<
   async function loadPage(): Promise<boolean> {
     let commits: CommitDto[];
     try {
-      commits = await call<CommitDto[]>('github_list_commits', { owner: repo.owner, repo: repo.repo, page });
+      commits = await withTimeout(
+        call<CommitDto[]>('github_list_commits', { owner: repo.owner, repo: repo.repo, page }),
+        10000,
+      );
     } catch (e) {
-      if (list.childElementCount === 0) list.appendChild(ui.empty(e instanceof Error ? e.message : String(e)));
+      body.innerHTML = '';
+      const msg = e instanceof Error && e.message === 'timeout'
+        ? '加载超时:连接 GitHub API 超时,请检查网络后重试'
+        : (e instanceof Error ? e.message : String(e));
+      body.appendChild(ui.empty(msg));
       return false;
     }
-    if (commits.length === 0) return false;
-    for (const c of commits) list.appendChild(buildRow(c));
+    const l = ensureList();
+    l.innerHTML = '';
+    if (commits.length === 0) {
+      l.appendChild(ui.empty('暂无 Commit'));
+      return false;
+    }
+    for (const c of commits) l.appendChild(buildRow(c));
     return commits.length >= 100;
   }
 
   const hasMore = await loadPage();
-  if (list.childElementCount === 0) {
-    list.appendChild(ui.empty('暂无 Commit'));
-    return;
-  }
   if (hasMore) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -843,7 +864,7 @@ async function renderGhCommits(body: HTMLElement, repo: GithubRepoRef): Promise<
       if (more) btn.textContent = '加载更多';
       else btn.remove();
     });
-    list.appendChild(btn);
+    ensureList().appendChild(btn);
   }
 }
 
