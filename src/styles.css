@@ -3187,6 +3187,37 @@ body {
   --theme-scanlines: none;
 }
 
+/* ── oc-2 token 主题桥接(2026-08-06 修复)────────────────────────────
+   组件(侧边栏/按钮/输入框/浮层等)使用 oc-2 新语义 token(surface / text / border-base /
+   overlay / elevation 系列),但各 [data-theme] 主题块只覆盖旧别名(--bg/--panel/--surface/
+   --text/--border/--control-bg...)。此前新 token 仅在 :root 有默认值,导致换主题时侧边栏恒黑、
+   按钮/输入框恒深、阴影颜色错位。此块把新 token 桥接到主题覆盖的旧别名上,使换主题真正生效。
+   nowint(无 data-theme)不受影响,保持 oc-2 深色默认。 */
+[data-theme] {
+  --surface-base: var(--panel);
+  --surface-deep: var(--bg);
+  --surface-layer-01: var(--panel);
+  --surface-layer-02: var(--surface);
+  --surface-layer-03: var(--surface-hover);
+  --surface-contrast: #ffffff;
+  --text-base: var(--text);
+  --text-muted: var(--text-mute);
+  --text-faint: var(--text-weak);
+  --icon-base: var(--text);
+  --icon-muted: var(--text-mute);
+  --icon-faint: var(--text-weak);
+  --border-base: var(--border);
+  --border-weak: var(--border-dashed);
+  --overlay-hover: var(--control-bg);
+  --overlay-pressed: var(--control-bg-hover);
+  --overlay-contrast-hover: var(--control-bg);
+  --overlay-contrast-pressed: var(--control-bg-hover);
+  /* 效果主题(toon/crt/zzz/brutal)用 --shadow-* 定义硬阴影,接到 elevation 阶梯使其真正生效 */
+  --elevation-raised: var(--shadow-sm);
+  --elevation-floating: var(--shadow-md);
+  --elevation-overlay: var(--shadow-lg);
+}
+
 /* === 主题切换 UI === */
 .rd-appearance { margin: 8px 0; padding: 0 16px; }
 .rd-appearance-title {
