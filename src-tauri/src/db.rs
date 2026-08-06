@@ -100,6 +100,32 @@ pub struct IntelligenceSettingsRow {
     pub updated_at: i64,
 }
 
+/// 主题总结偏好/状态行(无行时取默认)。
+#[derive(Clone, Debug)]
+pub struct SummarySettingsRow {
+    pub mode: String, pub source: String, pub model_size: String,
+    pub context_n: u32, pub engine_version: Option<String>, pub model_sha256: Option<String>,
+    pub api_base_url: Option<String>, pub api_key: Option<String>, pub api_model: Option<String>,
+}
+
+impl Default for SummarySettingsRow {
+    /// 与 SQL 默认(mode='wordfreq', source='local', model_size='0.5b', context_n=50)对齐,
+    /// 避免无行时 Rust 默认("", 0)与落库后读到的值不一致。
+    fn default() -> Self {
+        Self {
+            mode: "wordfreq".into(), source: "local".into(), model_size: "0.5b".into(),
+            context_n: 50, engine_version: None, model_sha256: None,
+            api_base_url: None, api_key: None, api_model: None,
+        }
+    }
+}
+
+/// set_summary_settings 的输入(部分字段)。
+#[derive(Clone, Debug)]
+pub struct SummarySettingsPatch {
+    pub mode: String, pub source: String, pub model_size: String, pub context_n: u32,
+}
+
 pub struct Db {
     pub conn: Arc<Mutex<Connection>>,
 }
@@ -296,6 +322,24 @@ impl Db {
                     api_key TEXT,
                     model TEXT,
                     updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS summary_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    mode TEXT NOT NULL DEFAULT 'wordfreq',
+                    source TEXT NOT NULL DEFAULT 'local',
+                    model_size TEXT NOT NULL DEFAULT '0.5b',
+                    context_n INTEGER NOT NULL DEFAULT 50,
+                    engine_version TEXT,
+                    model_sha256 TEXT,
+                    api_base_url TEXT, api_key TEXT, api_model TEXT,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS summary_cache (
+                    chat_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (chat_id, kind)
                 );",
             )?;
             Ok(())
@@ -1977,6 +2021,143 @@ impl Db {
                    window_n = excluded.window_n, base_url = excluded.base_url, api_key = excluded.api_key,
                    model = excluded.model, updated_at = excluded.updated_at",
                 params![mode, source, model_tier, window_n, base_url, api_key, model, now],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    // ── 主题总结偏好/缓存 ───────────────────────────────────────────────
+
+    /// 主题总结偏好/状态行(id=1)。无行 → 默认值。
+    pub async fn get_summary_settings(&self) -> AppResult<SummarySettingsRow> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> AppResult<SummarySettingsRow> {
+            let c = conn.blocking_lock();
+            let row = c
+                .query_row(
+                    "SELECT mode, source, model_size, context_n, engine_version, model_sha256,
+                            api_base_url, api_key, api_model
+                     FROM summary_settings WHERE id = 1",
+                    [],
+                    |r| {
+                        Ok(SummarySettingsRow {
+                            mode: r.get(0)?, source: r.get(1)?, model_size: r.get(2)?,
+                            context_n: r.get(3)?, engine_version: r.get(4)?,
+                            model_sha256: r.get(5)?, api_base_url: r.get(6)?,
+                            api_key: r.get(7)?, api_model: r.get(8)?,
+                        })
+                    },
+                )
+                .optional()?
+                .unwrap_or_default();
+            Ok(row)
+        })
+        .await?
+    }
+
+    /// 写偏好(id=1 UPSERT)。
+    pub async fn set_summary_settings(&self, p: &SummarySettingsPatch) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let p = p.clone();
+        let updated_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO summary_settings
+                   (id, mode, source, model_size, context_n, updated_at)
+                 VALUES (1, ?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(id) DO UPDATE SET
+                   mode = excluded.mode, source = excluded.source,
+                   model_size = excluded.model_size, context_n = excluded.context_n,
+                   updated_at = excluded.updated_at",
+                params![p.mode, p.source, p.model_size, p.context_n, updated_at],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 写 API 凭据(全 None = 清除;存 summary_settings.api_* 列)。
+    pub async fn set_summary_api(&self, base_url: Option<&str>, api_key: Option<&str>, model: Option<&str>) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let base_url = base_url.map(str::to_string);
+        let api_key = api_key.map(str::to_string);
+        let model = model.map(str::to_string);
+        let updated_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO summary_settings (id, api_base_url, api_key, api_model, updated_at)
+                 VALUES (1, ?1, ?2, ?3, ?4)
+                 ON CONFLICT(id) DO UPDATE SET
+                   api_base_url = excluded.api_base_url, api_key = excluded.api_key,
+                   api_model = excluded.api_model, updated_at = excluded.updated_at",
+                params![base_url, api_key, model, updated_at],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 写引擎版本 + 模型 sha256(下载完成时,id=1 UPSERT)。
+    pub async fn set_summary_version_hash(&self, engine_version: &str, model_sha256: &str) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let engine_version = engine_version.to_string();
+        let model_sha256 = model_sha256.to_string();
+        let updated_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO summary_settings (id, engine_version, model_sha256, updated_at)
+                 VALUES (1, ?1, ?2, ?3)
+                 ON CONFLICT(id) DO UPDATE SET
+                   engine_version = excluded.engine_version,
+                   model_sha256 = excluded.model_sha256,
+                   updated_at = excluded.updated_at",
+                params![engine_version, model_sha256, updated_at],
+            )?;
+            Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    /// 读会话摘要缓存。无缓存 → None。
+    pub async fn get_summary_cache(&self, chat_id: u64, kind: &str) -> AppResult<Option<String>> {
+        let conn = self.conn.clone();
+        let kind = kind.to_string();
+        tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
+            let c = conn.blocking_lock();
+            let text = c
+                .query_row(
+                    "SELECT text FROM summary_cache WHERE chat_id = ?1 AND kind = ?2",
+                    params![chat_id as i64, kind],
+                    |r| r.get::<_, String>(0),
+                )
+                .optional()?;
+            Ok(text)
+        })
+        .await?
+    }
+
+    /// 写会话摘要缓存(chat_id,kind 主键 UPSERT)。
+    pub async fn upsert_summary_cache(&self, chat_id: u64, kind: &str, text: &str) -> AppResult<()> {
+        let conn = self.conn.clone();
+        let kind = kind.to_string();
+        let text = text.to_string();
+        let updated_at = chrono::Utc::now().timestamp();
+        tokio::task::spawn_blocking(move || -> AppResult<()> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO summary_cache (chat_id, kind, text, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(chat_id, kind) DO UPDATE SET
+                   text = excluded.text, updated_at = excluded.updated_at",
+                params![chat_id as i64, kind, text, updated_at],
             )?;
             Ok(())
         })

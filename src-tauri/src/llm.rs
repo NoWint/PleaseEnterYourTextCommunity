@@ -640,9 +640,9 @@ impl LlmClient {
         while let Some(chunk) = bytes.next().await {
             let chunk = chunk.map_err(|e| AppError::Core(format!("llm stream read: {e}")))?;
             buf.extend_from_slice(&chunk);
-            while let Some(ev) = crate::sse::extract_sse_text(&mut buf) {
+            while let Some(ev) = crate::summary::sse::extract_sse_text(&mut buf) {
                 for line in ev.lines() {
-                    if let Some(d) = crate::sse::parse_sse_line(line) {
+                    if let Some(d) = crate::summary::sse::parse_sse_line(line) {
                         if d.done { return Ok(full); }
                         if !d.text.is_empty() {
                             full.push_str(&d.text);

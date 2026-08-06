@@ -17,8 +17,8 @@ mod notifications;
 mod personas;
 mod plugins;
 mod runtime;
-mod sse;
 mod state;
+mod summary;
 #[cfg(target_os = "windows")]
 mod titlebar;
 mod tools;
@@ -273,7 +273,7 @@ pub fn run() {
                         None => None,
                     }
                     .ok_or_else(|| crate::error::AppError::Core("no account".into()))?;
-                    crate::commands::send_text_impl(&ctx, chat_id, text)
+                    crate::commands::send_text_impl(&ctx, chat_id, text, None)
                         .await
                         .map(|id| id.to_u32())
                 })
@@ -348,6 +348,22 @@ pub fn run() {
                         }
                     }
                 });
+            }
+            // 主题总结服务:下载 + 队列 + 本地/API 推理(managed resource, 命令层共享)
+            // 必须在 app.manage(state) 之前构建 —— SummaryService 需 state.db(Arc<Db> 可 clone)。
+            {
+                use tauri::Manager;
+                // 注:dir 已 move 进 AppState::new(上方 async move),此处置用 state.data_dir(同路径)。
+                let models_dir = state.data_dir.join("models");
+                let engine_exe = if cfg!(target_os = "windows") { "llama-server.exe" } else { "llama-server" };
+                let runner = Arc::new(crate::summary::runner::LocalRunner::new(models_dir.join(engine_exe)));
+                // 默认档位 0.5b 的模型文件(切换由 summary_save_prefs 更新)
+                let default_model = models_dir.join(crate::summary::downloader::ModelSize::B05.file_name());
+                // setup 闭包非 async → block_on 跑 new()(内部含启动水合 await)
+                let svc = tauri::async_runtime::block_on(crate::summary::commands::SummaryService::new(
+                    app.handle().clone(), state.data_dir.clone(), runner, default_model, state.db.clone(),
+                ));
+                app.manage(svc);
             }
             app.manage(state);
             Ok(())
@@ -549,6 +565,16 @@ pub fn run() {
             commands::send_vcard,
             // 附件发送(media 信封)
             commands::send_attachment,
+            // 主题总结(LLM)
+            summary::commands::summary_get_state,
+            summary::commands::summary_save_prefs,
+            summary::commands::summary_set_api,
+            summary::commands::summary_clear_api,
+            summary::commands::summary_download,
+            summary::commands::summary_list_models,
+            summary::commands::summary_enqueue,
+            summary::commands::summary_load_cache,
+            summary::commands::summary_save_cache,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
