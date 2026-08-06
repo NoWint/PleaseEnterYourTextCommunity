@@ -211,6 +211,17 @@ function bindCheckboxPersistence(root: HTMLElement, chatId: number): void {
       const i = cb.dataset.actionI;
       if (i == null) return;
       localStorage.setItem(`sd-action-done:${chatId}:action_items:${i}`, cb.checked ? '1' : '0');
+      // 勾选变化 → 同步更新进度条(宽度 + 计数),不整块重渲染打断流式
+      const progress = root.querySelector<HTMLElement>('.sd-action-progress');
+      const fill = root.querySelector<HTMLElement>('.sd-action-p-fill');
+      if (!progress || !fill) return;
+      const boxes = root.querySelectorAll<HTMLInputElement>('.sd-check-input');
+      const total = boxes.length;
+      const done = [...boxes].filter((b) => b.checked).length;
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      fill.style.width = `${pct}%`;
+      const label = progress.querySelector('span');
+      if (label) label.textContent = `${done}/${total}`;
     });
   });
 }
