@@ -4,6 +4,7 @@ import { showToast } from '../toast.js';
 import { appendOptimisticMessage } from './chatView.js';
 import { iconSvg } from '../components/icon.js';
 import { escapeHtml, escapeAttr } from '../components/escape.js';
+import { showDropdown } from '../components/dropdown.js';
 import type { MsgDto, MemberDto, ChannelDto } from '../types.js';
 
 // 乐观更新临时消息类型 — message.js 读取这些字段渲染发送中状态。
@@ -99,7 +100,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       </div>
       <div class="composer-toolbar">
         <div class="composer-tools">
-          <button type="button" class="composer-tool" id="composer-attach" title="附件">${iconSvg('paperclip', { width: 18, height: 18 })}</button>
+          <button type="button" class="composer-tool" id="composer-attach" title="添加">${iconSvg('plus', { width: 18, height: 18 })}</button>
           <label class="composer-md-toggle" title="Markdown 渲染">
             <span class="composer-md-label">M↓</span>
             <span class="toggle-switch">
@@ -107,7 +108,6 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
               <span class="toggle-slider"></span>
             </span>
           </label>
-          <button type="button" class="composer-tool" id="composer-more" title="更多">${iconSvg('more-horizontal', { width: 18, height: 18 })}</button>
         </div>
         <div class="composer-actions">
           <span class="composer-mic-timer" id="composer-mic-timer"></span>
@@ -198,7 +198,8 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   });
   // 重渲染(回复发送/取消)后让 DOM 与模块级 expanded 保持一致
   applyExpanded(expanded);
-  // 附件按钮:打开文件选择 → base64 → send_attachment(media 信封)
+  // 附件(加号)按钮:点开菜单 popup,目前只做「附件上传」。
+  // 附件上传:打开文件选择 → base64 → send_attachment(media 信封)。
   const attachBtn = document.getElementById('composer-attach') as HTMLButtonElement | null;
   if (attachBtn) {
     const fileInput = document.createElement('input');
@@ -210,10 +211,17 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       if (f) void sendAttachment(chatId, f, onSent);
     });
     attachBtn.parentElement?.appendChild(fileInput);
-    attachBtn.addEventListener('click', () => fileInput.click());
+    attachBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showDropdown(attachBtn, [
+        {
+          label: '附件上传',
+          icon: 'paperclip',
+          action: () => fileInput.click(),
+        },
+      ], { position: 'bottom-left' });
+    });
   }
-  // 更多按钮:占位
-  document.getElementById('composer-more')?.addEventListener('click', () => showToast('更多功能开发中'));
   // md 开关:仅控制本条消息发送的 markdown 字段(不碰引用块渲染)
   const mdToggle = document.getElementById('composer-md') as HTMLInputElement | null;
   const mdWrap = composerEl?.querySelector('.composer-md-toggle');

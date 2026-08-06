@@ -780,13 +780,20 @@ html.window-frame #titlebar-tools { height: 34px; }
 .composer-actions { display: flex; align-items: center; gap: 8px; }
 /* md 开关组:label + iOS toggle 内联 */
 .composer-md-toggle {
-  display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; gap: 4px;
   padding: 0 4px; cursor: pointer;
   border-radius: var(--radius-sm);
   transition: background 140ms var(--ease-out);
+  /* 防 flex 挤压:工具条内固定宽度,不被压缩导致开关折叠 */
+  flex-shrink: 0;
 }
 .composer-md-toggle:hover { background: var(--active); }
 .composer-md-label { font-size: 11px; font-weight: 600; color: var(--text-mute); }
+/* 工具条内的 Switch 缩小:32×18(全局 .toggle-switch 是 40×22,这里只改 composer 内) */
+.composer-md-toggle .toggle-switch { width: 32px; height: 18px; }
+.composer-md-toggle .toggle-switch .toggle-slider { border-radius: 18px; }
+.composer-md-toggle .toggle-switch .toggle-slider:before { height: 14px; width: 14px; left: 2px; bottom: 2px; }
+.composer-md-toggle .toggle-switch input:checked + .toggle-slider:before { transform: translateX(14px); }
 /* 关闭时检测到 md 语法 → 呼吸灯 */
 .composer-md-toggle.md-hint { animation: md-breathe 1.6s ease-in-out infinite; }
 @keyframes md-breathe {
