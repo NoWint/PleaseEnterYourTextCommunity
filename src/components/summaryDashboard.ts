@@ -100,12 +100,26 @@ function renderDecisions(text: string): string {
   return `<div class="sd-list">${cards || '<div class="sd-empty">无决策</div>'}</div>`;
 }
 
-/** 参与度统计(纯前端) → 成员条。 */
+/** 参与度统计(纯前端) → 成员条 + 活跃时段柱状 + 消息趋势。 */
 function renderParticipationStat(win: WindowMsg[]): string {
   const p = computeParticipation(win);
-  return p.per_member
-    .map((m) => `<div class="sd-p-row"><span class="sd-p-name">${escapeHtml(m.name)}</span><span class="sd-p-nums">${m.msg_count} 条 · ${m.char_count} 字 · ${m.active_days} 天</span></div>`)
+  const maxH = Math.max(1, ...p.hours.map((h) => h.count));
+  const maxD = Math.max(1, ...p.density.map((d) => d.count));
+  const maxM = Math.max(1, ...p.per_member.map((m) => m.msg_count));
+  const bars = p.hours
+    .map((h) => `<div class="sd-p-h-bar" style="height:${(h.count / maxH) * 100}%"><span class="sd-p-h-label">${h.hour}</span></div>`)
     .join('');
+  const trend = p.density
+    .map((d) => `<div class="sd-p-d-bar" style="height:${(d.count / maxD) * 100}%"><span class="sd-p-d-label">${d.day.slice(5)}</span></div>`)
+    .join('');
+  const members = p.per_member
+    .map((m) => `<div class="sd-p-m-row"><span class="sd-p-name">${escapeHtml(m.name)}</span>
+      <div class="sd-p-m-track"><div class="sd-p-m-fill" style="width:${(m.msg_count / maxM) * 100}%"></div></div>
+      <span class="sd-p-nums">${m.msg_count} 条 · ${m.char_count} 字 · ${m.active_days} 天</span></div>`)
+    .join('');
+  return `<div class="sd-p-hours"><div class="sd-p-subtitle">活跃时段</div><div class="sd-p-h-chart">${bars}</div></div>
+    <div class="sd-p-trend"><div class="sd-p-subtitle">消息趋势</div><div class="sd-p-d-chart">${trend}</div></div>
+    <div class="sd-p-members"><div class="sd-p-subtitle">成员活跃</div>${members}</div>`;
 }
 
 /** summary:markdown 渲染(内嵌 <user>/<message> 标签解析成可点 chip)。 */
