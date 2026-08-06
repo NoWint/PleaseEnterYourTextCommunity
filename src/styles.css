@@ -672,10 +672,9 @@ html.window-frame #titlebar-tools { height: 34px; }
 /* 顶部 resize 指示器:仅展开模式显示。悬停/拖动浮现细条,纵向拖拽调高 textarea
    (拖动区间 [40, 320]px,见 composer.ts;拖回单行高度松手自动切回收起模式)。 */
 .composer-resize {
-  position: absolute; top: 0; left: 0; right: 0;
-  height: 8px; cursor: row-resize;
-  z-index: 5;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  position: absolute; top: -3px; left: 0; right: 0;
+  height: 9px; cursor: row-resize;
+  z-index: 20;
   display: none; align-items: center; justify-content: center;
 }
 .composer-resize::before {
@@ -683,11 +682,12 @@ html.window-frame #titlebar-tools { height: 34px; }
   background: var(--text-mute);
   opacity: 0; transition: opacity 120ms var(--ease-out);
 }
-.composer-resize:hover::before, .composer-resize:active::before { opacity: 0.8; }
-/* 展开时:显示指示器,textarea 撑高(默认 140px,可拖到 320px) */
+/* 悬停容器边缘即显示抓取条:热区放大但只有中间细条可点 */
+.composer:hover .composer-resize::before, .composer-resize:hover::before, .composer-resize:active::before { opacity: 0.9; }
+/* 展开时:显示指示器,textarea 撑高(默认 88px,可拖到 320px) */
 .composer.expanded .composer-resize { display: flex; }
 .composer.expanded textarea {
-  min-height: 140px;
+  min-height: 88px;
   max-height: 320px;
 }
 /* 下部工具条:图标组左对齐,操作按钮右对齐 (微信 space-between) */
@@ -1213,7 +1213,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   cursor: pointer;
   font-size: var(--font-scale-body); font-weight: 600;
   color: var(--on-accent);
-  background: var(--success);
+  background: var(--text);
   transition: transform 100ms ease-out, opacity 120ms, filter 150ms;
 }
 .composer-send svg { display: block; }

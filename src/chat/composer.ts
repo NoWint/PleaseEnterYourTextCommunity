@@ -102,9 +102,9 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   // (左侧图标组,右侧录音圆形 + 翠绿胶囊「发送」)。
   area.innerHTML = `
     <div class="composer">
+      <div class="composer-resize" id="composer-resize" title="拖拽调整高度" aria-hidden="true"></div>
       ${replyPreview}
       <div class="composer-main">
-        <div class="composer-resize" id="composer-resize" title="拖拽调整高度" aria-hidden="true"></div>
         <textarea id="composer-input" placeholder="${PLACEHOLDER_COLLAPSED}" rows="1"></textarea>
         <button type="button" class="composer-expand" id="composer-expand" aria-label="展开输入框">
           ${iconSvg('chevrons-up-down', { width: 14, height: 14 })}
