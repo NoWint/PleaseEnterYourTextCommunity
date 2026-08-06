@@ -43,6 +43,8 @@
 |---|---|---|
 | `markdown` | bool | `true` → 前端 md 渲染;缺失/`false` → 纯文本 |
 
+**markdown 字段语义(重要)**:`markdown` 字段只描述**这条消息自身正文**是否 md 渲染。composer 的 Switch 只控制发送时给 text 消息写入的 `markdown` 值;**引用块不随 Switch 状态变化**——引用块渲染遵循被引用消息信封内的 `markdown` 字段(见 §4.2)。两者独立。
+
 兼容性:老端忽略新字段(读不懂 markdown 时按纯文本渲染);`markdown: true` 但正文非 md 语法 → 渲染结果与纯文本几乎一致(marked 幂等)。
 
 ### 2.2 reply payload
@@ -127,7 +129,8 @@ const quoteHtml = qIsMd ? renderMarkdown(qText) : escapeHtml(qText);
 
 - composer-toolbar 左侧加「Markdown」label + iOS 风格 switch(仿 iPhone 设置 toggle)。
 - 默认开,状态存 localStorage(key 如 `peyt.md.enabled`)。
-- 发送时传 `markdown` 状态给 `send_text`/`send_reply`。
+- 发送时传 `markdown` 状态给 `send_text`/`send_reply`,写入**本条消息**信封的 markdown 字段。
+- **Switch 只管发送方**:只控制本条 text 消息是否带 md 渲染。**不控制引用块**——引用块渲染遵循被引用消息信封内的 markdown 字段(见 §4.2),与 Switch 状态无关。
 - 自动检测:开关关时,输入文本检测 md 语法(`#`/`**`/`` ` ``/`-`/`>`/`|`/`[text](url)` 等) → 开关组加呼吸灯 class;手动点开开关 → 熄灭。
 
 ### 4.4 呼吸灯
@@ -137,9 +140,10 @@ CSS:开关组 `@keyframes` 呼吸(透明度 0.5→1 循环),参考现有 `bubble
 ## 5. 数据流
 
 ```
-发送:composer 开关状态 → send_text/send_reply(markdown) → 后端信封 JSON → core 存储
+发送:composer Switch 状态 → send_text/send_reply(markdown) → 后端信封 JSON(本条消息字段) → core 存储
 接收:renderMessage → tryParseEnvelope → envelopeMarkdown → renderMarkdown/renderText → 气泡 DOM
-引用:quote_text(core 原文) → 按消息体 markdown 决定引用块渲染
+引用:quote_text = 被引用消息完整信封 → tryParseEnvelope → 被引用消息的 markdown 字段决定引用块渲染(与 Switch 无关)
+```
 ```
 
 ## 6. 错误处理
@@ -155,6 +159,7 @@ CSS:开关组 `@keyframes` 呼吸(透明度 0.5→1 循环),参考现有 `bubble
 - 后端:`send_text`/`send_reply` payload 含 markdown 字段;reply 信封结构 + set_quote 保留。
 - 前端:envelopeMarkdown 布尔严格校验(true/缺失/非布尔);渲染分支(md/纯文本)。
 - 引用块:被引用消息是 md 信封 → 引用块 md 渲染;纯文本消息 → 引用块纯文本(遵循被引用消息)。
+- **Switch 不控制引用块**:发送方 Switch 状态只写本条消息 markdown 字段;引用块渲染完全由被引用消息信封内的 markdown 决定,与 Switch 无关。
 - 引用块 quote_text 非信封(旧消息)→ 原文兜底纯文本。
 
 ## 8. 未来预留(本期不做)
