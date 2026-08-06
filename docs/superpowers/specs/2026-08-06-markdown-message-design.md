@@ -69,18 +69,18 @@ text 以 `{` 开头 → JSON.parse 成功 → type/id/payload 齐全 → 信封�
 
 ### 3.1 send_text
 
-`send_text(chat_id, text, markdown: bool)` 新增参数。payload 构造:
+`send_text(chat_id, text, markdown: Option<bool>)` 新增参数(`Option` 保证老调用方不传不崩,缺失视为 false)。payload 构造:
 
 ```rust
-let payload = serde_json::json!({ "text": text, "markdown": markdown });
+let payload = serde_json::json!({ "text": text, "markdown": markdown.unwrap_or(false) });
 ```
 
 ### 3.2 send_reply
 
-`send_reply(chat_id, text, quote_msg_id, markdown: bool)` 新增参数。改为信封 + core quote:
+`send_reply(chat_id, text, quote_msg_id, markdown: Option<bool>)` 新增参数(`Option` 兼容老调用方)。改为信封 + core quote:
 
 ```rust
-let payload = serde_json::json!({ "text": text, "quote_msg_id": quote_msg_id, "markdown": markdown });
+let payload = serde_json::json!({ "text": text, "quote_msg_id": quote_msg_id, "markdown": markdown.unwrap_or(false) });
 let envelope = crate::envelope::build_envelope("reply", payload)?;
 let mut msg = Message::new_text(envelope);
 let quote = Message::load_from_db(&ctx, MsgId::new(quote_msg_id)).await?;
