@@ -17,8 +17,8 @@ mod notifications;
 mod personas;
 mod plugins;
 mod runtime;
+mod sse;
 mod state;
-mod summary;
 #[cfg(target_os = "windows")]
 mod titlebar;
 mod tools;

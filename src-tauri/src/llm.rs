@@ -160,7 +160,7 @@ pub fn build_gemini_body(
 }
 
 /// OpenAI 单条消息 → chat/completions 消息。
-/// pub(crate):summary::runner 本地推理复用同一序列化(避免重复逻辑)。
+/// pub(crate): 本地推理路径复用同一序列化(避免重复逻辑)。
 pub(crate) fn openai_message(m: &ChatMessage) -> serde_json::Value {
     match m.role.as_str() {
         "tool" => serde_json::json!({
@@ -640,9 +640,9 @@ impl LlmClient {
         while let Some(chunk) = bytes.next().await {
             let chunk = chunk.map_err(|e| AppError::Core(format!("llm stream read: {e}")))?;
             buf.extend_from_slice(&chunk);
-            while let Some(ev) = crate::summary::sse::extract_sse_text(&mut buf) {
+            while let Some(ev) = crate::sse::extract_sse_text(&mut buf) {
                 for line in ev.lines() {
-                    if let Some(d) = crate::summary::sse::parse_sse_line(line) {
+                    if let Some(d) = crate::sse::parse_sse_line(line) {
                         if d.done { return Ok(full); }
                         if !d.text.is_empty() {
                             full.push_str(&d.text);
