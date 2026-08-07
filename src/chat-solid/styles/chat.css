@@ -1,0 +1,53 @@
+/* Tailwind v4 激活 */
+@import "tailwindcss";
+
+/* v2 设计令牌(从 opencode vendored) */
+@import "../vendor/styles/theme.css";
+@import "../vendor/styles/colors.css";
+
+/* Inter 可变字体 */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("https://rsms.me/inter/font-files/InterVariable.woff2") format("woff2");
+}
+
+.peyt-chat {
+  font-family: "Inter", sans-serif;
+  font-variation-settings: "slnt" 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--v2-text-text-base);
+  background: var(--v2-background-bg-base);
+}
+
+/* 排版工具类:数字=px,后缀=字重(regular=440, medium=530) */
+.text-11-regular { font-size: 11px; font-weight: 440; line-height: 16px; letter-spacing: -0.04px; }
+.text-11-medium { font-size: 11px; font-weight: 530; line-height: 16px; letter-spacing: -0.04px; }
+.text-12-regular { font-size: 12px; font-weight: 440; line-height: 16px; letter-spacing: -0.04px; }
+.text-13-regular { font-size: 13px; font-weight: 440; line-height: 20px; letter-spacing: -0.04px; }
+.text-13-medium { font-size: 13px; font-weight: 530; line-height: 20px; letter-spacing: -0.04px; }
+.text-15-medium { font-size: 15px; font-weight: 530; line-height: 20px; letter-spacing: -0.13px; }
+
+/* 消息气泡 */
+.msg-bubble-out { background: var(--v2-background-bg-layer-02); }
+.msg-bubble-in  { background: var(--v2-background-bg-layer-01); }
+
+/* hover 操作 */
+.hover-actions { opacity: 0; transition: opacity 150ms ease-out; }
+.message-row:hover .hover-actions { opacity: 1; }
+
+/* fadeUp 阶梯进入(对齐 opencode) */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.fade-up > * { animation: fadeUp 200ms ease-out both; }
+.fade-up > *:nth-child(1) { animation-delay: 0ms; }
+.fade-up > *:nth-child(2) { animation-delay: 30ms; }
+.fade-up > *:nth-child(3) { animation-delay: 60ms; }
+.fade-up > *:nth-child(4) { animation-delay: 90ms; }
+.fade-up > *:nth-child(5) { animation-delay: 120ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-up > * { animation: none !important; }
+  .hover-actions { transition: none !important; }
+}
