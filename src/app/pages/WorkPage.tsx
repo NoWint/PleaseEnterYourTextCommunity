@@ -1,13 +1,18 @@
+// src/app/pages/WorkPage.tsx
+// 协作页：PageShell + 单卡片（对齐 opencode home.tsx 的单卡片模式）。
+
 import type { Component } from "solid-js"
+import PageShell, { PanelCard } from "../layout/PageShell"
 
 const WorkPage: Component = () => {
   return (
-    <div class="flex-1 flex items-center justify-center text-v2-text-text-base">
-      <div class="text-center">
-        <h2 class="text-xl font-semibold mb-2">协作</h2>
-        <p class="text-v2-text-text-muted text-sm">Phase 5 将迁移工作区视图</p>
-      </div>
-    </div>
+    <PageShell>
+      <PanelCard raised>
+        <div class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs">
+          协作（Phase 5 迁移）
+        </div>
+      </PanelCard>
+    </PageShell>
   )
 }
 

@@ -5,7 +5,7 @@
   "identifier": "com.peytchat.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1420/app.html",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
