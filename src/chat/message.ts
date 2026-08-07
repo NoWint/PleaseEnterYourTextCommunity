@@ -215,9 +215,12 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
       : renderText(resolveMessageText(msg.text));
   // 链接卡片: 正文里所有网页 URL → 消息体下方各渲染一张链接卡片(标题/描述/favicon)。
   // 先渲染壳(host + url), 预览由 hydrateLinkCard 异步水合, 避免阻塞渲染。
-  const linkCardHtml = extractWebUrls(resolveMessageText(msg.text))
-    .map((u) => renderLinkCard(u))
-    .join('');
+  // 手写消息(hw)屏蔽:video 文件名含 .mp4 会被裸域名正则误判为网址
+  const linkCardHtml = isHw
+    ? ''
+    : extractWebUrls(resolveMessageText(msg.text))
+        .map((u) => renderLinkCard(u))
+        .join('');
   // 发送者头像:优先用成员头像(state.currentMembers 与资料页同源、更新鲜),
   // 消息内嵌 from_avatar 可能取自头像设置前的旧快照,导致聊天里不显示而资料页正常。
   // 再兜底 from_avatar(成员列表缺失/不匹配时)。
