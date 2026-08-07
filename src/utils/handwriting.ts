@@ -15,7 +15,33 @@ export interface HandwritingStroke {
 
 export interface HandwritingPayload {
   text?: string;
+  /** true = 坐标已量化(0-1000 整数);缺省/旧数据 = 浮点归一化(0-1) */
+  q?: boolean;
   strokes: HandwritingStroke[];
+}
+
+// ── 发送前压缩:避免 deltachat 消息文本截断(单行每 100 字符算一行,上限 38 行 ≈ 3800 字符)。
+// 坐标量化到 0-1000 整数 + 总点数降采样到 MAX_POINTS,把多笔长轨迹压进信封。 ──
+const MAX_POINTS = 160;
+
+function downsample(pts: HandwritingStroke['pts'], max: number): HandwritingStroke['pts'] {
+  if (pts.length <= max) return pts;
+  const step = (pts.length - 1) / (max - 1);
+  const out: HandwritingStroke['pts'] = [];
+  for (let i = 0; i < max; i++) out.push(pts[Math.round(i * step)]);
+  return out;
+}
+
+function compressStrokes(strokes: HandwritingStroke[]): HandwritingStroke[] {
+  const per = Math.max(2, Math.floor(MAX_POINTS / Math.max(1, strokes.length)));
+  return strokes.map((s) => ({
+    ...s,
+    pts: downsample(s.pts, per).map(([x, y, t]) => [
+      Math.round(x * 1000),
+      Math.round(y * 1000),
+      Math.round(t),
+    ]),
+  }));
 }
 
 // ── 解析信封 payload → HandwritingPayload(结构不合法 → null) ────────
@@ -23,6 +49,8 @@ export function parseHandwriting(payload: unknown): HandwritingPayload | null {
   if (typeof payload !== 'object' || payload === null) return null;
   const p = payload as Record<string, unknown>;
   if (!Array.isArray(p.strokes) || p.strokes.length === 0) return null;
+  // 发送端已量化坐标到 0-1000 整数;旧数据为浮点归一化(0-1)
+  const quantized = p.q === true;
   const strokes: HandwritingStroke[] = [];
   for (const s of p.strokes) {
     if (typeof s !== 'object' || s === null) continue;
@@ -35,7 +63,9 @@ export function parseHandwriting(payload: unknown): HandwritingPayload | null {
       const y = Number(pt[1]);
       const t = Number(pt[2]);
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(t)) continue;
-      pts.push([Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y)), Math.max(0, t)]);
+      const qx = quantized ? x / 1000 : x;
+      const qy = quantized ? y / 1000 : y;
+      pts.push([Math.min(1, Math.max(0, qx)), Math.min(1, Math.max(0, qy)), Math.max(0, t)]);
     }
     if (pts.length < 2) continue;
     strokes.push({
@@ -45,7 +75,7 @@ export function parseHandwriting(payload: unknown): HandwritingPayload | null {
     });
   }
   if (strokes.length === 0) return null;
-  return { text: typeof p.text === 'string' ? p.text : '', strokes };
+  return { text: typeof p.text === 'string' ? p.text : '', q: quantized, strokes };
 }
 
 // ── 笔迹内容边界(归一化),接收端按此取景画布比例 ──────────────────
@@ -429,9 +459,8 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
       showToast('请先书写内容');
       return;
     }
-    const payload: HandwritingPayload = { text: '', strokes };
+    const payload: HandwritingPayload = { text: '', q: true, strokes: compressStrokes(strokes) };
     try {
-      console.log('[hw] sending:', JSON.stringify(payload).slice(0, 300));
       await call('send_handwriting', { chatId, payload });
       close();
       onSent();

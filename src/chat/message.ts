@@ -214,9 +214,6 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   // isHw 按信封类型判断(解析失败也绝不把原始 JSON 当文本渲染,降级为「手写消息」)
   const isHw = !!(env && env.type === 'handwriting');
   const hwPayload = isHw ? parseHandwriting(env!.payload) : null;
-  if (isHw && !hwPayload) {
-    console.warn('[hw] handwriting 信封解析失败,原文:', msg.text);
-  }
   const textHtml = isHw
     ? (hwPayload ? renderHandwritingCard(hwPayload) : '<span class="msg-text" style="color:var(--text-weak)">手写消息</span>')
     : isMd
