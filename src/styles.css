@@ -265,7 +265,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   border: 1px solid transparent;
   border-radius: 12px;
   background: color-mix(in srgb, var(--capsule) 60%, transparent);
-  color: var(--text); font-size: 15px; font-family: var(--font);
+  color: var(--text); font-size: var(--font-scale-page); font-family: var(--font);
   box-shadow: inset 0 1px 2px color-mix(in srgb, #000 16%, transparent);
   transition: box-shadow 180ms var(--ease-out), background 180ms var(--ease-out), border-color 180ms var(--ease-out);
 }
@@ -284,7 +284,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   border: none;
   border-radius: 12px;
   background: var(--text); color: var(--on-accent);
-  font-size: 15px; font-weight: 600; font-family: var(--font);
+  font-size: var(--font-scale-page); font-weight: 600; font-family: var(--font);
   cursor: pointer;
   letter-spacing: 0.01em;
   transition: transform 140ms var(--ease-out), opacity 180ms var(--ease-out), filter 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
@@ -302,7 +302,7 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 .login-form .tab {
   flex: 1; padding: 10px 0; border: none; border-radius: 9px;
-  background: transparent; color: var(--text-mute); font-size: 14px; font-family: var(--font);
+  background: transparent; color: var(--text-mute); font-size: var(--font-scale-page); font-family: var(--font);
   cursor: pointer; position: relative; z-index: 1;
   transition: color 200ms var(--ease-out);
 }
@@ -323,7 +323,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   .login-form .tab-panel:not([hidden]) { animation: none; }
 }
 
-.login-form .hint { font-size: 14px; line-height: 1.6; color: var(--text-mute); }
+.login-form .hint { font-size: var(--font-scale-body); line-height: 1.6; color: var(--text-mute); }
 
 /* 账号选择:纵向账号卡列表 */
 .login-accounts {
@@ -355,11 +355,11 @@ html.window-frame #titlebar-tools { height: 34px; }
   display: flex; flex-direction: column; gap: 2px; min-width: 0;
 }
 .login-account-name {
-  font-size: 14px; font-weight: 600; color: var(--text);
+  font-size: var(--font-scale-title); font-weight: 600; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .login-account-mail {
-  font-size: 12px; color: var(--text-mute);
+  font-size: var(--font-scale-secondary); color: var(--text-mute);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .login-account-current {
