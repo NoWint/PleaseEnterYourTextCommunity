@@ -274,6 +274,7 @@ html.window-frame #titlebar-tools { height: 34px; }
 /* 操作按钮组:全宽主按钮 — 主色圆底 + 白字 + 弹簧按压(§1/§4) */
 .login-form .ui-button {
   width: 100%;
+  justify-content: center;   /* 操作按钮内文字水平居中(Apple §1 对齐惯例) */
   padding: 15px 16px;
   border: none;
   border-radius: 12px;
@@ -287,55 +288,68 @@ html.window-frame #titlebar-tools { height: 34px; }
 .login-form .ui-button:not(:disabled):active { transform: scale(0.97); }
 .login-form .ui-button:disabled { opacity: 0.4; cursor: default; }
 
-/* 登录页 tab 切换(快速开始 / 邮箱登录):iOS 分段控件 — 毛玻璃底 + 活动项滑块 */
-.login-form .tabs {
-  position: relative;
-  display: flex; gap: 4px; padding: 4px;
-  background: color-mix(in srgb, var(--capsule) 80%, transparent);
-  border-radius: 12px;
-}
-.login-form .tab {
-  flex: 1; padding: 10px 0; border: none; border-radius: 9px;
-  background: transparent; color: var(--text-mute); font-size: 14px; font-family: var(--font);
-  cursor: pointer; position: relative; z-index: 1;
-  transition: color 200ms var(--ease-out);
-}
-.login-form .tab:hover { color: var(--text); }
-.login-form .tab.active {
-  background: color-mix(in srgb, var(--panel) 90%, transparent);
-  color: var(--text); font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.14), inset 0 0 0 0.5px color-mix(in srgb, var(--border-strong) 40%, transparent);
-}
-.login-form .tab-panel { flex-direction: column; gap: 14px; }
-.login-form .tab-panel:not([hidden]) { display: flex; animation: login-panel-in 240ms var(--ease-out); }
-.login-form .tab-panel[hidden] { display: none; }
 @keyframes login-panel-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .login-form .tab-panel:not([hidden]) { animation: none; }
+  .login-form .login-new-form:not([hidden]) { animation: none; }
 }
-
-/* 高级设置折叠区 */
-.login-form .advanced {
-  flex-direction: column; gap: 12px; padding: 16px;
-  margin-top: 2px;
-  background: color-mix(in srgb, var(--capsule) 70%, transparent);
-  border-radius: 12px;
-}
-.login-form .advanced:not([hidden]) { display: flex; animation: login-panel-in 240ms var(--ease-out); }
-.login-form .advanced[hidden] { display: none; }
 
 .login-form .hint { font-size: 14px; line-height: 1.6; color: var(--text-mute); }
 
-/* 文本链接按钮(如「高级设置」) */
-.login-form .link {
-  background: transparent; border: none; color: var(--accent, #4a90d9);
-  padding: 4px 0; text-align: left; font-size: 14px; font-family: var(--font); cursor: pointer;
-  align-self: flex-start;
+/* 账号选择:标题 + 2 列账号卡 */
+.login-accounts-title {
+  margin: 0; font-size: 15px; font-weight: 600; color: var(--text);
 }
-.login-form .link:hover { text-decoration: underline; }
+.login-accounts {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.login-account-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 26%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--capsule) 55%, transparent);
+  cursor: pointer; text-align: left; font-family: var(--font);
+  transition: transform 140ms var(--ease-out), border-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
+}
+.login-account-card:hover {
+  border-color: color-mix(in srgb, var(--text) 18%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, #000 14%, transparent);
+}
+.login-account-card:active { transform: scale(0.97); }
+.login-account-card:disabled { opacity: 0.5; cursor: default; }
+.login-account-avatar {
+  flex: none; width: 40px; height: 40px; border-radius: 50%; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; font-weight: 600; color: #fff;
+  background: var(--border-strong);
+}
+.login-account-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.login-account-meta {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.login-account-name {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.login-account-mail {
+  font-size: 12px; color: var(--text-mute);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.login-account-current {
+  margin-left: auto; flex: none;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; color: var(--text-weak);
+  background: color-mix(in srgb, var(--capsule) 80%, transparent);
+}
+.login-separator { height: 1px; background: color-mix(in srgb, var(--border-strong) 30%, transparent); margin: 4px 0; }
+/* 新建账号:ghost 全宽按钮 + 折叠表单 */
+.login-new-account { width: 100%; }
+.login-new-form { flex-direction: column; gap: 14px; }
+.login-new-form:not([hidden]) { display: flex; animation: login-panel-in 240ms var(--ease-out); }
+.login-new-form[hidden] { display: none; }
 
 /* 四栏外壳 */
 .shell { display: flex; height: 100%; width: 100%; overflow: hidden; }
