@@ -1,33 +1,13 @@
-import { call, clearError, onEvent } from '../api.js';
+import { call, onEvent, transformBlobURL } from '../api.js';
 import type { DcEvent } from '../api.js';
 import { ui } from '../components/ui.js';
 
-interface AdvancedConfig {
-  imap_host: string | null;
-  imap_port: number | null;
-  imap_security: string | null;
-  imap_user: string | null;
-  smtp_host: string | null;
-  smtp_port: number | null;
-  smtp_security: string | null;
-  smtp_user: string | null;
-  smtp_password: string | null;
-}
-
-function handleProgress(btn: HTMLButtonElement, doneText: string, p: DcEvent): void {
-  const progress = p.progress as number;
-  const comment = (p.comment as string) || '';
-  if (progress === 0) {
-    btn.textContent = '失败…';
-  } else if (progress >= 1000) {
-    btn.textContent = doneText;
-  } else if (progress > 0) {
-    const pct = Math.floor(progress / 10);
-    btn.textContent = `${pct}%`;
-  }
-  if (comment) {
-    console.log('[configure]', comment);
-  }
+interface AccountInfo {
+  id: number;
+  name: string;
+  addr: string;
+  is_current: boolean;
+  avatar: string | null;
 }
 
 export function renderLogin(onSuccess: () => void | Promise<void>): void {
@@ -41,144 +21,141 @@ export function renderLogin(onSuccess: () => void | Promise<void>): void {
         <p class="login-hero-slogan">Type Everything</p>
       </div>
       <div class="login-panel">
-        <div class="login-form"></div>
+        <div class="login-form" id="login-form"></div>
       </div>
     </div>
   `;
-  const form = app.querySelector<HTMLElement>('.login-form')!;
+  const form = app.querySelector<HTMLElement>('#login-form')!;
+  void initLogin(form, onSuccess);
+}
 
-  // ── tabs(快速开始 / 邮箱登录)─────────────────────
-  const tabsEl = document.createElement('div');
-  tabsEl.className = 'tabs';
-  const tabQuick = document.createElement('button');
-  tabQuick.type = 'button';
-  tabQuick.className = 'tab active';
-  tabQuick.dataset.tab = 'quick';
-  tabQuick.textContent = '快速开始';
-  const tabEmail = document.createElement('button');
-  tabEmail.type = 'button';
-  tabEmail.className = 'tab';
-  tabEmail.dataset.tab = 'email';
-  tabEmail.textContent = '邮箱登录';
-  tabsEl.append(tabQuick, tabEmail);
-  form.appendChild(tabsEl);
+async function initLogin(form: HTMLElement, onSuccess: () => void | Promise<void>): Promise<void> {
+  let accounts: AccountInfo[] = [];
+  try {
+    accounts = await call<AccountInfo[]>('list_accounts');
+  } catch (e) {
+    console.warn('[login] list_accounts 失败,降级为新建账号表单', e);
+  }
+  if (accounts.length > 0) {
+    renderAccountPicker(form, accounts, onSuccess);
+  } else {
+    renderNewAccount(form, onSuccess);
+  }
+}
 
-  // ── 快速开始表单 ─────────────────────────────────
-  const quickForm = document.createElement('form');
-  quickForm.id = 'quick-form';
-  quickForm.className = 'tab-panel';
-  const quickHint = document.createElement('p');
-  quickHint.className = 'hint';
-  quickHint.textContent = '输入显示名，自动创建 yzjtiantian.cn 免费账号，立即开始聊天。';
+// ── 账号选择:账号卡 + 「新建账号」入口 ─────────────────
+function renderAccountPicker(form: HTMLElement, accounts: AccountInfo[], onSuccess: () => void | Promise<void>): void {
+  const title = document.createElement('h2');
+  title.className = 'login-accounts-title';
+  title.textContent = '选择账号';
+  form.appendChild(title);
+
+  const grid = document.createElement('div');
+  grid.className = 'login-accounts';
+  for (const a of accounts) grid.appendChild(accountCard(a, onSuccess));
+  form.appendChild(grid);
+
+  const sep = document.createElement('div');
+  sep.className = 'login-separator';
+  form.appendChild(sep);
+
+  const newBtn = ui.button({ label: '新建账号', variant: 'ghost' });
+  newBtn.id = 'login-new-account-btn';
+  newBtn.classList.add('login-new-account');
+  form.appendChild(newBtn);
+
+  const newForm = document.createElement('form');
+  newForm.id = 'login-new-form';
+  newForm.className = 'login-new-form';
+  newForm.hidden = true;
+  bindNewAccountForm(newForm, onSuccess);
+  form.appendChild(newForm);
+
+  newBtn.addEventListener('click', () => { newForm.hidden = !newForm.hidden; });
+}
+
+function accountCard(a: AccountInfo, onSuccess: () => void | Promise<void>): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'login-account-card';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'login-account-avatar';
+  const letter = (a.name || '?').charAt(0).toUpperCase();
+  avatar.textContent = letter;
+  if (a.avatar) {
+    void transformBlobURL(a.avatar).then((url) => {
+      if (url) { avatar.innerHTML = `<img src="${url}" alt="" />`; }
+    });
+  }
+
+  const meta = document.createElement('div');
+  meta.className = 'login-account-meta';
+  const name = document.createElement('div');
+  name.className = 'login-account-name';
+  name.textContent = a.name || a.addr || `账号 ${a.id}`;
+  const mail = document.createElement('div');
+  mail.className = 'login-account-mail';
+  mail.textContent = a.addr;
+  meta.append(name, mail);
+
+  btn.append(avatar, meta);
+
+  if (a.is_current) {
+    const tag = document.createElement('span');
+    tag.className = 'login-account-current';
+    tag.textContent = '当前';
+    btn.appendChild(tag);
+  }
+
+  btn.addEventListener('click', async () => {
+    if (a.is_current) { await onSuccess(); return; }
+    btn.disabled = true;
+    try {
+      await call('switch_account', { id: a.id });
+      await onSuccess();
+    } catch (e) {
+      btn.disabled = false;
+      ui.toast(e instanceof Error ? e.message : String(e));
+    }
+  });
+  return btn;
+}
+
+// ── 新建账号表单 ──────────────────────────────────────
+function renderNewAccount(form: HTMLElement, onSuccess: () => void | Promise<void>): void {
+  const formEl = document.createElement('form');
+  formEl.id = 'login-new-form';
+  formEl.className = 'login-new-form';
+  bindNewAccountForm(formEl, onSuccess);
+  form.appendChild(formEl);
+}
+
+function bindNewAccountForm(formEl: HTMLFormElement, onSuccess: () => void | Promise<void>): void {
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = '输入显示名，自动创建 yzjtiantian.cn 免费账号，立即开始聊天。';
   const displayName = ui.input({ placeholder: '显示名（如：张三）' });
   displayName.id = 'display-name';
   displayName.required = true;
   displayName.maxLength = 60;
-  const quickBtn = ui.button({ label: '开始聊天' });
-  quickBtn.id = 'quick-btn';
-  quickForm.append(quickHint, displayName, quickBtn);
-  form.appendChild(quickForm);
+  const createBtn = ui.button({ label: '创建账号' });
+  createBtn.id = 'login-create-btn';
+  formEl.append(hint, displayName, createBtn);
 
-  // ── 邮箱登录表单 ─────────────────────────────────
-  const emailForm = document.createElement('form');
-  emailForm.id = 'email-form';
-  emailForm.className = 'tab-panel';
-  emailForm.hidden = true;
-  const email = ui.input({ placeholder: '邮箱', type: 'email' });
-  email.id = 'email';
-  email.required = true;
-  email.autocomplete = 'username';
-  const password = ui.input({ placeholder: '密码', type: 'password' });
-  password.id = 'password';
-  password.required = true;
-  password.autocomplete = 'current-password';
-  const advancedToggle = ui.button({ label: '高级设置', variant: 'ghost' });
-  advancedToggle.id = 'advanced-toggle';
-  advancedToggle.type = 'button';
-  advancedToggle.classList.add('link');
-  const advanced = document.createElement('div');
-  advanced.id = 'advanced';
-  advanced.className = 'advanced';
-  advanced.hidden = true;
-  const imapHost = ui.input({ placeholder: 'IMAP 主机' });
-  imapHost.id = 'imap_host';
-  const imapPort = ui.input({ placeholder: 'IMAP 端口', type: 'number' });
-  imapPort.id = 'imap_port';
-  const imapSecurity = ui.select({
-    options: [
-      { value: '', label: 'IMAP 安全（自动）' },
-      { value: 'ssl', label: 'SSL/TLS' },
-      { value: 'tls', label: 'STARTTLS' },
-      { value: 'plain', label: '明文' },
-    ],
-  });
-  imapSecurity.id = 'imap_security';
-  const imapUser = ui.input({ placeholder: 'IMAP 用户名' });
-  imapUser.id = 'imap_user';
-  const smtpHost = ui.input({ placeholder: 'SMTP 主机' });
-  smtpHost.id = 'smtp_host';
-  const smtpPort = ui.input({ placeholder: 'SMTP 端口', type: 'number' });
-  smtpPort.id = 'smtp_port';
-  const smtpSecurity = ui.select({
-    options: [
-      { value: '', label: 'SMTP 安全（自动）' },
-      { value: 'ssl', label: 'SSL/TLS' },
-      { value: 'tls', label: 'STARTTLS' },
-      { value: 'plain', label: '明文' },
-    ],
-  });
-  smtpSecurity.id = 'smtp_security';
-  const smtpUser = ui.input({ placeholder: 'SMTP 用户名' });
-  smtpUser.id = 'smtp_user';
-  const smtpPassword = ui.input({ placeholder: 'SMTP 密码', type: 'password' });
-  smtpPassword.id = 'smtp_password';
-  advanced.append(imapHost, imapPort, imapSecurity, imapUser, smtpHost, smtpPort, smtpSecurity, smtpUser, smtpPassword);
-  const loginBtn = ui.button({ label: '登录' });
-  loginBtn.id = 'login-btn';
-  emailForm.append(email, password, advancedToggle, advanced, loginBtn);
-  form.appendChild(emailForm);
-
-  const errorEl = document.createElement('div');
-  errorEl.id = 'error';
-  errorEl.className = 'error';
-  errorEl.style.display = 'none';
-  form.appendChild(errorEl);
-
-  // ── tab 切换 ──────────────────────────────────────
-  tabQuick.addEventListener('click', () => {
-    tabQuick.classList.add('active');
-    tabEmail.classList.remove('active');
-    quickForm.hidden = false;
-    emailForm.hidden = true;
-    clearError();
-  });
-  tabEmail.addEventListener('click', () => {
-    tabEmail.classList.add('active');
-    tabQuick.classList.remove('active');
-    emailForm.hidden = false;
-    quickForm.hidden = true;
-    clearError();
-  });
-
-  advancedToggle.addEventListener('click', () => {
-    advanced.hidden = !advanced.hidden;
-  });
-
-  // ── 快速开始提交 ──────────────────────────────────
-  quickForm.addEventListener('submit', async (e) => {
+  formEl.addEventListener('submit', async (e) => {
     e.preventDefault();
-    clearError();
     const name = displayName.value.trim() || '';
     if (!name) return;
-    quickBtn.disabled = true;
-    quickBtn.textContent = '创建中…';
+    createBtn.disabled = true;
+    createBtn.textContent = '创建中…';
     let unlisten: (() => void) | null = null;
     try {
       unlisten = await onEvent('ConfigureProgress', (p: DcEvent) => {
         const progress = p.progress as number;
-        if (progress === 0) quickBtn.textContent = '失败…';
-        else if (progress >= 1000) quickBtn.textContent = '成功，正在进入…';
-        else if (progress > 0) quickBtn.textContent = `${Math.floor(progress / 10)}%`;
+        if (progress === 0) createBtn.textContent = '失败…';
+        else if (progress >= 1000) createBtn.textContent = '成功，正在进入…';
+        else if (progress > 0) createBtn.textContent = `${Math.floor(progress / 10)}%`;
         if (p.comment) console.log('[configure]', p.comment);
       });
     } catch {}
@@ -188,88 +165,8 @@ export function renderLogin(onSuccess: () => void | Promise<void>): void {
       await onSuccess();
     } catch {
       if (unlisten) unlisten();
-      quickBtn.disabled = false;
-      quickBtn.textContent = '开始聊天';
+      createBtn.disabled = false;
+      createBtn.textContent = '创建账号';
     }
   });
-
-  // ── 邮箱登录提交 ──────────────────────────────────
-  emailForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    clearError();
-    const emailVal = email.value.trim() || '';
-    const passwordVal = password.value || '';
-    const adv = advanced.hasAttribute('hidden') ? null : collectAdvanced(app);
-    loginBtn.disabled = true;
-    loginBtn.textContent = '登录中…';
-    let unlisten: (() => void) | null = null;
-    try {
-      unlisten = await onEvent('ConfigureProgress', (p: DcEvent) => handleProgress(loginBtn, '登录成功，正在进入…', p));
-    } catch {}
-    try {
-      await call('login', { email: emailVal, password: passwordVal, advanced: adv });
-      if (unlisten) unlisten();
-      await onSuccess();
-    } catch {
-      if (unlisten) unlisten();
-      loginBtn.disabled = false;
-      loginBtn.textContent = '登录';
-    }
-  });
-}
-
-// 深链登录预填:切到邮箱 tab,填入 parse_dclogin 返回的 email + advanced 配置。
-export function applyPendingDclogin(info: { email: string; advanced: Record<string, unknown> }): void {
-  const email = document.getElementById('email') as HTMLInputElement | null;
-  if (!email) return;
-  // 切到邮箱 tab
-  const tabEmail = document.querySelector<HTMLButtonElement>('.tab[data-tab="email"]');
-  if (tabEmail) tabEmail.click();
-  email.value = info.email || '';
-  const adv = info.advanced || {};
-  const setVal = (id: string, v: unknown): void => {
-    const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
-    if (el && v != null && v !== '') {
-      el.value = String(v);
-    }
-  };
-  setVal('imap_host', adv.imap_host);
-  setVal('imap_port', adv.imap_port);
-  setVal('imap_security', adv.imap_security);
-  setVal('imap_user', adv.imap_user);
-  setVal('smtp_host', adv.smtp_host);
-  setVal('smtp_port', adv.smtp_port);
-  setVal('smtp_security', adv.smtp_security);
-  setVal('smtp_user', adv.smtp_user);
-  setVal('smtp_password', adv.smtp_password);
-  // 有 advanced 配置 → 展开高级设置
-  if (adv.imap_host || adv.smtp_host) {
-    const toggle = document.getElementById('advanced-toggle') as HTMLButtonElement | null;
-    toggle?.click();
-  }
-  email.focus();
-}
-
-function collectAdvanced(root: HTMLElement | Document): AdvancedConfig {
-  const get = (id: string): string | null => {
-    const el = root.querySelector<HTMLInputElement>(`#${id}`);
-    const v = el?.value.trim() || '';
-    return v ? v : null;
-  };
-  const getNum = (id: string): number | null => {
-    const el = root.querySelector<HTMLInputElement>(`#${id}`);
-    const v = el?.value.trim() || '';
-    return v ? Number(v) : null;
-  };
-  return {
-    imap_host: get('imap_host'),
-    imap_port: getNum('imap_port'),
-    imap_security: get('imap_security'),
-    imap_user: get('imap_user'),
-    smtp_host: get('smtp_host'),
-    smtp_port: getNum('smtp_port'),
-    smtp_security: get('smtp_security'),
-    smtp_user: get('smtp_user'),
-    smtp_password: get('smtp_password'),
-  };
 }
