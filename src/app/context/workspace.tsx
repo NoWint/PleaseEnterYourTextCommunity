@@ -1,47 +1,48 @@
 // src/app/context/workspace.tsx
-// WorkspaceStore：workspaces/channels/currentWsId
-// Phase 1 空骨架，Phase 3+ 接入 Tauri 事件
+// WorkspaceStore：workspaces + chats（Task 1 假数据）。
+// TODO(Task 3): 接入 Tauri 事件（list_workspaces / list_chats）。
 
-import { createContext, useContext, createSignal, type ParentProps } from "solid-js"
-import type { WorkspaceDto, ChannelDto } from "../../types"
+import { createMemo } from "solid-js"
+import { createStore } from "solid-js/store"
+import { createSimpleContext } from "@opencode-ai/ui/context"
+import type { AppSession, AppWorkspace } from "../types"
+import { fakeWorkspaces, makeFakeChats } from "../data/fake"
 
 interface WorkspaceStore {
-  workspaces: () => WorkspaceDto[]
-  currentWsId: () => number | null
-  setCurrentWs: (id: number | null) => void
-  channels: () => ChannelDto[]
+  workspaces: () => AppWorkspace[]
+  currentWsId: () => string | null
+  setCurrentWs: (id: string | null) => void
+  chats: (directory: string) => AppSession[]
+  allChats: () => AppSession[]
   refreshWorkspaces: () => Promise<void>
-  refreshChannels: () => Promise<void>
+  refreshChats: () => Promise<void>
 }
 
 function createWorkspaceStore(): WorkspaceStore {
-  const [workspaces, setWorkspaces] = createSignal<WorkspaceDto[]>([])
-  const [currentWsId, setCurrentWsId] = createSignal<number | null>(null)
-  const [channels, setChannels] = createSignal<ChannelDto[]>([])
+  const [state, setState] = createStore({
+    workspaces: fakeWorkspaces,
+    currentWsId: fakeWorkspaces[0]?.id ?? null,
+    chats: makeFakeChats(),
+  })
 
   return {
-    workspaces,
-    currentWsId,
-    setCurrentWs: (id) => setCurrentWsId(id),
-    channels,
+    workspaces: createMemo(() => state.workspaces),
+    currentWsId: () => state.currentWsId,
+    setCurrentWs: (id) => setState("currentWsId", id),
+    chats: (directory: string) =>
+      state.chats.filter((chat) => chat.directory === directory && !chat.archived),
+    allChats: createMemo(() => state.chats.filter((chat) => !chat.archived)),
     async refreshWorkspaces() {
-      // Phase 3+ 实现：call<WorkspaceDto[]>('list_workspaces')
+      // TODO(Task 3): call<WorkspaceDto[]>('list_workspaces')
     },
-    async refreshChannels() {
-      // Phase 3+ 实现：call<ChannelDto[]>('list_channels', { wsId })
+    async refreshChats() {
+      // TODO(Task 3): call<ChannelDto[]>('list_chats', { wsId })
     },
   }
 }
 
-const WorkspaceContext = createContext<WorkspaceStore>()
-
-export function WorkspaceProvider(props: ParentProps) {
-  const store = createWorkspaceStore()
-  return <WorkspaceContext.Provider value={store}>{props.children}</WorkspaceContext.Provider>
-}
-
-export function useWorkspace(): WorkspaceStore {
-  const ctx = useContext(WorkspaceContext)
-  if (!ctx) throw new Error("useWorkspace must be used within WorkspaceProvider")
-  return ctx
-}
+export const { use: useWorkspace, provider: WorkspaceProvider } = createSimpleContext<WorkspaceStore, Record<string, any>>({
+  name: "Workspace",
+  gate: false,
+  init: () => createWorkspaceStore(),
+})

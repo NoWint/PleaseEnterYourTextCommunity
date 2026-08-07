@@ -1,83 +1,78 @@
 // src/app/platform/tauri.ts
-// Platform 接口：封装 Tauri invoke 为统一抽象层
-// 借鉴 opencode createPlatform，裁剪 AI 专有能力
+// Tauri 平台实现（对齐 opencode context/platform 的桌面部分接口形状）。
+// 浏览器 dev 环境回落到 web 行为。TODO(Task 2): 接入 Tauri 原生能力（window 控制/通知插件）。
 
-import { call, onEvent, transformBlobURL } from "../../api"
+export type PlatformName = "web" | "desktop"
+export type DesktopOS = "macos" | "windows" | "linux"
 
 export interface Platform {
-  // 通用能力
-  openExternal(url: string): Promise<void>
-  setTitlebar(mode: "light" | "dark"): Promise<void>
-  setZoomFactor(factor: number): Promise<void>
-  // 存储层
-  storage: {
-    get(key: string): Promise<string | null>
-    set(key: string, val: string): Promise<void>
-    delete(key: string): Promise<void>
-  }
-  // 草稿存储（每会话输入草稿）
-  draftStore: {
-    get(chatId: number): Promise<string | null>
-    set(chatId: number, val: string): Promise<void>
-    delete(chatId: number): Promise<void>
-  }
-  // IM 事件流
-  onEvent(typ: string, cb: (payload: { typ: string; [k: string]: unknown }) => void): Promise<() => void>
-  // blob URL 转换
-  transformBlobURL(path: string): Promise<string>
+  /** 运行平台。 */
+  platform: PlatformName
+  /** 桌面操作系统（desktop 平台）。 */
+  os?: DesktopOS
+  /** 窗口是否全屏（Tauri 运行时）。 */
+  windowFullscreen?: () => boolean
+  /** webview 缩放（Tauri 运行时）。 */
+  webviewZoom?: () => number
+  /** 在系统默认应用中打开链接。 */
+  openExternal(url: string): void
+  /** 发送系统通知。 */
+  notify(title: string, description?: string, onClick?: () => void): Promise<void>
 }
 
-// 创建 Tauri 平台实例
+const isTauri = () =>
+  typeof window !== "undefined" &&
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).__TAURI_INTERNALS__ !== undefined
+
+const detectOS = (): DesktopOS => {
+  const platform = typeof navigator === "object" ? navigator.platform.toLowerCase() : ""
+  const ua = typeof navigator === "object" ? navigator.userAgent.toLowerCase() : ""
+  if (platform.includes("mac") || ua.includes("mac")) return "macos"
+  if (platform.includes("win") || ua.includes("windows")) return "windows"
+  return "linux"
+}
+
 export function createTauriPlatform(): Platform {
+  const tauri = isTauri()
+
+  let fullscreen = false
+  if (tauri) {
+    // 延迟 require，避免浏览器 dev 环境报错。
+    import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => getCurrentWindow().onResized(() => {
+        void getCurrentWindow().isFullscreen().then((value) => {
+          fullscreen = value
+        })
+      }))
+      .catch(() => {})
+  }
+
   return {
-    async openExternal(url: string) {
-      // @tauri-apps/plugin-shell 尚未安装；Phase 1 不实际调用。
-      // 用变量构造 import 路径，逃逸 vite 静态分析与 TS 模块解析；运行时 try/catch 兜底。
-      try {
-        const plugin = "@tauri-apps/plugin-shell"
-        const mod = (await import(/* @vite-ignore */ plugin)) as {
-          open: (url: string) => Promise<void>
-        }
-        await mod.open(url)
-      } catch {
+    platform: tauri ? "desktop" : "web",
+    os: tauri ? detectOS() : undefined,
+    windowFullscreen: () => fullscreen,
+    webviewZoom: () => 1,
+    openExternal(url: string) {
+      if (tauri) {
+        // TODO(Task 2): 安装 @tauri-apps/plugin-shell 后改用 openUrl
         window.open(url, "_blank")
+        return
       }
+      window.open(url, "_blank")
     },
-    async setTitlebar(mode) {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window")
-      await getCurrentWindow().setTheme(mode)
-    },
-    async setZoomFactor(factor) {
-      const { getCurrentWebview } = await import("@tauri-apps/api/webview")
-      await getCurrentWebview().setZoom(factor)
-    },
-    storage: {
-      async get(key) {
-        return localStorage.getItem(key)
-      },
-      async set(key, val) {
-        localStorage.setItem(key, val)
-      },
-      async delete(key) {
-        localStorage.removeItem(key)
-      },
-    },
-    draftStore: {
-      async get(chatId) {
-        return localStorage.getItem(`peyt.draft.${chatId}`)
-      },
-      async set(chatId, val) {
-        localStorage.setItem(`peyt.draft.${chatId}`, val)
-      },
-      async delete(chatId) {
-        localStorage.removeItem(`peyt.draft.${chatId}`)
-      },
-    },
-    async onEvent(typ, cb) {
-      return onEvent(typ, cb)
-    },
-    async transformBlobURL(path) {
-      return transformBlobURL(path)
+    async notify(title: string, description?: string, onClick?: () => void) {
+      // TODO(Task 2): Tauri 通知插件 / 系统通知
+      if (typeof Notification === "undefined") return
+      if (Notification.permission === "granted") {
+        const n = new Notification(title, { body: description })
+        n.onclick = () => onClick?.()
+        return
+      }
+      const permission = await Notification.requestPermission()
+      if (permission !== "granted") return
+      const n = new Notification(title, { body: description })
+      n.onclick = () => onClick?.()
     },
   }
 }

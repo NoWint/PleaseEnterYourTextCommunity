@@ -1,48 +1,74 @@
 // src/app/context/chat.tsx
-// ChatStore：currentChatId/chatMeta/unread
-// Phase 1 空骨架，Phase 3+ 接入 deltachat 事件
+// ChatStore：聊天会话数据源（Task 1 假数据）+ 会话级操作。
+// TODO(Task 3): 接入 deltachat/tauri 事件。
 
-import { createContext, useContext, createSignal, type ParentProps } from "solid-js"
-
-interface ChatMeta {
-  id: number
-  name: string
-  isGroup: boolean
-  memberCount: number
-}
+import { createMemo, createSignal } from "solid-js"
+import { createStore } from "solid-js/store"
+import { createSimpleContext } from "@opencode-ai/ui/context"
+import type { AppSession } from "../types"
+import { makeFakeChats } from "../data/fake"
 
 interface ChatStore {
-  currentChatId: () => number | null
-  setCurrentChat: (id: number | null) => void
-  chatMeta: () => ChatMeta | null
-  unread: () => number
+  currentChatId: () => string | null
+  setCurrentChat: (id: string | null) => void
+  session: (id: string) => AppSession | undefined
+  chatList: () => AppSession[]
+  unreadFor: (id: string) => number
+  rename: (id: string, title: string) => void
+  archive: (id: string) => void
+  markRead: (id: string) => void
+  touch: (id: string) => void
 }
 
 function createChatStore(): ChatStore {
-  const [currentChatId, setCurrentChatId] = createSignal<number | null>(null)
-  const [chatMeta, setChatMeta] = createSignal<ChatMeta | null>(null)
-  const [unread, setUnread] = createSignal(0)
+  const [state, setState] = createStore({
+    currentChatId: null as string | null,
+    sessions: makeFakeChats(),
+  })
+
+  const byId = createMemo(() => {
+    const map = new Map<string, AppSession>()
+    for (const session of state.sessions) map.set(session.id, session)
+    return map
+  })
 
   return {
-    currentChatId,
-    setCurrentChat: (id) => {
-      setCurrentChatId(id)
-      if (id === null) setChatMeta(null)
+    currentChatId: () => state.currentChatId,
+    setCurrentChat: (id) => setState("currentChatId", id),
+    session: (id: string) => byId().get(id),
+    chatList: createMemo(() =>
+      state.sessions
+        .filter((chat) => !chat.archived)
+        .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created)),
+    ),
+    unreadFor: (id: string) => byId().get(id)?.unread ?? 0,
+    rename(id: string, title: string) {
+      setState("sessions", (s) =>
+        s.map((item) => (item.id === id ? { ...item, title } : item)),
+      )
     },
-    chatMeta,
-    unread,
+    archive(id: string) {
+      setState("sessions", (s) =>
+        s.map((item) => (item.id === id ? { ...item, archived: true } : item)),
+      )
+    },
+    markRead(id: string) {
+      setState("sessions", (s) =>
+        s.map((item) => (item.id === id ? { ...item, unread: 0 } : item)),
+      )
+    },
+    touch(id: string) {
+      setState("sessions", (s) =>
+        s.map((item) =>
+          item.id === id ? { ...item, time: { ...item.time, updated: Date.now() } } : item,
+        ),
+      )
+    },
   }
 }
 
-const ChatContext = createContext<ChatStore>()
-
-export function ChatProvider(props: ParentProps) {
-  const store = createChatStore()
-  return <ChatContext.Provider value={store}>{props.children}</ChatContext.Provider>
-}
-
-export function useChat(): ChatStore {
-  const ctx = useContext(ChatContext)
-  if (!ctx) throw new Error("useChat must be used within ChatProvider")
-  return ctx
-}
+export const { use: useChat, provider: ChatProvider } = createSimpleContext<ChatStore, Record<string, any>>({
+  name: "Chat",
+  gate: false,
+  init: () => createChatStore(),
+})

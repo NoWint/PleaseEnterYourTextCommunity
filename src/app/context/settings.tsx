@@ -1,8 +1,9 @@
 // src/app/context/settings.tsx
-// SettingsStore：主题/字号/feature flags
-// 迁移 src/theme.ts 的主题切换逻辑
+// SettingsStore：主题/字号/feature flags + opencode 壳层所需的 general/keybinds。
+// 照抄 opencode context/settings.tsx 的形状（general 全量返回 newLayoutDesigns 等）。
 
-import { createContext, useContext, createSignal, type ParentProps } from "solid-js"
+import { createSignal } from "solid-js"
+import { createSimpleContext } from "@opencode-ai/ui/context"
 
 interface SettingsStore {
   theme: () => string
@@ -11,6 +12,33 @@ interface SettingsStore {
   setFontScale: (scale: number) => void
   featureFlags: {
     useSolidApp: () => boolean
+  }
+  // opencode settings.general 形状（壳层固定值，后续任务再做设置界面）
+  general: {
+    showNavigation: () => boolean
+    mobileTitlebarPosition: () => "top" | "bottom"
+    newLayoutDesigns: () => boolean
+    showTerminal: () => boolean
+    showSearch: () => boolean
+    showStatus: () => boolean
+  }
+  // opencode settings.keybinds：用户自定义 keybind 覆盖（本地存储）
+  keybinds: {
+    get: (id: string) => string | undefined
+    set: (id: string, value: string) => void
+  }
+}
+
+const KEYBINDS_STORAGE = "peyt.keybinds"
+
+function loadKeybinds(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(KEYBINDS_STORAGE)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {}
+  } catch {
+    return {}
   }
 }
 
@@ -28,6 +56,8 @@ function createSettingsStore(): SettingsStore {
   // feature flags
   const useSolidApp = () => localStorage.getItem("peyt.useSolidApp") !== "false"
 
+  const [keybinds, setKeybinds] = createSignal<Record<string, string>>(loadKeybinds())
+
   return {
     theme,
     setTheme(t: string) {
@@ -41,18 +71,29 @@ function createSettingsStore(): SettingsStore {
       setFontScaleState(s)
     },
     featureFlags: { useSolidApp },
+    general: {
+      showNavigation: () => true,
+      mobileTitlebarPosition: () => "top",
+      newLayoutDesigns: () => true,
+      showTerminal: () => false,
+      showSearch: () => true,
+      showStatus: () => false,
+    },
+    keybinds: {
+      get: (id) => keybinds()[id],
+      set: (id, value) => {
+        setKeybinds((current) => {
+          const next = { ...current, [id]: value }
+          localStorage.setItem(KEYBINDS_STORAGE, JSON.stringify(next))
+          return next
+        })
+      },
+    },
   }
 }
 
-const SettingsContext = createContext<SettingsStore>()
-
-export function SettingsProvider(props: ParentProps) {
-  const store = createSettingsStore()
-  return <SettingsContext.Provider value={store}>{props.children}</SettingsContext.Provider>
-}
-
-export function useSettings(): SettingsStore {
-  const ctx = useContext(SettingsContext)
-  if (!ctx) throw new Error("useSettings must be used within SettingsProvider")
-  return ctx
-}
+export const { use: useSettings, provider: SettingsProvider } = createSimpleContext<SettingsStore, Record<string, any>>({
+  name: "Settings",
+  gate: false,
+  init: () => createSettingsStore(),
+})

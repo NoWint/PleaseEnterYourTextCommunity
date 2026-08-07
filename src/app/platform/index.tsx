@@ -1,13 +1,13 @@
 // src/app/platform/index.tsx
 // PlatformProvider：注入 Platform 实例到 Solid context
 
-import { createContext, useContext, type ParentProps } from "solid-js"
+import { createContext, createRoot, useContext, type ParentProps } from "solid-js"
 import { createTauriPlatform, type Platform } from "./tauri"
 
 const PlatformContext = createContext<Platform>()
 
 export function PlatformProvider(props: ParentProps) {
-  const platform = createTauriPlatform()
+  const platform = createRoot(() => createTauriPlatform())
   return (
     <PlatformContext.Provider value={platform}>
       {props.children}

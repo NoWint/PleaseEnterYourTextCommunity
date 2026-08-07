@@ -1,0 +1,164 @@
+// src/app/pages/home/home-sessions-controller.ts
+// 照抄 opencode pages/home/home-sessions-controller.tsx 改造：
+// - @tanstack/solid-query / server-sync / command palette → 本地 chat 假数据
+// - 保留：今天/昨天/更早分组、搜索索引、打开/后台打开/归档
+
+import { createMemo, startTransition, type Accessor } from "solid-js"
+import { DateTime } from "luxon"
+import { useLanguage } from "../../context/language"
+import { useChat } from "../../context/chat"
+import { useLayout, type LocalProject } from "../../context/layout"
+import { useTabs, sessionHasOpenTab } from "../../context/tabs"
+import { displayName, projectForSession } from "../../layout/sidebar/helpers"
+import { pathKey } from "../../utils/path"
+import type { AppSession } from "../../types"
+import type { HomeController } from "./home-controller"
+
+const HOME_SESSION_LIMIT = 64
+export type HomeSessionRecord = {
+  session: AppSession
+  project: LocalProject
+  projectName: string
+}
+
+export type HomeSessionGroup = {
+  id: "today" | "yesterday" | "older"
+  title: string
+  sessions: HomeSessionRecord[]
+}
+
+export type OpenSessionOptions = { background?: boolean }
+
+function directories(project: LocalProject) {
+  return [project.worktree, ...(project.sandboxes ?? [])]
+}
+
+export function createHomeSessionsController(home: HomeController) {
+  const tabs = useTabs()
+  const language = useLanguage()
+  const chat = useChat()
+  const layout = useLayout()
+  const projectDirectories = createMemo(() => {
+    const project = home.project.selected()
+    if (!project) return home.project.list().flatMap(directories)
+    return directories(project)
+  })
+  const projectByID = createMemo(
+    () => new Map(home.project.list().flatMap((project) => (project.id ? [[project.id, project] as const] : []))),
+  )
+  const allRecords = createMemo(() =>
+    buildHomeSessionRecords({
+      sessions: () => chat.chatList(),
+      projectDirectories,
+      projects: home.project.list,
+      projectByID,
+    }),
+  )
+  const records = createMemo(() => allRecords().slice(0, HOME_SESSION_LIMIT))
+  const groups = createMemo(() => groupSessions(records(), language))
+
+  return {
+    copy: {
+      language,
+    },
+    data: {
+      records,
+      groups,
+      loading: () => false,
+      searchRecords: allRecords,
+    },
+    session: {
+      showProjectName: () => !home.project.selected(),
+      server: () => home.selection.value().server,
+      canCreate: () => !!home.project.newSession(),
+      create: home.project.openNewSession,
+      open: (session: AppSession, options?: OpenSessionOptions) => {
+        const directoryKey = pathKey(session.directory)
+        const project =
+          home.project
+            .list()
+            .find(
+              (item) =>
+                pathKey(item.worktree) === directoryKey ||
+                item.sandboxes?.some((sandbox) => pathKey(sandbox) === directoryKey),
+            ) ?? projectForSession(session, home.project.list(), projectByID())
+        const directory = project?.worktree ?? session.directory
+        layout.projects.open(directory)
+        if (options?.background) {
+          tabs.addSessionTab({ chatId: session.id })
+          return
+        }
+        layout.projects.expand(directory)
+        void startTransition(() => {
+          const tab = tabs.addSessionTab({ chatId: session.id })
+          tabs.select(tab)
+        })
+      },
+      archive: async (session: AppSession) => {
+        chat.archive(session.id)
+        const tab = tabs.store.find(
+          (item) => item.type === "session" && item.chatId === session.id,
+        )
+        if (tab) tabs.removeSessionTab({ chatId: session.id })
+      },
+    },
+    tab: {
+      isOpen: (record: HomeSessionRecord) =>
+        sessionHasOpenTab(tabs.store, home.selection.value().server, record.session),
+    },
+  }
+}
+
+function buildHomeSessionRecords(input: {
+  sessions: () => AppSession[]
+  projectDirectories: () => string[]
+  projects: () => LocalProject[]
+  projectByID: () => Map<string, LocalProject>
+}) {
+  const directories = new Set(input.projectDirectories().map(pathKey))
+  const sessions = input.sessions().filter((session) => directories.has(pathKey(session.directory)))
+  return [...new Map(sessions.map((session) => [session.id, session] as const)).values()]
+    .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
+    .flatMap((session) => {
+      const directory = pathKey(session.directory)
+      const project =
+        input
+          .projects()
+          .find(
+            (item) =>
+              pathKey(item.worktree) === directory || item.sandboxes?.some((sandbox) => pathKey(sandbox) === directory),
+          ) ?? projectForSession(session, input.projects(), input.projectByID())
+      if (!project) return []
+      return { session, project, projectName: displayName(project) }
+    })
+}
+
+export function homeSessionSearchKey(record: HomeSessionRecord) {
+  return `${pathKey(record.session.directory)}:${record.session.id}`
+}
+
+function groupSessions(records: HomeSessionRecord[], language: ReturnType<typeof useLanguage>): HomeSessionGroup[] {
+  const now = DateTime.local()
+  const yesterday = now.minus({ days: 1 })
+  const todaySessions = records.filter((record) =>
+    DateTime.fromMillis(record.session.time.updated ?? record.session.time.created).hasSame(now, "day"),
+  )
+  const yesterdaySessions = records.filter((record) =>
+    DateTime.fromMillis(record.session.time.updated ?? record.session.time.created).hasSame(yesterday, "day"),
+  )
+  const olderSessions = records.filter((record) => {
+    const time = DateTime.fromMillis(record.session.time.updated ?? record.session.time.created)
+    return !time.hasSame(now, "day") && !time.hasSame(yesterday, "day")
+  })
+  const olderTitle =
+    todaySessions.length === 0 && yesterdaySessions.length === 0
+      ? language.t("sidebar.project.recentSessions")
+      : language.t("home.sessions.group.older")
+  return [
+    { id: "today" as const, title: language.t("home.sessions.group.today"), sessions: todaySessions },
+    { id: "yesterday" as const, title: language.t("home.sessions.group.yesterday"), sessions: yesterdaySessions },
+    { id: "older" as const, title: olderTitle, sessions: olderSessions },
+  ].filter((group) => group.sessions.length > 0)
+}
+
+export type HomeSessionsController = ReturnType<typeof createHomeSessionsController>

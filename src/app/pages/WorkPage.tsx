@@ -1,18 +1,35 @@
 // src/app/pages/WorkPage.tsx
-// 协作页：PageShell + 单卡片（对齐 opencode home.tsx 的单卡片模式）。
+// 协作/工作区视图占位页（/work 与 /home/:wsId 复用）。
 
-import type { Component } from "solid-js"
-import PageShell, { PanelCard } from "../layout/PageShell"
+import { Show, type Component } from "solid-js"
+import { useParams } from "@solidjs/router"
+import { useChat } from "../context/chat"
+import { useLayout } from "../context/layout"
+import { PanelCard } from "./panel-card"
 
 const WorkPage: Component = () => {
+  const params = useParams()
+  const layout = useLayout()
+  const chat = useChat()
+  const wsId = () => params.wsId
+  const workspace = () => layout.projects.list().find((p) => p.worktree === wsId())
+  const chats = () => (wsId() ? chat.chatList().filter((c) => c.directory === wsId()) : [])
+
   return (
-    <PageShell>
+    <div class="flex flex-1 min-h-0 min-w-0 self-stretch p-2">
       <PanelCard raised>
-        <div class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs">
-          协作（Phase 5 迁移）
+        <div class="flex-1 flex flex-col items-center justify-center gap-2 text-v2-text-text-faint text-xs">
+          <Show when={workspace()} fallback={<span>协作（Phase 5 迁移）</span>}>
+            {(ws) => (
+              <>
+                <span>工作区：{ws().name ?? ws().worktree}</span>
+                <span>会话数：{chats().length}</span>
+              </>
+            )}
+          </Show>
         </div>
       </PanelCard>
-    </PageShell>
+    </div>
   )
 }
 

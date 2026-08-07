@@ -1,24 +1,19 @@
 // src/app/layout/RightDrawer.tsx
-// 右侧抽屉：对齐 opencode session-side-panel.tsx 的 V2 面板结构。
-//
-// 对齐点（opencode SessionSidePanel V2）：
-// - contain-strict 性能隔离
-// - bg-v2-background-bg-base 内层背景
-// - TabsV2 切换视图（opencode 切 review/file-browser/context，peytchat 切 members/pin/settings）
+// 右侧抽屉占位：自包含状态（layout context 的 drawer API 已在 Task 1 重构中移除，
+// 聊天页迁移（Phase 2）时随真实聊天 UI 一起落地）。
+// TODO(Task 2): 接入布局持久化（成员/置顶/设置 tab）
 
-import type { Component } from "solid-js"
-import { useLayout, type DrawerTab } from "../context/layout"
+import { createSignal, type Component } from "solid-js"
 import { TabsV2 } from "@opencode-ai/ui/v2/tabs-v2"
 
+export type DrawerTab = "members" | "pin" | "settings"
+
 const RightDrawer: Component = () => {
-  const layout = useLayout()
+  const [tab, setTab] = createSignal<DrawerTab>("members")
 
   return (
     <div data-component="right-drawer" class="flex-1 flex flex-col contain-strict">
-      <TabsV2
-        value={layout.drawer.tab()}
-        onChange={(tab) => layout.drawer.setTab(tab as DrawerTab)}
-      >
+      <TabsV2 value={tab()} onChange={(next) => setTab(next as DrawerTab)}>
         <TabsV2.List>
           <TabsV2.Trigger value="members">成员</TabsV2.Trigger>
           <TabsV2.Trigger value="pin">置顶</TabsV2.Trigger>
