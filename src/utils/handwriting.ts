@@ -1,10 +1,11 @@
-// iMessage Digital Touch 风格「手写消息」—— MP4 方案。
-// 发送方用触控板/鼠标在画布书写,点发送时在画布上回放笔迹动画,同时用
-// MediaRecorder 把画布流录制为 MP4(canvas.captureStream),再作为视频附件发送
-// (send_attachment + hw 标记)。收件方看到的就是自动播放的手写过程视频。
+// iMessage Digital Touch 风格「手写消息」—— canvas 透明回放方案。
+// 发送方用触控板/鼠标在画布书写,笔迹数据(归一化坐标 + 全局时间轴)随 [PEYT] 信封
+// (type="handwriting")传输;收件方用 canvas 在聊天背景上按时间轴逐步重绘笔迹,
+// 背景完全透明、融入聊天(0 失真)。自动回放一次,点击可重播。
 
 import { call } from '../api.js';
 import { showToast } from '../toast.js';
+import { escapeHtml } from '../components/escape.js';
 
 export interface HandwritingStroke {
   c: string;
@@ -12,27 +13,42 @@ export interface HandwritingStroke {
   pts: Array<[number, number, number]>;
 }
 
-const LOGICAL_W = 640;
-const LOGICAL_H = 400;
-
-// ── 绘制 ─────────────────────────────────────────────────────────────
-function applyStrokeStyle(ctx: CanvasRenderingContext2D, s: HandwritingStroke, W: number, H: number): void {
-  ctx.strokeStyle = s.c;
-  ctx.lineWidth = Math.max(1, s.wt * Math.min(W, H) / 200);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+export interface HandwritingPayload {
+  text?: string;
+  strokes: HandwritingStroke[];
 }
 
-function strokeFull(ctx: CanvasRenderingContext2D, s: HandwritingStroke, W: number, H: number): void {
-  ctx.beginPath();
-  s.pts.forEach(([x, y], i) => {
-    if (i === 0) ctx.moveTo(x * W, y * H);
-    else ctx.lineTo(x * W, y * H);
-  });
-  ctx.stroke();
+// ── 解析信封 payload → HandwritingPayload(结构不合法 → null) ────────
+export function parseHandwriting(payload: unknown): HandwritingPayload | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+  if (!Array.isArray(p.strokes) || p.strokes.length === 0) return null;
+  const strokes: HandwritingStroke[] = [];
+  for (const s of p.strokes) {
+    if (typeof s !== 'object' || s === null) continue;
+    const ss = s as Record<string, unknown>;
+    if (!Array.isArray(ss.pts) || ss.pts.length < 2) continue;
+    const pts: Array<[number, number, number]> = [];
+    for (const pt of ss.pts) {
+      if (!Array.isArray(pt) || pt.length < 3) continue;
+      const x = Number(pt[0]);
+      const y = Number(pt[1]);
+      const t = Number(pt[2]);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(t)) continue;
+      pts.push([Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y)), Math.max(0, t)]);
+    }
+    if (pts.length < 2) continue;
+    strokes.push({
+      c: typeof ss.c === 'string' && ss.c ? ss.c : '#3b5cf6',
+      wt: typeof ss.wt === 'number' && ss.wt > 0 ? ss.wt : 4,
+      pts,
+    });
+  }
+  if (strokes.length === 0) return null;
+  return { text: typeof p.text === 'string' ? p.text : '', strokes };
 }
 
-/** 计算笔迹内容边界(归一化坐标),录制时按此取景,裁掉四周空白。 */
+// ── 笔迹内容边界(归一化),接收端按此取景画布比例 ──────────────────
 interface Bounds {
   minX: number;
   minY: number;
@@ -58,12 +74,19 @@ function computeBounds(strokes: HandwritingStroke[]): Bounds {
   return {
     minX,
     minY,
-    cw: cw > 0.001 ? cw : 1,
-    ch: ch > 0.001 ? ch : 1,
+    cw: cw > 0.01 ? cw : 1,
+    ch: ch > 0.01 ? ch : 1,
   };
 }
 
-/** 按时间轴把笔迹画到 canvas(录制时逐帧调用,直到 el >= totalMs)。 */
+function applyStrokeStyle(ctx: CanvasRenderingContext2D, s: HandwritingStroke, W: number, H: number): void {
+  ctx.strokeStyle = s.c;
+  ctx.lineWidth = Math.max(1, s.wt * Math.min(W, H) / 160);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+}
+
+/** 按时间轴把笔迹画到透明 canvas(el 时刻的进度),不 clearRect 前先清。 */
 function drawAt(
   ctx: CanvasRenderingContext2D,
   strokes: HandwritingStroke[],
@@ -109,95 +132,94 @@ function drawAt(
   }
 }
 
-/** 在 canvas 上播放完整手写动画(录制时驱动帧),播放完 resolve。 */
-function playToCanvas(
+/** 把 canvas 逻辑尺寸设为内容比例(宽 480,高按内容自适应),透明背景。 */
+function setupCanvas(canvas: HTMLCanvasElement, b: Bounds): void {
+  canvas.width = 480;
+  canvas.height = Math.max(100, Math.round(480 * (b.ch / b.cw)));
+}
+
+// ── 接收端卡片:自动一步步回放,点击重播 ─────────────────────────────
+export function renderHandwritingCard(payload: HandwritingPayload): string {
+  return `
+    <div class="hw-card" data-hw="${escapeHtml(JSON.stringify(payload))}">
+      <canvas class="hw-canvas"></canvas>
+      <button type="button" class="hw-replay" title="重播手写">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+      </button>
+      ${payload.text ? `<div class="hw-text">${escapeHtml(payload.text)}</div>` : ''}
+    </div>`;
+}
+
+/** 在透明 canvas 上按时间轴一步步回放笔迹动画。返回停止函数。 */
+export function playHandwriting(
   canvas: HTMLCanvasElement,
-  strokes: HandwritingStroke[],
-  totalMs: number,
-  b: Bounds,
-): Promise<void> {
-  return new Promise((resolve) => {
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      resolve();
+  payload: HandwritingPayload,
+  onDone?: () => void,
+): () => void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return () => {};
+  const b = computeBounds(payload.strokes);
+  const W = canvas.width;
+  const H = canvas.height;
+  const total =
+    Math.max(...payload.strokes.map((s) => (s.pts[s.pts.length - 1] ? s.pts[s.pts.length - 1][2] : 0)), 0) + 300;
+  const t0 = performance.now();
+  let raf = 0;
+  const frame = (now: number): void => {
+    const el = now - t0;
+    drawAt(ctx, payload.strokes, el, W, H, b);
+    if (el < total) raf = requestAnimationFrame(frame);
+    else onDone?.();
+  };
+  raf = requestAnimationFrame(frame);
+  return () => cancelAnimationFrame(raf);
+}
+
+/** 画完整笔迹(静止态,重播前停住的最终帧)。 */
+export function drawHandwritingStatic(canvas: HTMLCanvasElement, payload: HandwritingPayload): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const b = computeBounds(payload.strokes);
+  setupCanvas(canvas, b);
+  drawAt(ctx, payload.strokes, Number.MAX_SAFE_INTEGER, canvas.width, canvas.height, b);
+}
+
+/** 绑定容器内所有 .hw-card:渲染后自动回放一次,点击重播。 */
+export function bindHandwritingCards(container: HTMLElement): void {
+  container.querySelectorAll<HTMLElement>('.hw-card').forEach((card) => {
+    const raw = card.dataset.hw;
+    if (!raw) return;
+    let payload: HandwritingPayload;
+    try {
+      payload = JSON.parse(raw) as HandwritingPayload;
+    } catch {
       return;
     }
-    const W = canvas.width;
-    const H = canvas.height;
-    const t0 = performance.now();
-    const frame = (now: number): void => {
-      const el = now - t0;
-      drawAt(ctx, strokes, el, W, H, b);
-      if (el < totalMs) requestAnimationFrame(frame);
-      else resolve();
+    const canvas = card.querySelector<HTMLCanvasElement>('.hw-canvas');
+    if (!canvas) return;
+    const b = computeBounds(payload.strokes);
+    setupCanvas(canvas, b);
+    const replayBtn = card.querySelector<HTMLElement>('.hw-replay');
+    let playing = false;
+    const start = (): void => {
+      if (playing) return;
+      playing = true;
+      replayBtn?.classList.add('playing');
+      playHandwriting(canvas, payload, () => {
+        playing = false;
+        replayBtn?.classList.remove('playing');
+      });
     };
-    requestAnimationFrame(frame);
+    replayBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      start();
+    });
+    // 渲染即自动回放一次(iMessage 手写感)
+    start();
   });
 }
 
-// ── 录制 MP4 ─────────────────────────────────────────────────────────
-function pickMime(): string {
-  if (typeof window.MediaRecorder === 'undefined') return '';
-  const candidates = [
-    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-    'video/mp4',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
-  ];
-  for (const m of candidates) {
-    try {
-      if (MediaRecorder.isTypeSupported(m)) return m;
-    } catch {
-      /* 继续下一个 */
-    }
-  }
-  return '';
-}
-
-async function recordToVideo(
-  canvas: HTMLCanvasElement,
-  strokes: HandwritingStroke[],
-  totalMs: number,
-): Promise<{ blob: Blob; mime: string } | null> {
-  if (typeof MediaRecorder === 'undefined') return null;
-  const mime = pickMime();
-  if (!mime) return null;
-  const bounds = computeBounds(strokes);
-  const stream = canvas.captureStream(30);
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_000_000 });
-  const chunks: Blob[] = [];
-  rec.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) chunks.push(e.data);
-  };
-  const stopped = new Promise<void>((r) => {
-    rec.onstop = () => r();
-  });
-  // 先清空画布,保证录制从干净帧开始(避免首帧残留上一状态)
-  const ctx = canvas.getContext('2d');
-  ctx?.clearRect(0, 0, canvas.width, canvas.height);
-  rec.start(50);
-  await playToCanvas(canvas, strokes, totalMs, bounds);
-  rec.stop();
-  await stopped;
-  stream.getTracks().forEach((t) => t.stop());
-  const blob = new Blob(chunks, { type: rec.mimeType || mime });
-  return { blob, mime: rec.mimeType || mime };
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => {
-      const dataUrl = String(fr.result || '');
-      resolve(dataUrl.split(',')[1] || '');
-    };
-    fr.onerror = () => reject(fr.error);
-    fr.readAsDataURL(blob);
-  });
-}
-
-// ── 发送端手写面板(触控板/鼠标书写 → 录制 MP4 → 发送) ───────────────
+// ── 发送端手写面板(触控板/鼠标书写 → 发送笔迹数据) ─────────────────
 const HW_COLORS = ['#1c1c1e', '#3b5cf6', '#e5484d', '#30a46c', '#f76b15', '#8e4ec6'];
 
 export function openHandwritingPanel(chatId: number, onSent: () => void): void {
@@ -207,7 +229,6 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
     <div class="hw-panel-inner">
       <div class="hw-panel-head">
         <span class="hw-panel-title">手写</span>
-        <span class="hw-rec-status" hidden>正在生成视频…</span>
         <button type="button" class="hw-panel-close" title="关闭"></button>
       </div>
       <div class="hw-draw-wrap">
@@ -222,21 +243,20 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
           <button type="button" class="hw-send">发送</button>
         </span>
       </div>
-      <div class="hw-hint">用触控板或鼠标书写 · 发送后自动生成并回放手写视频</div>
+      <div class="hw-hint">用触控板或鼠标书写 · 对方将看到笔迹一步步回放</div>
     </div>
   `;
   document.body.appendChild(panel);
 
   const canvas = panel.querySelector<HTMLCanvasElement>('.hw-draw-canvas');
   if (!canvas) return;
-  const W = LOGICAL_W;
-  const H = LOGICAL_H;
+  const W = 640;
+  const H = 400;
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  // 颜色预设
   const colorWrap = panel.querySelector<HTMLElement>('.hw-colors');
   if (colorWrap) {
     for (const c of HW_COLORS) {
@@ -256,7 +276,7 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
   let strokes: HandwritingStroke[] = [];
   let current: Array<[number, number, number]> = [];
   let drawing = false;
-  let globalT0 = 0; // 第一笔开始时间:全局相对时间,回放时各笔画按书写顺序逐步出现
+  let globalT0 = 0; // 第一笔开始时间:全局相对时间轴,回放时各笔画按书写顺序逐步出现
   let currentColor = HW_COLORS[0];
 
   const redraw = (): void => {
@@ -272,6 +292,15 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
     }
   };
 
+  function strokeFull(c: CanvasRenderingContext2D, s: HandwritingStroke, w: number, h: number): void {
+    c.beginPath();
+    s.pts.forEach(([x, y], i) => {
+      if (i === 0) c.moveTo(x * w, y * h);
+      else c.lineTo(x * w, y * h);
+    });
+    c.stroke();
+  }
+
   const norm = (e: PointerEvent): [number, number] => {
     const rect = canvas.getBoundingClientRect();
     return [
@@ -283,7 +312,6 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     drawing = true;
-    // 第一笔开始时确立全局时间轴(清空/撤销到空后重画也会重置)
     if (strokes.length === 0 && current.length === 0) globalT0 = performance.now();
     current = [];
     const [x, y] = norm(e);
@@ -323,42 +351,18 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
   });
   panel.querySelector<HTMLElement>('.hw-panel-close')?.addEventListener('click', close);
   panel.querySelector<HTMLElement>('.hw-cancel')?.addEventListener('click', close);
-
-  const sendBtn = panel.querySelector<HTMLButtonElement>('.hw-send');
-  const recStatus = panel.querySelector<HTMLElement>('.hw-rec-status');
-  sendBtn?.addEventListener('click', async () => {
+  panel.querySelector<HTMLElement>('.hw-send')?.addEventListener('click', async () => {
     if (strokes.length === 0) {
       showToast('请先书写内容');
       return;
     }
-    if (sendBtn.disabled) return;
-    sendBtn.disabled = true;
-    if (recStatus) recStatus.hidden = false;
-
+    const payload: HandwritingPayload = { text: '', strokes };
     try {
-      // 总时长 = 最后一笔结束 + 收尾停顿(与书写节奏一致)
-      const totalMs =
-        Math.max(...strokes.map((s) => (s.pts[s.pts.length - 1] ? s.pts[s.pts.length - 1][2] : 0)), 0) + 420;
-      const rec = await recordToVideo(canvas, strokes, totalMs);
-      if (!rec) {
-        showToast('当前环境不支持视频录制,请在桌面 App 中使用');
-        return;
-      }
-      const base64 = await blobToBase64(rec.blob);
-      await call('send_attachment', {
-        chatId,
-        base64,
-        filename: 'handwriting.mp4',
-        mime: rec.mime,
-        hw: true,
-      });
+      await call('send_handwriting', { chatId, payload });
       close();
       onSent();
     } catch (err) {
       showToast(err instanceof Error ? err.message : String(err));
-    } finally {
-      sendBtn.disabled = false;
-      if (recStatus) recStatus.hidden = true;
     }
   });
 

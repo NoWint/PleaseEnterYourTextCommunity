@@ -5246,7 +5246,7 @@ body {
 .hw-hint { font-size: var(--font-scale-secondary); color: var(--text-weak); text-align: center; }
 
 /* ── 手写消息(iMessage Digital Touch)收件端 —— 置于文件末尾保证覆盖所有气泡规则 ── */
-/* 检测到 hw 消息:气泡完全透明无框,只留视频 */
+/* 检测到 hw 消息:气泡完全透明无框,笔迹画在聊天背景上 */
 .msg.msg-hw[data-is-out="1"] .msg-bubble,
 .msg.msg-hw:not([data-is-out="1"]) .msg-bubble {
   background: transparent;
@@ -5254,12 +5254,44 @@ body {
   border: none;
   padding: 0;
 }
-/* 纯视频,无上下白边:aspect-ratio 与录制画布(8:5)一致,fill 填满 */
-.msg-attachment.video.hw video {
+/* 手写消息收件端(canvas 透明回放) */
+
+/* 手写消息收件端(canvas 透明回放):气泡无框,笔迹直接画在聊天背景上 */
+.hw-card {
+  position: relative;
+  display: inline-block;
+  margin: 2px 0 4px;
+}
+.hw-canvas {
   display: block;
-  width: 100%;
-  max-width: 240px;
-  aspect-ratio: 8 / 5;
-  border-radius: var(--radius-md);
-  object-fit: fill;
+  max-width: 200px;
+  height: auto;
+  background: transparent;
+}
+/* 重播按钮:悬浮在画布右下角,回放中隐藏 */
+.hw-replay {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--capsule);
+  color: var(--text-mute);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+.hw-card:hover .hw-replay { opacity: 1; }
+.hw-replay.playing { opacity: 0; }
+.hw-replay:hover { color: var(--text); background: var(--active); }
+.hw-text {
+  margin-top: 4px;
+  font-size: var(--font-scale-body);
+  color: var(--text-body);
+  overflow-wrap: anywhere;
 }
