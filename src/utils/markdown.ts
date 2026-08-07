@@ -4,7 +4,7 @@
 // 再把占位 token 替换成可点击 chip(客户端点击 → 名片/定位原文)。
 import { marked } from 'marked';
 import { escapeHtml } from '../components/escape.js';
-import { displayTime, userChipHtml } from './tagParser.js';
+import { displayTime, userChipHtml, timeChipHtml } from './tagParser.js';
 import { state } from '../state.js';
 import { resolveMessageText } from './envelope.js';
 
@@ -120,7 +120,7 @@ function restoreTags(html: string, tags: Map<string, { kind: TagKind; value: str
       // 显示原文(不同颜色区分),找不到才回退「消息 XXX」
       ? `<a class="mention-chip mention-chip-msg" data-msg-ref="${escapeHtml(t.value)}">${escapeHtml(msgText(t.value) ?? `消息 ${t.value}`)}</a>`
       : t.kind === 'time'
-        ? `<span class="mention-chip" data-time-ref="${escapeHtml(t.value)}">🕐 ${escapeHtml(displayTime(t.value))}</span>`
+        ? timeChipHtml(t.value, escapeHtml(t.value))
         : userChipHtml(t.value, escapeHtml(t.value));
     out = out.split(tok).join(chip);
   }

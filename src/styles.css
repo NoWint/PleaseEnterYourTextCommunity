@@ -4751,18 +4751,25 @@ body {
   border-radius: 999px;
 }
 
-/* --- time 引用 chip:悬停 accent 下划线 + 细微底色 --- */
+/* --- time 引用 chip:橙色(SVG 时钟图标),区别于 user 蓝 / msg 绿 --- */
 .ref-time {
   display: inline-block; padding: 0 4px; border-radius: 4px;
-  color: var(--accent, #4a90d9); font-size: 12px; white-space: nowrap;
+  color: #e08a3c; font-size: 12px; white-space: nowrap;
   transition: background 140ms var(--ease-out);
 }
-.ref-time:hover { background: color-mix(in srgb, var(--accent, #4a90d9) 12%, transparent); }
-.mention-chip[data-time-ref] { position: relative; }
-.mention-chip[data-time-ref]:hover { background: color-mix(in srgb, var(--accent, #4a90d9) 20%, transparent); }
-.mention-chip[data-time-ref]:hover::after {
-  content: ""; position: absolute; left: 8px; right: 8px; bottom: 1px; height: 1px;
-  background: var(--accent, #4a90d9); border-radius: 1px;
+.ref-time:hover { background: color-mix(in srgb, #e08a3c 12%, transparent); }
+.mention-chip.mention-chip-time, .sd-markdown a.mention-chip-time {
+  background: color-mix(in srgb, #e08a3c 12%, transparent);
+  color: #e08a3c;
+  border-color: color-mix(in srgb, #e08a3c 25%, transparent);
+}
+.mention-chip.mention-chip-time:hover, .sd-markdown a.mention-chip-time:hover {
+  background: color-mix(in srgb, #e08a3c 20%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, #e08a3c 20%, transparent);
+}
+.mention-chip .mention-time-icon {
+  flex-shrink: 0;
+  display: inline-block;
 }
 
 /* --- 弹簧入场 / 填充生长 / 柱状生长(仅 .sd-done 容器内触发,与既有 reveal 同步) --- */

@@ -43,6 +43,11 @@ export function userChipHtml(name: string, escaped: string): string {
   return `<span class="mention-chip" data-user-ref="${escaped}"><img class="mention-avatar" alt="" data-avatar-name="${escapeHtml(name)}">@${escaped}</span>`;
 }
 
+/** time chip HTML:内联 clock SVG + 显示时间(颜色由 .mention-chip-time CSS 区分)。 */
+export function timeChipHtml(value: string, escaped: string): string {
+  return `<span class="mention-chip mention-chip-time" data-time-ref="${escaped}"><svg class="mention-time-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12Z"/><path d="M12 6.5L12 12L15 15"/></svg>${escapeHtml(displayTime(value))}</span>`;
+}
+
 /**
  * 异步水合 mention-chip 头像:遍历 root 内 data-user-ref chip 的 .mention-avatar,
  * 按名字查当前会话成员头像 → transformBlobURL 转 asset URL → 设 img src。
@@ -55,10 +60,14 @@ export async function hydrateMentionAvatars(root: HTMLElement): Promise<void> {
   for (const img of imgs) {
     const name = img.dataset.avatarName;
     if (!name) { img.remove(); continue; }
-    const member = state.currentMembers?.find((m) => m.name === name);
-    if (!member?.avatar) { img.remove(); continue; }
+    // 「我」→ 当前用户 self;「你」→ 单聊对方(非 self 成员)
+    let avatar: string | null | undefined;
+    if (name === '我') avatar = state.self?.avatar;
+    else if (name === '你') avatar = state.currentMembers?.find((m) => !m.is_self)?.avatar;
+    else avatar = state.currentMembers?.find((m) => m.name === name)?.avatar;
+    if (!avatar) { img.remove(); continue; }
     try {
-      const url = await transformBlobURL(member.avatar);
+      const url = await transformBlobURL(avatar);
       if (url) { img.src = url; } else { img.remove(); }
     } catch { img.remove(); }
   }
@@ -104,7 +113,7 @@ export function parseSafeTags(input: string): string {
     if (kind === 'message') return `<span class="ref-msg mention-chip-msg" data-ref="${value}">${escapeHtml(msgText(value) ?? `消息 ${value}`)}</span>`;
     if (kind === 'time') {
       // 时间显示只涉及数字/冒号/连字符,实体不影响;文本再 escapeHtml 一次无害(双转义)。
-      return `<span class="ref-time" data-time="${value}">🕐 ${escapeHtml(displayTime(value))}</span>`;
+      return timeChipHtml(value, value);
     }
     return userChipHtml(value, value);
   });
@@ -196,7 +205,7 @@ export function renderParsed(segments: ParsedSegment[], onRef: (id: string) => v
   return segments
     .map((s) => {
       if (s.type === 'message') return `<a class="mention-chip mention-chip-msg" data-msg-ref="${escapeHtml(s.value)}">${escapeHtml(msgText(s.value) ?? `消息 ${s.value}`)}</a>`;
-      if (s.type === 'time') return `<span class="mention-chip" data-time-ref="${escapeHtml(s.value)}">🕐 ${escapeHtml(displayTime(s.value))}</span>`;
+      if (s.type === 'time') return timeChipHtml(s.value, escapeHtml(s.value));
       if (s.type === 'user') return userChipHtml(s.value, escapeHtml(s.value));
       return s.value;
     })
