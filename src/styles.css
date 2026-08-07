@@ -4887,6 +4887,8 @@ body {
   display: inline-flex; align-items: center; justify-content: center;
   width: 14px; height: 14px; color: var(--text-mute);
 }
+/* 值为空(无 loading/读秒/绿勾)→ 指示器不显示,不占位 */
+.ch-topic-chip .ch-bubble-indicator:empty { display: none; }
 /* 旋转 loading */
 .ch-bubble-loading { animation: ch-bubble-spin 1s linear infinite; }
 @keyframes ch-bubble-spin { to { transform: rotate(360deg); } }
