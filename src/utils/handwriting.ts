@@ -138,6 +138,77 @@ function setupCanvas(canvas: HTMLCanvasElement, b: Bounds): void {
   canvas.height = Math.max(100, Math.round(480 * (b.ch / b.cw)));
 }
 
+// ── 接收端笔迹亮度适配 ──────────────────────────────────────────────
+// canvas 透明回放时笔迹直接画在聊天背景上:深色主题下深色笔迹不可见。
+// 根据当前主题背景明暗,自动提亮(深底)或加深(浅底),保证可见性。色相不变。
+let darkBg: boolean | null = null;
+
+function isDarkBg(): boolean {
+  if (darkBg != null) return darkBg;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  const rgb = parseCssColor(bg);
+  darkBg = rgb ? luminance(rgb) < 0.5 : true;
+  return darkBg;
+}
+
+/** 解析 CSS 颜色(#rgb / #rrggbb / rgb() / rgba()) → [r,g,b](0-255);失败 → null。 */
+function parseCssColor(c: string): number[] | null {
+  c = c.trim().toLowerCase();
+  let m = /^#([0-9a-f]{3})$/.exec(c);
+  if (m) {
+    const v = m[1];
+    return [parseInt(v[0] + v[0], 16), parseInt(v[1] + v[1], 16), parseInt(v[2] + v[2], 16)];
+  }
+  m = /^#([0-9a-f]{6})$/.exec(c);
+  if (m) {
+    const v = m[1];
+    return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
+  }
+  m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(c);
+  if (m) {
+    return [Number(m[1]), Number(m[2]), Number(m[3])];
+  }
+  return null;
+}
+
+function luminance([r, g, b]: number[]): number {
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+function toHex([r, g, b]: number[]): string {
+  const h = (n: number) => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+/** 向 target 色方向插值,直到亮度达到 targetLum。 */
+function shiftToLum(rgb: number[], targetLum: number, towardWhite: boolean): number[] {
+  let cur = [...rgb];
+  let lum = luminance(cur);
+  let it = 0;
+  while (it < 40 && (towardWhite ? lum < targetLum : lum > targetLum)) {
+    for (let i = 0; i < 3; i++) cur[i] += (towardWhite ? 255 - cur[i] : -cur[i]) * 0.55;
+    lum = luminance(cur);
+    it++;
+  }
+  return cur;
+}
+
+/** 接收端适配单个笔迹颜色。 */
+function adaptColor(c: string): string {
+  const rgb = parseCssColor(c);
+  if (!rgb) return c;
+  const lum = luminance(rgb);
+  if (isDarkBg()) {
+    return lum < 0.55 ? toHex(shiftToLum(rgb, 0.75, true)) : c;
+  }
+  return lum > 0.5 ? toHex(shiftToLum(rgb, 0.3, false)) : c;
+}
+
+/** 接收端:对所有笔画做亮度适配(色相不变)。 */
+export function adaptStrokes(strokes: HandwritingStroke[]): HandwritingStroke[] {
+  return strokes.map((s) => ({ ...s, c: adaptColor(s.c) }));
+}
+
 // ── 接收端卡片:自动一步步回放,点击重播 ─────────────────────────────
 export function renderHandwritingCard(payload: HandwritingPayload): string {
   return `
@@ -195,9 +266,11 @@ export function bindHandwritingCards(container: HTMLElement): void {
     } catch {
       return;
     }
+    // 深色聊天背景 → 提亮笔迹;浅色背景 → 加深,保证可见
+    const adapted: HandwritingPayload = { ...payload, strokes: adaptStrokes(payload.strokes) };
     const canvas = card.querySelector<HTMLCanvasElement>('.hw-canvas');
     if (!canvas) return;
-    const b = computeBounds(payload.strokes);
+    const b = computeBounds(adapted.strokes);
     setupCanvas(canvas, b);
     const replayBtn = card.querySelector<HTMLElement>('.hw-replay');
     let playing = false;
@@ -205,7 +278,7 @@ export function bindHandwritingCards(container: HTMLElement): void {
       if (playing) return;
       playing = true;
       replayBtn?.classList.add('playing');
-      playHandwriting(canvas, payload, () => {
+      playHandwriting(canvas, adapted, () => {
         playing = false;
         replayBtn?.classList.remove('playing');
       });
