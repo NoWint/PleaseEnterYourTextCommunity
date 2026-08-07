@@ -11,7 +11,9 @@
     "isolatedModules": true,
     "noEmit": true,
     "lib": ["ES2021", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": ["node", "vitest/globals", "@testing-library/jest-dom"],
     "paths": {
       "@/*": ["./src/*"]
     }

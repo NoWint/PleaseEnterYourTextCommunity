@@ -1,4 +1,6 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
+import solid from "vite-plugin-solid";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   root: "src",
@@ -17,5 +19,14 @@ export default defineConfig({
   // 导致浏览器 `instantiateStreaming` 失败。排除预构建, 按源码 serve。
   optimizeDeps: {
     exclude: ["jieba-wasm"],
+  },
+  plugins: [
+    solid(),
+    tailwindcss(),
+  ],
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./test/setup.ts"],
   },
 });
