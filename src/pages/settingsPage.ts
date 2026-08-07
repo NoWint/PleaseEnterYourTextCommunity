@@ -51,7 +51,7 @@ export async function renderSettingsNav(panel: HTMLElement): Promise<void> {
 export async function renderSettingsMain(main: HTMLElement): Promise<void> {
   switch (state.currentSettingsSection) {
     case 'account': await renderAccount(main); break;
-    case 'appearance': renderAppearance(main); break;
+    case 'appearance': await renderAppearance(main); break;
     case 'team': await renderTeam(main); break;
     case 'notifications': await renderNotifications(main); break;
     case 'plugins': await renderPlugins(main); break;
@@ -261,6 +261,11 @@ function renderAppearance(main: HTMLElement): void {
         <div class="settings-font-label">字体大小</div>
         <div id="font-scale-picker"></div>
       </div>
+      <div class="settings-msg-theme-row">
+        <div class="settings-font-label">消息主题</div>
+        <div class="settings-toggle-hint" style="margin-top:2px">对方看到的你发出的消息将以该主题呈现</div>
+        <div id="msg-theme-picker"></div>
+      </div>
     </div>
   `;
   main.querySelectorAll<HTMLElement>('.settings-theme').forEach((el) => {
@@ -280,6 +285,10 @@ function renderAppearance(main: HTMLElement): void {
         applyFontScale(v as FontScale);
       },
     }));
+  }
+  const msgThemePicker = main.querySelector<HTMLElement>('#msg-theme-picker');
+  if (msgThemePicker) {
+    void import('../msgTheme.js').then((m) => m.renderMsgThemePicker(msgThemePicker));
   }
 }
 

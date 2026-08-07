@@ -274,8 +274,10 @@ pub fn run() {
             registry.register(Arc::new(crate::drivers::schedule::ScheduleDriver));
             // 系统命令处理器:用户侧斜杠命令(无 Bot 会话也生效);不双回复。
             let accounts_for_send = state.accounts.clone();
+            let db_for_send = state.db.clone();
             let send: crate::drivers::syscmd::SendReplyFn = Arc::new(move |chat_id, text| {
                 let accounts = accounts_for_send.clone();
+                let db = db_for_send.clone();
                 let text = text.to_string();
                 Box::pin(async move {
                     let selected = accounts.lock().await.get_selected_account_id();
@@ -287,7 +289,8 @@ pub fn run() {
                         None => None,
                     }
                     .ok_or_else(|| crate::error::AppError::Core("no account".into()))?;
-                    crate::commands::send_text_impl(&ctx, chat_id, text, None)
+                    let theme = crate::commands::msg_theme_json(&db, ctx.get_id()).await;
+                    crate::commands::send_text_impl(&ctx, chat_id, text, None, theme)
                         .await
                         .map(|id| id.to_u32())
                 })
@@ -432,6 +435,8 @@ pub fn run() {
             commands::leave_channel,
             commands::update_profile,
             commands::save_avatar_from_bytes,
+            commands::get_msg_theme,
+            commands::set_msg_theme,
             commands::get_my_qr,
             commands::logout,
             commands::delete_msg,

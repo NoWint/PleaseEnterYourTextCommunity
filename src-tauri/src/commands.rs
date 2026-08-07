@@ -18,8 +18,8 @@ use tauri::State;
 use crate::dto::{
     ActivityDto, AdvancedLogin, BotConfig, BotDto, BotStatsDto, BotToolDto, CardDto, ChannelDto,
     ChatDto, ChatInfoDto, CommonChatDto, ContactDto, ContactRoleDto, InboxEventDto, MemberDto,
-    MsgDto, PersonaDto, PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto, ReadReceiptDto,
-    RoleDto, ScheduleDto, SearchResultDto, VcardContactDto, WorkspaceDto,
+    MsgDto, MsgThemeDto, PersonaDto, PeytStudioDto, PinDto, ProfileDto, RawMsgDto, ReactionDto,
+    ReadReceiptDto, RoleDto, ScheduleDto, SearchResultDto, VcardContactDto, WorkspaceDto,
 };
 use crate::drivers::schedule::next_cron;
 use crate::error::{AppError, AppResult};
@@ -643,12 +643,61 @@ pub async fn get_chat_msgs(
 }
 
 /// 发送文本消息，返回新消息 id（供 send_text 与 bot_send_text 复用）。
-/// 普通文本统一组装成 `{"type":"text",...,"payload":{"text":...,"markdown":bool}}` 信封发出。
-pub(crate) async fn send_text_impl(ctx: &Context, chat_id: u32, text: String, markdown: Option<bool>) -> AppResult<MsgId> {
+/// 普通文本统一组装成 `{"type":"text",...,"payload":{"text":...,"markdown":bool,"theme":...}}` 信封发出。
+/// `markdown` 为 composer 是否开启 md 渲染;`theme` 为当前账号的消息主题 JSON(来自 msg_theme 表,
+/// 未配置 → None)。两者独立:md 控制正文渲染方式,theme 控制气泡样式,均随信封传给接收端。
+pub(crate) async fn send_text_impl(
+    ctx: &Context,
+    chat_id: u32,
+    text: String,
+    markdown: Option<bool>,
+    theme: Option<serde_json::Value>,
+) -> AppResult<MsgId> {
     let chat_id = deltachat::chat::ChatId::new(chat_id);
-    let payload = serde_json::json!({ "text": text, "markdown": markdown.unwrap_or(false) });
+    let payload = match theme {
+        Some(t) => serde_json::json!({ "text": text, "markdown": markdown.unwrap_or(false), "theme": t }),
+        None => serde_json::json!({ "text": text, "markdown": markdown.unwrap_or(false) }),
+    };
     let envelope = crate::envelope::build_envelope("text", payload)?;
     Ok(chat::send_text_msg(ctx, chat_id, envelope).await?)
+}
+
+/// 从应用 DB 读某账号的消息主题配置并解析为 JSON(未配置/解析失败 → None)。
+/// send_text / bot_send_text / syscmd 发消息时取主题注入信封。
+pub(crate) async fn msg_theme_json(db: &Db, account_id: u32) -> Option<serde_json::Value> {
+    match db.get_msg_theme(account_id).await {
+        Ok(Some(cfg)) => serde_json::from_str(&cfg).ok(),
+        _ => None,
+    }
+}
+
+/// 读取当前账号的消息主题配置(设置页展示用)。未配置 → None。
+#[tauri::command]
+pub async fn get_msg_theme(state: State<'_, AppState>) -> AppResult<Option<MsgThemeDto>> {
+    let account_id = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?
+        .get_id();
+    let cfg = state.db.get_msg_theme(account_id).await?;
+    Ok(match cfg {
+        Some(s) => serde_json::from_str(&s).ok(),
+        None => None,
+    })
+}
+
+/// 写入当前账号的消息主题配置(config = null 清除,回默认)。
+#[tauri::command]
+pub async fn set_msg_theme(state: State<'_, AppState>, config: Option<MsgThemeDto>) -> AppResult<()> {
+    let account_id = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?
+        .get_id();
+    let json = config
+        .map(|c| serde_json::to_string(&c).map_err(|e| AppError::Io(e.to_string())))
+        .transpose()?;
+    state.db.set_msg_theme(account_id, json.as_deref()).await
 }
 
 #[tauri::command]
@@ -662,7 +711,8 @@ pub async fn send_text(
         .current()
         .await
         .ok_or_else(|| AppError::Core("no account".into()))?;
-    Ok(send_text_impl(&ctx, chat_id, text, markdown).await?.to_u32())
+    let theme = msg_theme_json(&state.db, ctx.get_id()).await;
+    Ok(send_text_impl(&ctx, chat_id, text, markdown, theme).await?.to_u32())
 }
 
 #[tauri::command]
@@ -3710,7 +3760,8 @@ pub async fn bot_send_text(
     text: String,
 ) -> AppResult<MsgDto> {
     let ctx = state.bots.ctx_for_bot(current_owner_id(&state)?, bot_id).await?;
-    let msg_id = send_text_impl(&ctx, chat_id, text, None).await?;
+    let theme = msg_theme_json(&state.db, ctx.get_id()).await;
+    let msg_id = send_text_impl(&ctx, chat_id, text, None, theme).await?;
     msg_to_dto(&ctx, msg_id).await
 }
 

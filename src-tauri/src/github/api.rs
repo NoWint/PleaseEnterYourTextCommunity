@@ -54,10 +54,10 @@ pub fn url_get_pull(owner: &str, repo: &str, n: i64) -> String {
     format!("{}/pulls/{n}", url_repo(owner, repo))
 }
 
-/// Commit 列表(path: 限定路径,None 不拼 path;per_page=100,page>1 才拼 page)。
+/// Commit 列表(path: 限定路径,None 不拼 path;per_page=30(GitHub 默认,响应小、慢网下更快),page>1 才拼 page)。
 pub fn url_list_commits(owner: &str, repo: &str, path: Option<&str>, page: Option<u32>) -> String {
     let mut url = with_query(format!("{}/commits", url_repo(owner, repo)), "path", path);
-    append_query(&mut url, "per_page", "100");
+    append_query(&mut url, "per_page", "30");
     if let Some(p) = page.filter(|p| *p > 1) {
         append_query(&mut url, "page", &p.to_string());
     }
@@ -209,9 +209,9 @@ mod tests {
     #[test]
     fn test_url_list_commits_path_and_page() {
         let base = "https://api.github.com/repos/o/r/commits";
-        assert_eq!(url_list_commits("o", "r", Some("src/lib.rs"), None), format!("{base}?path=src%2Flib.rs&per_page=100"));
-        assert_eq!(url_list_commits("o", "r", None, None), format!("{base}?per_page=100"));
-        assert_eq!(url_list_commits("o", "r", None, Some(3)), format!("{base}?per_page=100&page=3"));
+        assert_eq!(url_list_commits("o", "r", Some("src/lib.rs"), None), format!("{base}?path=src%2Flib.rs&per_page=30"));
+        assert_eq!(url_list_commits("o", "r", None, None), format!("{base}?per_page=30"));
+        assert_eq!(url_list_commits("o", "r", None, Some(3)), format!("{base}?per_page=30&page=3"));
     }
 
     #[test]

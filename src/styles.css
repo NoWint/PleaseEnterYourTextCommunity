@@ -90,6 +90,95 @@
   --font-mono: 'SF Mono', Menlo, monospace;
 }
 
+/* ── 消息主题(msg-theme)token 补充层 ────────────────────────────────
+   合并自远端 token 体系(仅补充本地缺失的变量,不覆盖本地同名定义)。
+   msgTheme.ts 的消息气泡主题依赖 --surface-layer-01 / --bubble-radius 等; --
+   这些变量本地没有,在此补齐,避免 msg-theme 功能引用的变量失效。 */
+:root {
+  /* primitives 色板 */
+  --grey-50: #ffffff;
+  --grey-100: #f5f5f4;
+  --grey-200: #e7e7e6;
+  --grey-300: #d4d4d3;
+  --grey-400: #b6b6b6;
+  --grey-500: #9a9a9c;
+  --grey-600: #858587;
+  --grey-700: #66666a;
+  --grey-800: #47474b;
+  --grey-900: #333336;
+  --grey-1000: #222224;
+  --grey-1100: #161616;
+  --grey-1200: #080808;
+  --blue-400: #a8bdfe;
+  --blue-500: #7698fd;
+  --blue-600: #3b5cf6;
+  --blue-700: #2e4bd8;
+  --blue-800: #263bb0;
+  --alpha-dark-4: #0000000a;
+  --alpha-dark-8: #00000014;
+  --alpha-dark-10: #0000001a;
+  --alpha-dark-12: #0000001f;
+  --alpha-dark-20: #00000033;
+  --alpha-dark-40: #00000066;
+  --alpha-light-4: #ffffff0a;
+  --alpha-light-8: #ffffff14;
+  --alpha-light-10: #ffffff1a;
+  --alpha-light-12: #ffffff1f;
+  --alpha-light-14: #ffffff24;
+  --alpha-light-20: #ffffff33;
+  --alpha-light-40: #ffffff66;
+  /* 语义 surface token(msg-theme 气泡背景回退用) */
+  --surface-base: var(--grey-1100);
+  --surface-deep: var(--grey-1200);
+  --surface-layer-01: var(--grey-1000);
+  --surface-layer-02: var(--grey-900);
+  --surface-layer-03: var(--grey-800);
+  --surface-contrast: var(--grey-50);
+  --text-base: var(--grey-200);
+  --text-muted: var(--grey-500);
+  --text-on-accent: #ffffff;
+  --icon-base: var(--grey-200);
+  --icon-muted: var(--grey-500);
+  --icon-faint: var(--grey-700);
+  --border-base: var(--alpha-light-10);
+  --border-focus: var(--blue-500);
+  --border-weak: var(--alpha-light-8);
+  --overlay-hover: var(--alpha-light-8);
+  --overlay-pressed: var(--alpha-light-12);
+  --overlay-contrast-hover: var(--alpha-dark-10);
+  --overlay-contrast-pressed: var(--alpha-dark-20);
+  --scrim: var(--alpha-dark-40);
+  /* 状态色三件套 */
+  --state-success-bg: rgba(48,164,108,0.16);  --state-success-fg: #3ecf8e;  --state-success-border: rgba(48,164,108,0.45);
+  --state-warning-bg: rgba(229,165,10,0.15);  --state-warning-fg: #f0b429;  --state-warning-border: rgba(229,165,10,0.45);
+  --state-danger-bg: rgba(255,95,87,0.15);    --state-danger-fg: #ff6b63;   --state-danger-border: rgba(255,95,87,0.45);
+  --state-info-bg: rgba(59,92,246,0.15);      --state-info-fg: #7698fd;     --state-info-border: rgba(59,92,246,0.45);
+  /* elevation 阶梯 */
+  --elevation-raised: 0 2px 4px var(--alpha-dark-8), 0 0 0 1px var(--alpha-dark-12);
+  --elevation-floating: 0 8px 16px var(--alpha-dark-4), 0 4px 8px var(--alpha-dark-8), 0 0 0 1px var(--alpha-dark-12);
+  --elevation-overlay: 0 16px 32px var(--alpha-dark-8), 0 0 0 1px var(--alpha-dark-12);
+  --elevation-contrast: 0 1px 2px var(--alpha-dark-20), inset 0 1px 2px var(--alpha-light-14);
+  /* 排版/动效 token */
+  --weight-regular: 440;
+  --weight-medium: 530;
+  --weight-strong: 530;
+  --tracking-tight: -0.13px;
+  --tracking-body: -0.04px;
+  --duration-exit: 80ms;
+  --duration-enter: 120ms;
+  --duration-reveal: 150ms;
+  --duration-toast: 280ms;
+  --duration-text: 480ms;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-toast: cubic-bezier(0.2, 0, 0, 1);
+  --ease-text: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 关闭 button 的 WebKit 系统外观。macOS WKWebView 默认给 <button> 绘制系统按钮皮肤
+   (白色渐变 + 2px outset 3D 边框),叠加在自定义背景上表现为「按钮一半白一半主题色」。
+   同时清掉 UA 默认边框/背景;各按钮类(.ui-button 等)再自行覆盖。 */
+button { appearance: none; -webkit-appearance: none; border: none; background: none; }
+
 /* 全局字体缩放 — html[data-font-scale] 覆盖 :root 字体变量(md 默认不设属性) */
 html[data-font-scale="sm"] {
   --font-scale-display: 32px;
@@ -2375,6 +2464,29 @@ html.window-frame #titlebar-tools { height: 34px; }
   background: var(--bubble-self);
   color: var(--bubble-self-text);
 }
+/* 消息主题(QQ 式):气泡带 data-msg-theme 时用发送者主题覆盖背景/字色/圆角/字体。
+   --mt-* 变量由前端 msgTheme.ts 以内联样式注入,数据驱动(内置主题 + 网络显式字段)。 */
+.msg[data-is-out="1"] .msg-bubble[data-msg-theme],
+.msg:not([data-is-out="1"]) .msg-bubble[data-msg-theme] {
+  background: var(--mt-bg, var(--surface-layer-01));
+  color: var(--mt-color, var(--text-body));
+  border-radius: var(--mt-radius, var(--bubble-radius));
+  font-family: var(--mt-font, inherit);
+  font-weight: var(--mt-weight, 400);
+  font-style: var(--mt-style, normal);
+  box-shadow: none;
+}
+.msg[data-is-out="1"] .msg-bubble[data-msg-theme] .msg-text,
+.msg[data-is-out="1"] .msg-bubble[data-msg-theme] .msg-name,
+.msg[data-is-out="1"] .msg-bubble[data-msg-theme] .msg-meta,
+.msg[data-is-out="1"] .msg-bubble[data-msg-theme] .msg-quote,
+.msg[data-is-out="1"] .msg-bubble[data-msg-theme] .msg-quote-name {
+  color: var(--mt-color, var(--bubble-self-text));
+}
+.msg[data-is-out="1"] .msg-bubble[data-msg-theme] .msg-time,
+.msg[data-is-out="1"] .msg-bubble[data-msg-theme] .msg-state {
+  color: color-mix(in srgb, var(--mt-color, var(--bubble-self-text)) 70%, transparent);
+}
 /* 分组圆角(基准 .msg-bubble 全 16px,这里只覆盖头像侧)。
    左侧别人:首条/中间 左上+左下都小(平直贴边),尾条 左下转大收尾;
    solo 独立气泡只留左上小(tail)。右侧自己镜像。 */
@@ -3615,6 +3727,48 @@ body {
 .settings-nav-item { display: flex; align-items: center; gap: var(--space-2); padding: 10px 16px; cursor: pointer; color: var(--text-mute); }
 .settings-nav-item:hover { background: var(--capsule); color: var(--text); }
 .settings-nav-item.active { background: var(--active); color: var(--text); }
+
+/* 消息主题(QQ 式)选择器 — 合并自远端 msgtheme 功能 */
+.settings-msg-theme-row { margin-top: 24px; }
+.settings-msg-themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+.settings-msg-theme {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px;
+  box-shadow: inset 0 0 0 1px var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-layer-01);
+  cursor: pointer;
+  text-align: left; font-family: inherit;
+  transition: box-shadow var(--anim-duration) var(--anim-ease), transform var(--anim-duration) var(--anim-ease);
+}
+.settings-msg-theme:hover {
+  box-shadow: inset 0 0 0 1px var(--border-strong), var(--elevation-floating);
+  transform: translateY(-2px);
+}
+.settings-msg-theme.active {
+  box-shadow: inset 0 0 0 1.5px var(--border-focus);
+}
+.settings-msg-theme.active .msg-theme-name { color: var(--text); }
+.msg-theme-preview {
+  position: relative; display: flex; align-items: center; justify-content: flex-start;
+  height: 64px; padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  overflow: hidden;
+}
+.msg-theme-preview-bubble {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 40px; height: 34px; padding: 0 12px;
+  font-size: 15px; font-weight: 600;
+}
+.msg-theme-name {
+  font-size: var(--font-scale-secondary);
+  color: var(--text-mute);
+  text-align: center;
+}
+.msg-theme-custom { border: 1px dashed var(--border-strong); }
+.msg-theme-custom .msg-theme-preview { align-items: center; justify-content: center; }
+.msg-theme-custom .msg-theme-preview-bubble { min-width: 0; font-size: 22px; }
 .settings-avatar-row { display: flex; align-items: center; gap: var(--space-4); margin-bottom: 24px; }
 .settings-avatar-large { cursor: pointer; }
 .settings-avatar-large .avatar { width: 64px; height: 64px; border-radius: 50%; font-size: 22px; }

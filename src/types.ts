@@ -137,6 +137,28 @@ export interface SelfProfile {
   color: number | null;
 }
 
+/**
+ * QQ 式「消息主题」：发送者账号的配置，随 [PEYT] 信封 payload.theme 传输。
+ * 所有字段可选：发送端只填有值的字段，接收端按 id 合并内置主题定义。
+ * JSON 键 snake_case（与后端 MsgThemeDto 一致）。
+ */
+export interface MsgTheme {
+  /** 内置主题 id（'default' 表示不启用） */
+  id: string;
+  /** 字体（font-family 值，如 "'Kaiti SC', cursive"） */
+  font_family?: string;
+  /** 正文/气泡字色 */
+  text_color?: string;
+  /** 气泡背景（纯色或渐变） */
+  bubble_bg?: string;
+  /** 气泡内字色（优先级高于 text_color） */
+  bubble_text_color?: string;
+  /** 气泡圆角（px） */
+  radius?: number;
+  bold?: boolean;
+  italic?: boolean;
+}
+
 export interface RoleDto {
   id: number;
   workspace_id: number;
