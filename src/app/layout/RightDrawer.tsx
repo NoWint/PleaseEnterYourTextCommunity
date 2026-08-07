@@ -1,7 +1,10 @@
 // src/app/layout/RightDrawer.tsx
-// 右侧抽屉：tabs-v2 空壳（members/pin/settings）
-// brief Step 3 将 RightDrawer 内联在 MainRegion.tsx 中，按文件清单拆为独立文件。
-// TabsV2 的 value/onChange 来自 @kobalte/core/tabs，tab 为 string，需 cast 到 DrawerTab。
+// 右侧抽屉：对齐 opencode session-side-panel.tsx 的 V2 面板结构。
+//
+// 对齐点（opencode SessionSidePanel V2）：
+// - contain-strict 性能隔离
+// - bg-v2-background-bg-base 内层背景
+// - TabsV2 切换视图（opencode 切 review/file-browser/context，peytchat 切 members/pin/settings）
 
 import type { Component } from "solid-js"
 import { useLayout, type DrawerTab } from "../context/layout"
@@ -11,7 +14,7 @@ const RightDrawer: Component = () => {
   const layout = useLayout()
 
   return (
-    <div class="flex-1 flex flex-col">
+    <div data-component="right-drawer" class="flex-1 flex flex-col contain-strict">
       <TabsV2
         value={layout.drawer.tab()}
         onChange={(tab) => layout.drawer.setTab(tab as DrawerTab)}
@@ -21,13 +24,22 @@ const RightDrawer: Component = () => {
           <TabsV2.Trigger value="pin">置顶</TabsV2.Trigger>
           <TabsV2.Trigger value="settings">设置</TabsV2.Trigger>
         </TabsV2.List>
-        <TabsV2.Content value="members" class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs">
+        <TabsV2.Content
+          value="members"
+          class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs bg-v2-background-bg-base"
+        >
           成员列表
         </TabsV2.Content>
-        <TabsV2.Content value="pin" class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs">
+        <TabsV2.Content
+          value="pin"
+          class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs bg-v2-background-bg-base"
+        >
           置顶消息
         </TabsV2.Content>
-        <TabsV2.Content value="settings" class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs">
+        <TabsV2.Content
+          value="settings"
+          class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs bg-v2-background-bg-base"
+        >
           会话设置
         </TabsV2.Content>
       </TabsV2>

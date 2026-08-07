@@ -33,8 +33,7 @@ html, body {
 #app {
   height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
 }
 
 /* 布局骨架样式 */
@@ -55,4 +54,11 @@ html, body {
 [data-tauri-drag-region] a,
 [data-tauri-drag-region] input {
   -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Tailwind v4 任意属性 [app-region:no-drag] 兜底 */
+[app-region="no-drag"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }

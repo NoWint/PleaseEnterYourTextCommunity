@@ -12,6 +12,7 @@ import { LayoutProvider } from "./context/layout"
 import { SettingsProvider } from "./context/settings"
 import { WorkspaceProvider } from "./context/workspace"
 import { ChatProvider } from "./context/chat"
+import BodyDesignClass from "./layout/BodyDesignClass"
 import AppLayout from "./layout/AppLayout"
 import MessagesPage from "./pages/MessagesPage"
 import GroupsPage from "./pages/GroupsPage"
@@ -23,6 +24,7 @@ const App: Component = () => {
   return (
     <ThemeProvider defaultTheme="oc-2">
       <Font />
+      <BodyDesignClass />
       <DialogProvider>
         <PlatformProvider>
           <SettingsProvider>
