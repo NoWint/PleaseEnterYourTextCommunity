@@ -3,6 +3,13 @@ import { render } from "solid-js/web"
 import App from "./App"
 import "./index.css"
 
+// dev 入口可能是 /app.html 或 /，Tauri 桌面端可能是 / 或 /index.html。
+// 这些 pathname 都不匹配 Router 的 4 个路由，需在渲染前重定向到默认页。
+const VALID_PATHS = ["/messages", "/groups", "/work", "/settings"]
+if (!VALID_PATHS.includes(location.pathname)) {
+  history.replaceState(null, "", "/messages")
+}
+
 const root = document.getElementById("app")
 if (!root) throw new Error("Root element #app not found")
 

@@ -31,13 +31,15 @@ export interface Platform {
 export function createTauriPlatform(): Platform {
   return {
     async openExternal(url: string) {
-      // @tauri-apps/plugin-shell 尚未安装；Phase 1 不实际调用，try/catch 容错
+      // @tauri-apps/plugin-shell 尚未安装；Phase 1 不实际调用。
+      // 用变量构造 import 路径，逃逸 vite 静态分析与 TS 模块解析；运行时 try/catch 兜底。
       try {
-        // @ts-expect-error - 模块未安装，Phase 3+ 接入 shell 插件后移除此注释
-        const { open } = await import("@tauri-apps/plugin-shell")
-        await open(url)
-      } catch (e) {
-        console.warn("[platform] openExternal failed, fallback to window.open", e)
+        const plugin = "@tauri-apps/plugin-shell"
+        const mod = (await import(/* @vite-ignore */ plugin)) as {
+          open: (url: string) => Promise<void>
+        }
+        await mod.open(url)
+      } catch {
         window.open(url, "_blank")
       }
     },
