@@ -245,6 +245,7 @@ fn state_str(s: MessageState) -> &'static str {
         MessageState::OutFailed => "failed",
         MessageState::OutDelivered => "delivered",
         MessageState::OutMdnRcvd => "read",
+        MessageState::OutDraft => "draft", // 草稿:会话列表预览显示 [草稿]XXX 而非发送中
         _ => "other",
     }
 }

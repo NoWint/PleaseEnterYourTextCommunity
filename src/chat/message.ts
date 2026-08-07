@@ -128,6 +128,8 @@ export function chatPreviewText(c: {
   const text = c.last_msg ? resolveMessageText(c.last_msg) : '';
   if (!text) return '';
   if (c.last_msg_is_out && !c.last_msg_is_info) {
+    // 草稿:显示 [草稿]XXX(无「· 状态」前缀)
+    if (c.last_msg_state === 'draft') return `[草稿]${text}`;
     const s = stateLabel(c.last_msg_state as MsgState, c.is_group, c.last_msg_read_count);
     return `${s} · ${text}`;
   }
