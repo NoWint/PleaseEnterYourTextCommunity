@@ -11,7 +11,7 @@ import { isEmail } from './inviteLink.js';
 // - https://peyt.yzjtiantian.cn/#<token> : PEYT 品牌域名链接,normalize 回 i.delta.chat 供 core
 // - https://i.delta.chat/#<token>       : core 原生(粘贴进来)
 // - OPENPGP4FPR:<token>                 : scheme 唤起(网页 Open chat 按钮)
-// - dcaccount:/dclogin:                 : 登录预填
+// - dcaccount:/dclogin:                 : 静默忽略(所有账号均从客户端注册)
 // - 纯邮箱                              : 建单聊
 
 /** PEYT 品牌域名 → core 认的 i.delta.chat 域名(供 secure_join 解析)。 */
@@ -43,16 +43,8 @@ export async function routeDeepLink(rawUrl: string): Promise<void> {
       return;
     }
     const lower = url.toLowerCase();
-    // 2. dclogin:/dcaccount: → 登录页预填
+    // 2. dclogin:/dcaccount: → 静默忽略(所有账号均从客户端注册,无外部账号登录)
     if (lower.startsWith('dclogin:') || lower.startsWith('dcaccount:')) {
-      const info = await call<{ email: string; advanced: unknown }>('parse_dclogin', { url });
-      localStorage.setItem('peyt.pendingDclogin', JSON.stringify(info));
-      // 切到登录页(若已配置账号则提示)
-      const { renderMain } = await import('../shell/navPanel.js');
-      state.currentPage = 'settings';
-      saveState();
-      await renderMain();
-      showToast('已解析登录链接,请在设置账号中完成登录');
       return;
     }
     // 3. securejoin 链接(peyt 域名 / i.delta.chat / OPENPGP4FPR)→ secure_join
@@ -88,13 +80,4 @@ export async function processPendingDeepLink(): Promise<void> {
     const url = await call<string | null>('take_pending_deeplink');
     if (url) void routeDeepLink(url);
   } catch { /* 无 pending 忽略 */ }
-  // 未配置账号时暂存的 dclogin(登录后处理)
-  try {
-    const pending = localStorage.getItem('peyt.pendingDclogin');
-    if (pending) {
-      localStorage.removeItem('peyt.pendingDclogin');
-      const info = JSON.parse(pending);
-      void import('../views/login.js').then(({ applyPendingDclogin }) => applyPendingDclogin(info));
-    }
-  } catch { /* 解析失败忽略 */ }
 }
