@@ -69,3 +69,16 @@
 .peyt-btn[data-variant="ghost"]:hover { background: var(--v2-overlay-simple-overlay-hover); }
 .peyt-btn[data-variant="danger"] { background: var(--v2-state-bg-danger); color: var(--v2-state-fg-danger); }
 .peyt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Avatar */
+.peyt-avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: 530; font-size: 11px; color: var(--v2-text-text-inverse); flex-shrink: 0; }
+.peyt-avatar-fallback { background: var(--v2-avatar-bg-blue, #3b82f6); }
+.peyt-avatar-orange { background: var(--v2-avatar-bg-orange, #f97316); }
+.peyt-avatar-yellow { background: var(--v2-avatar-bg-yellow, #eab308); }
+.peyt-avatar-cyan { background: var(--v2-avatar-bg-cyan, #06b6d4); }
+.peyt-avatar-green { background: var(--v2-avatar-bg-green, #22c55e); }
+.peyt-avatar-red { background: var(--v2-avatar-bg-red, #ef4444); }
+.peyt-avatar-pink { background: var(--v2-avatar-bg-pink, #ec4899); }
+.peyt-avatar-blue { background: var(--v2-avatar-bg-blue, #3b82f6); }
+.peyt-avatar-purple { background: var(--v2-avatar-bg-purple, #a855f7); }
+.peyt-avatar-gray { background: var(--v2-avatar-bg-gray, #6b7280); }
