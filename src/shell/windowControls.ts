@@ -31,10 +31,10 @@ export async function initWindowControls(): Promise<void> {
     const isMax = await win.isMaximized().catch(() => false);
     maxBtn.title = isMax ? '还原' : '最大化';
     maxBtn.setAttribute('aria-label', isMax ? '还原' : '最大化');
-    // 还原态 = 双层方块;最大化态 = tdesign fullscreen 方框(24 viewBox 渲染 14px)
+    // 还原态 = 用户指定嵌套方框(1024 viewBox);最大化态 = 手绘单方块(与 index.html 一致)
     maxBtn.innerHTML = isMax
-      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 9H9V5M19 9H15V5M19 15H15V19M5 15H9V19" stroke="currentColor" stroke-width="2" stroke-linecap="square"/><path d="M9 15H15V9" stroke="currentColor" stroke-width="2" stroke-linecap="square"/></svg>'
-      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 9H9V5M19 9H15V5M19 15H15V19M5 15H9V19" stroke="currentColor" stroke-width="2" stroke-linecap="square"/></svg>';
+      ? '<svg width="12" height="12" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path d="M768 170.666667h-341.333333c-46.933333 0-85.333333 38.4-85.333334 85.333333v85.333333H256c-46.933333 0-85.333333 38.4-85.333333 85.333334v341.333333c0 46.933333 38.4 85.333333 85.333333 85.333333h341.333333c46.933333 0 85.333333-38.4 85.333334-85.333333v-85.333333h85.333333c46.933333 0 85.333333-38.4 85.333333-85.333334V256c0-46.933333-38.4-85.333333-85.333333-85.333333zM256 768v-341.333333h341.333333v341.333333H256z m512-170.666667h-85.333333v-170.666666c0-46.933333-38.4-85.333333-85.333334-85.333334h-170.666666V256h341.333333v341.333333z" fill="currentColor" p-id="1710"/></svg>'
+      : '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="2" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.2"/></svg>';
   };
   await updateMaxState();
   unlistenResize = await win.onResized(() => void updateMaxState());
