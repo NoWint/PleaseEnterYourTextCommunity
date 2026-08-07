@@ -112,7 +112,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         <div class="composer-actions">
           <span class="composer-mic-timer" id="composer-mic-timer"></span>
           <button type="button" class="composer-mic" id="composer-mic" title="录音">${iconSvg('mic', { width: 16, height: 16 })}</button>
-          <button type="button" class="composer-send" id="composer-send" title="发送" disabled>发送</button>
+          <button type="button" class="composer-send" id="composer-send" title="发送" disabled>${iconSvg('send', { width: 18, height: 18 })}</button>
         </div>
       </div>
     </div>

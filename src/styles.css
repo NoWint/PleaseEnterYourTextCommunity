@@ -1284,31 +1284,36 @@ html.window-frame #titlebar-tools { height: 34px; }
 .composer textarea { scrollbar-width: none; }
 .composer textarea::-webkit-scrollbar { display: none; }
 
-/* 发送按钮:无背景(无边沉浸)。聊天页 text 按钮 → 圆角药丸描边;
-   bots 页 icon 按钮(.composer-row 内)→ 圆形描边(见下方区分规则)。 */
+/* 发送按钮:SVG 图标,圆形,apple 风格(§1 按压反馈 + 主色态)。
+   聊天页与 bots 页均为圆形图标按钮,无文本。 */
 .composer-send {
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
-  font-size: var(--font-scale-body); font-weight: 600;
+  width: 34px; height: 34px; padding: 0;
   color: var(--text-mute);
   background: transparent;
   border: 1px solid var(--border-strong);
-  transition: transform 120ms var(--ease-out), opacity 120ms, color 120ms, border-color 120ms, background 120ms;
+  border-radius: 50%;
+  transition: transform 140ms var(--ease-out), opacity 120ms, color 120ms, border-color 120ms, background 120ms;
 }
 .composer-send svg { display: block; }
 .composer-send:hover { color: var(--text); border-color: var(--text-weak); background: var(--active); }
-.composer-send:active { transform: scale(0.95); }
+.composer-send:active { transform: scale(0.9); }
+/* 有内容可发送:主色圆底 + 白图标(醒目),disabled 淡出 */
+.composer-send:not(:disabled) {
+  color: var(--on-accent);
+  background: var(--text);
+  border-color: transparent;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 30%, transparent);
+}
+.composer-send:not(:disabled):hover { filter: brightness(1.1); }
 .composer-send:disabled {
   color: var(--text-faint); border-color: var(--border);
   cursor: default; background: transparent;
 }
-/* 聊天页(text 按钮):34px 高圆角药丸(高度一半);与录音按钮同高。
-   用 .composer textarea 限定:bots 页无 textarea(icon 圆形按钮不误伤)。 */
-.composer textarea ~ .composer-toolbar .composer-send {
-  min-width: 56px; height: 34px; padding: 0 18px; border-radius: 17px;
-}
-/* bots 页(icon 按钮,.composer-row 内):保持圆形 */
+/* 兼容旧选择器:聊天页/ bots 页均已是圆形图标按钮,统一尺寸 */
+.composer textarea ~ .composer-toolbar .composer-send,
 .composer-row .composer-send {
   width: 34px; height: 34px; padding: 0; border-radius: 50%;
 }
