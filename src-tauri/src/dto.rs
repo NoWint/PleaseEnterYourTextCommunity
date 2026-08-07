@@ -988,4 +988,6 @@ pub struct AccountInfoDto {
     pub name: String,
     pub addr: String,
     pub is_current: bool,
+    /// self 头像 blobdir 绝对路径;无头像/读取失败为 None。
+    pub avatar: Option<String>,
 }

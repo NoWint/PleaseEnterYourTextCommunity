@@ -3921,6 +3921,17 @@ pub async fn add_bot_to_chat(
     Ok(())
 }
 
+/// 取账号自身头像路径(blobdir 绝对路径),失败降级 None。list_accounts/switch_account 共用。
+async fn self_avatar(ctx: &Context) -> Option<String> {
+    match Contact::get_by_id(ctx, ContactId::SELF).await {
+        Ok(c) => match c.get_profile_image(ctx).await {
+            Ok(p) => p.map(|p| p.to_string_lossy().to_string()),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    }
+}
+
 /// 列出所有账号(含名称/地址),供前端「切换账号」。
 #[tauri::command]
 pub async fn list_accounts(state: State<'_, AppState>) -> AppResult<Vec<crate::dto::AccountInfoDto>> {
@@ -3936,6 +3947,7 @@ pub async fn list_accounts(state: State<'_, AppState>) -> AppResult<Vec<crate::d
             name,
             addr,
             is_current,
+            avatar: self_avatar(&ctx).await,
         });
     }
     Ok(out)
@@ -3957,7 +3969,7 @@ pub async fn switch_account(state: State<'_, AppState>, id: u32) -> AppResult<cr
         state.set_current(id);
         let name = ctx.get_config(Config::Displayname).await.unwrap_or(None).unwrap_or_default();
         let addr = ctx.get_config(Config::ConfiguredAddr).await.unwrap_or(None).unwrap_or_default();
-        return Ok(crate::dto::AccountInfoDto { id, name, addr, is_current: true });
+        return Ok(crate::dto::AccountInfoDto { id, name, addr, is_current: true, avatar: self_avatar(&ctx).await });
     }
     Err(AppError::Core("账号不可用".into()))
 }
