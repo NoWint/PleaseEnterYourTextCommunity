@@ -32,20 +32,60 @@ function strokeFull(ctx: CanvasRenderingContext2D, s: HandwritingStroke, W: numb
   ctx.stroke();
 }
 
+/** 计算笔迹内容边界(归一化坐标),录制时按此取景,裁掉四周空白。 */
+interface Bounds {
+  minX: number;
+  minY: number;
+  cw: number;
+  ch: number;
+}
+
+function computeBounds(strokes: HandwritingStroke[]): Bounds {
+  let minX = 1;
+  let minY = 1;
+  let maxX = 0;
+  let maxY = 0;
+  for (const s of strokes) {
+    for (const [x, y] of s.pts) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const cw = maxX - minX;
+  const ch = maxY - minY;
+  return {
+    minX,
+    minY,
+    cw: cw > 0.001 ? cw : 1,
+    ch: ch > 0.001 ? ch : 1,
+  };
+}
+
 /** 按时间轴把笔迹画到 canvas(录制时逐帧调用,直到 el >= totalMs)。 */
-function drawAt(ctx: CanvasRenderingContext2D, strokes: HandwritingStroke[], el: number, W: number, H: number): void {
+function drawAt(
+  ctx: CanvasRenderingContext2D,
+  strokes: HandwritingStroke[],
+  el: number,
+  W: number,
+  H: number,
+  b: Bounds,
+): void {
+  const toPx = (x: number, y: number): [number, number] => [
+    ((x - b.minX) / b.cw) * W,
+    ((y - b.minY) / b.ch) * H,
+  ];
   ctx.clearRect(0, 0, W, H);
   for (const s of strokes) {
     const pts = s.pts;
     applyStrokeStyle(ctx, s, W, H);
     ctx.beginPath();
     let started = false;
-    let breakOut = false;
     for (let i = 0; i < pts.length; i++) {
       const t = pts[i][2];
       if (t <= el) {
-        const x = pts[i][0] * W;
-        const y = pts[i][1] * H;
+        const [x, y] = toPx(pts[i][0], pts[i][1]);
         if (!started) {
           ctx.moveTo(x, y);
           started = true;
@@ -58,20 +98,24 @@ function drawAt(ctx: CanvasRenderingContext2D, strokes: HandwritingStroke[], el:
           const p1 = pts[i];
           if (p1[2] > p0[2]) {
             const r = Math.min(1, Math.max(0, (el - p0[2]) / (p1[2] - p0[2])));
-            ctx.lineTo((p0[0] + (p1[0] - p0[0]) * r) * W, (p0[1] + (p1[1] - p0[1]) * r) * H);
+            const [x, y] = toPx(p0[0] + (p1[0] - p0[0]) * r, p0[1] + (p1[1] - p0[1]) * r);
+            ctx.lineTo(x, y);
           }
         }
-        breakOut = true;
         break;
       }
     }
-    void breakOut;
     ctx.stroke();
   }
 }
 
 /** 在 canvas 上播放完整手写动画(录制时驱动帧),播放完 resolve。 */
-function playToCanvas(canvas: HTMLCanvasElement, strokes: HandwritingStroke[], totalMs: number): Promise<void> {
+function playToCanvas(
+  canvas: HTMLCanvasElement,
+  strokes: HandwritingStroke[],
+  totalMs: number,
+  b: Bounds,
+): Promise<void> {
   return new Promise((resolve) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) {
@@ -83,7 +127,7 @@ function playToCanvas(canvas: HTMLCanvasElement, strokes: HandwritingStroke[], t
     const t0 = performance.now();
     const frame = (now: number): void => {
       const el = now - t0;
-      drawAt(ctx, strokes, el, W, H);
+      drawAt(ctx, strokes, el, W, H, b);
       if (el < totalMs) requestAnimationFrame(frame);
       else resolve();
     };
@@ -119,6 +163,7 @@ async function recordToVideo(
   if (typeof MediaRecorder === 'undefined') return null;
   const mime = pickMime();
   if (!mime) return null;
+  const bounds = computeBounds(strokes);
   const stream = canvas.captureStream(30);
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_000_000 });
   const chunks: Blob[] = [];
@@ -128,8 +173,11 @@ async function recordToVideo(
   const stopped = new Promise<void>((r) => {
     rec.onstop = () => r();
   });
+  // 先清空画布,保证录制从干净帧开始(避免首帧残留上一状态)
+  const ctx = canvas.getContext('2d');
+  ctx?.clearRect(0, 0, canvas.width, canvas.height);
   rec.start(50);
-  await playToCanvas(canvas, strokes, totalMs);
+  await playToCanvas(canvas, strokes, totalMs, bounds);
   rec.stop();
   await stopped;
   stream.getTracks().forEach((t) => t.stop());
@@ -208,7 +256,7 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
   let strokes: HandwritingStroke[] = [];
   let current: Array<[number, number, number]> = [];
   let drawing = false;
-  let strokeStart = 0;
+  let globalT0 = 0; // 第一笔开始时间:全局相对时间,回放时各笔画按书写顺序逐步出现
   let currentColor = HW_COLORS[0];
 
   const redraw = (): void => {
@@ -235,7 +283,8 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     drawing = true;
-    strokeStart = performance.now();
+    // 第一笔开始时确立全局时间轴(清空/撤销到空后重画也会重置)
+    if (strokes.length === 0 && current.length === 0) globalT0 = performance.now();
     current = [];
     const [x, y] = norm(e);
     current.push([x, y, 0]);
@@ -245,7 +294,7 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
     if (!drawing) return;
     e.preventDefault();
     const [x, y] = norm(e);
-    const t = performance.now() - strokeStart;
+    const t = performance.now() - globalT0;
     const last = current[current.length - 1];
     if (last && Math.hypot(x - last[0], y - last[1]) < 0.0015) return;
     current.push([x, y, t]);
