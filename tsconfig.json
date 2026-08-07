@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2021",
+    "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
@@ -10,14 +10,14 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "lib": ["ES2021", "DOM", "DOM.Iterable"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
-    "types": ["node", "vitest/globals", "@testing-library/jest-dom"],
+    "types": ["node", "vite/client", "vitest/globals", "@testing-library/jest-dom"],
     "paths": {
       "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*", "vite.config.ts"],
-  "exclude": ["node_modules", "dist", "src-tauri"]
+  "exclude": ["node_modules", "dist", "src-tauri", "packages/ui"]
 }

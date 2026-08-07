@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PEYT Chat - Solid App</title>
+    <!-- 主题 preload: 首帧前应用持久化主题,避免闪变 -->
+    <!-- 注意: ThemeProvider 内部用 'opencode-theme-id' 作为 localStorage key -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('opencode-theme-id') || 'oc-2';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/app/entry.tsx"></script>
+  </body>
+</html>
