@@ -16,6 +16,7 @@ import { type Accessor, createMemo, For, type JSX, Match, Show, Switch } from "s
 import { useLanguage } from "../../context/language"
 import { getAvatarColors, type LocalProject } from "../../context/layout"
 import { useChat } from "../../context/chat"
+import { useTabs } from "../../context/tabs"
 import { getProjectAvatarSource } from "./helpers"
 
 export const ProjectIcon = (props: {
@@ -116,10 +117,16 @@ const SessionRow = (props: {
 export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const language = useLanguage()
   const chat = useChat()
+  const tabs = useTabs()
   const unseenCount = createMemo(() => chat.unreadFor(props.session.id))
   const isWorking = createMemo(() => !!chat.session(props.session.id)?.working)
   const tooltip = createMemo(() => props.showTooltip ?? (props.mobile || !props.sidebarExpanded()))
   const title = createMemo(() => props.session.title)
+
+  const archive = () => {
+    chat.archive(props.session.id)
+    tabs.removeSessionTab({ chatId: props.session.id })
+  }
 
   const item = (
     <SessionRow
@@ -176,7 +183,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                 onClick={(event) => {
                   event.preventDefault()
                   event.stopPropagation()
-                  chat.archive(props.session.id)
+                  archive()
                 }}
               />
             </Tooltip>

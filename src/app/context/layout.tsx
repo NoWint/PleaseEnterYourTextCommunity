@@ -9,6 +9,7 @@ import { useLocation } from "@solidjs/router"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { AppWorkspace } from "../types"
 import { fakeWorkspaces } from "../data/fake"
+import { base64Decode } from "../utils/base64"
 
 export type { ProjectAvatarVariant } from "@opencode-ai/ui/v2/project-avatar-v2"
 
@@ -61,7 +62,8 @@ export const currentRoute = (pathname: string, search: string): LayoutRoute => {
   if (parts.length === 0) return { type: "home" }
 
   if (parts[0] === "home") {
-    const wsId = parts[1]
+    // wsId 在 URL 中是 base64url 编码（见 AppLayout navigateToProject），此处解码为工作区 key
+    const wsId = parts[1] ? base64Decode(parts[1]) : undefined
     if (wsId) return { type: "workspace", wsId }
     return { type: "home" }
   }
@@ -230,10 +232,9 @@ function createLayoutStore(): LayoutStore {
         persistSidebar()
       },
       toggle() {
-        setStore("sidebar", "opened", (x) => {
-          persistSidebar()
-          return !x
-        })
+        setStore("sidebar", "opened", (x) => !x)
+        // 必须在 setStore 之后 persist：updater 内读取的 store.sidebar.opened 还是旧值
+        persistSidebar()
       },
       width: () => store.sidebar.width,
       resize(width: number) {

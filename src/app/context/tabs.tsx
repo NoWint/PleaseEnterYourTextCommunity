@@ -33,7 +33,7 @@ export const tabHref = (tab: Tab) => (tab.type === "draft" ? draftHref(tab.draft
 
 export const tabKey = (tab: Tab) => (tab.type === "draft" ? `draft:${tab.draftID}` : `chat:${tab.chatId}`)
 
-export function sessionHasOpenTab(tabs: Tab[], chatId: string, session: AppSession) {
+export function sessionHasOpenTab(tabs: Tab[], session: AppSession) {
   return tabs.some((tab) => tab.type === "session" && tab.chatId === session.id)
 }
 

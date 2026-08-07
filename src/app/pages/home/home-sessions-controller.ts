@@ -103,8 +103,7 @@ export function createHomeSessionsController(home: HomeController) {
       },
     },
     tab: {
-      isOpen: (record: HomeSessionRecord) =>
-        sessionHasOpenTab(tabs.store, home.selection.value().server, record.session),
+      isOpen: (record: HomeSessionRecord) => sessionHasOpenTab(tabs.store, record.session),
     },
   }
 }

@@ -5,13 +5,15 @@ import { Show, type Component } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { useChat } from "../context/chat"
 import { useLayout } from "../context/layout"
+import { base64Decode } from "../utils/base64"
 import { PanelCard } from "./panel-card"
 
 const WorkPage: Component = () => {
   const params = useParams()
   const layout = useLayout()
   const chat = useChat()
-  const wsId = () => params.wsId
+  // /home/:wsId 中 wsId 是 base64url 编码的工作区 key（AppLayout navigateToProject 编码）
+  const wsId = () => (params.wsId ? base64Decode(params.wsId) : undefined)
   const workspace = () => layout.projects.list().find((p) => p.worktree === wsId())
   const chats = () => (wsId() ? chat.chatList().filter((c) => c.directory === wsId()) : [])
 
