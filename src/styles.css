@@ -788,7 +788,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   flex-shrink: 0;
 }
 .composer-md-toggle:hover { background: var(--active); }
-.composer-md-label { font-size: 11px; font-weight: 600; color: var(--text-mute); }
+.composer-md-label { font-size: 13px; font-weight: 600; color: var(--text-mute); }
 /* 工具条内的 Switch 缩小:32×18(全局 .toggle-switch 是 40×22,这里只改 composer 内) */
 .composer-md-toggle .toggle-switch { width: 32px; height: 18px; }
 .composer-md-toggle .toggle-switch .toggle-slider { border-radius: 18px; }
