@@ -64,6 +64,11 @@ login-panel
 - 表单:显示名输入 + 创建按钮 → `create_chatmail_account({displayName})` → onSuccess。
 - 有账号时点击「新建账号」按钮展开表单(可收起);无账号直接显示。
 
+## 4.1 操作按钮样式
+
+- 所有操作按钮(新建账号、创建账号、账号卡点击区)内文字**水平垂直居中**(apple-design 对齐惯例)。
+- 按钮使用 flex 居中(justify-content/align-items center),不使用 text-align 残留偏移。
+
 ## 5. 移除内容
 
 | 移除 | 位置 |
