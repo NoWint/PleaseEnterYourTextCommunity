@@ -288,6 +288,15 @@ html.window-frame #titlebar-tools { height: 34px; }
 .login-form .ui-button:not(:disabled):active { transform: scale(0.97); }
 .login-form .ui-button:disabled { opacity: 0.4; cursor: default; }
 
+/* 新建账号 ghost 按钮:重置被 .login-form .ui-button 压过的 ghost 外观(特异性 0,2,0 > 0,1,0) */
+.login-form .ui-button-ghost {
+  background: var(--capsule); color: var(--text-mute);
+}
+.login-form .ui-button-ghost:not(:disabled):hover {
+  color: var(--text); background: var(--border-strong);
+  filter: none; box-shadow: none;
+}
+
 @keyframes login-panel-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
