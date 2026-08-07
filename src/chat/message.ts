@@ -128,6 +128,12 @@ export function chatPreviewText(c: {
 }): string {
   const text = c.last_msg ? resolveMessageText(c.last_msg) : '';
   if (!text) return '';
+  // 手写消息:会话列表只显示「手写」,不显示文件名(hw 视频)
+  if (c.last_msg && envelopeHw(c.last_msg)) {
+    return c.last_msg_is_out && !c.last_msg_is_info
+      ? `${stateLabel(c.last_msg_state as MsgState, c.is_group, c.last_msg_read_count)} · 手写`
+      : '手写';
+  }
   if (c.last_msg_is_out && !c.last_msg_is_info) {
     // 草稿:显示 [草稿]XXX(无「· 状态」前缀)
     if (c.last_msg_state === 'draft') return `[草稿]${text}`;
@@ -374,7 +380,7 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
     </div>
   `;
   return `
-    <div class="msg${collapsedCls}${groupCls}${stateClass}" data-msg="${msg.msg_id}"${isOutAttr} style="position:relative">
+    <div class="msg${collapsedCls}${groupCls}${stateClass}${isHw ? ' msg-hw' : ''}" data-msg="${msg.msg_id}"${isOutAttr} style="position:relative">
       <div class="msg-row">
         ${avatarDisplay}
         ${bubble}

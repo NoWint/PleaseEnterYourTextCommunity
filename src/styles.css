@@ -2138,6 +2138,14 @@ html.window-frame #titlebar-tools { height: 34px; }
   object-fit: contain;
   background: #fdfdfd;
 }
+/* 手写消息:不要气泡框,视频直接平铺在消息流(iMessage 风格) */
+.msg.msg-hw .msg-bubble {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  padding: 0;
+}
+.msg.msg-hw .msg-bubble .msg-meta { margin-left: 2px; }
 .msg-attachment.file {
   display: inline-flex; align-items: center; gap: 10px;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm);
