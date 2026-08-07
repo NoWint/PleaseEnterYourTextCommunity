@@ -101,6 +101,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       <div class="composer-toolbar">
         <div class="composer-tools">
           <button type="button" class="composer-tool" id="composer-attach" title="添加">${iconSvg('plus', { width: 20, height: 20 })}</button>
+          <button type="button" class="composer-tool" id="composer-handwrite" title="手写">${iconSvg('edit', { width: 18, height: 18 })}</button>
           <label class="composer-md-toggle" title="Markdown 渲染">
             <span class="composer-md-label">Markdown</span>
             <span class="toggle-switch">
@@ -211,6 +212,12 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       if (f) void sendAttachment(chatId, f, onSent);
     });
     attachBtn.parentElement?.appendChild(fileInput);
+    // 手写(iMessage Digital Touch):触控板/鼠标书写 → 录制 MP4 发送
+    const hwBtn = document.getElementById('composer-handwrite');
+    hwBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void import('../utils/handwriting.js').then((m) => m.openHandwritingPanel(chatId, onSent));
+    });
     attachBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       // 菜单向上弹(composer 在屏幕底部,向下会超出视口)

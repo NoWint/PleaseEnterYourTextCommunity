@@ -63,3 +63,13 @@ export function envelopeTheme(text: string): { id: string; [k: string]: unknown 
   if (typeof theme.id !== 'string') return null;
   return theme as { id: string; [k: string]: unknown };
 }
+
+/**
+ * 判断是否为手写消息视频(payload.hw === true)。
+ * 手写(MediaRecorder 录制的笔迹 mp4)在收件端自动播放,普通视频需点击播放。
+ */
+export function envelopeHw(text: string): boolean {
+  const env = tryParseEnvelope(text);
+  if (!env) return false;
+  return env.payload.hw === true;
+}

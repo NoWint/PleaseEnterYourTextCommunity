@@ -3325,6 +3325,7 @@ pub async fn send_attachment(
     base64: String,
     filename: String,
     mime: String,
+    hw: Option<bool>,
 ) -> AppResult<u32> {
     let ctx = state
         .current()
@@ -3348,11 +3349,13 @@ pub async fn send_attachment(
         _ => "file",
     };
     // media 信封: 描述类型/名称/大小; 文件名作 text 填充消息体(解析失败也可见名称)
+    // hw=true 标记手写消息(MediaRecorder 录制的笔迹 mp4),接收端自动播放。
     let payload = serde_json::json!({
         "media_type": media_type,
         "mime": mime,
         "name": filename,
         "size": size,
+        "hw": hw.unwrap_or(false),
         "text": filename,
     });
     let envelope = crate::envelope::build_envelope("media", payload)?;

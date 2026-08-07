@@ -1,5 +1,5 @@
 import { call, transformBlobURL } from '../api.js';
-import { resolveMessageText, tryParseEnvelope, envelopeMarkdown, envelopeTheme } from '../utils/envelope.js';
+import { resolveMessageText, tryParseEnvelope, envelopeMarkdown, envelopeTheme, envelopeHw } from '../utils/envelope.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import { msgThemeAttrs, registerSenderTheme, themeForSender } from '../msgTheme.js';
 import { state } from '../state.js';
@@ -282,8 +282,9 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
           </div>`;
           break;
         case 'Video':
+          // 手写消息(hw 标记):自动循环播放(无声笔迹视频);普通视频需点击播放
           attachmentHtml = `<div class="msg-attachment video">
-          <video controls src="${escapeAttr(assetUrl)}"></video>
+          <video ${envelopeHw(msg.text) ? 'autoplay muted loop playsinline' : ''} controls src="${escapeAttr(assetUrl)}"></video>
         </div>`;
           break;
       }
