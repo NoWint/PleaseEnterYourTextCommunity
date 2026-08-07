@@ -2,7 +2,9 @@
   "name": "peytchat",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,6 +15,7 @@
   "dependencies": {
     "@kobalte/core": "^0.13.12",
     "@solid-primitives/media": "^2.3.6",
+    "@solidjs/router": "^0.15.3",
     "@tanstack/solid-virtual": "^3.13.36",
     "@tauri-apps/api": "^2.0.0",
     "highlight.js": "^11.11.1",
