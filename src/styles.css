@@ -223,12 +223,11 @@ html.window-frame #titlebar-tools { height: 34px; }
 /* 登录页上下布局：品牌区在上，表单在下 */
 .login-wrap {
   display: flex; flex-direction: column; width: 100%; height: 100%;
-  align-items: center; gap: 24px; padding: 28px 24px;
-  /* 内容超高(账号多/新建表单展开)时可滚动,且不裁顶部:整组居中交给首尾 margin auto,
-     justify-content:center 在溢出时会裁掉顶部(无法滚到) */
+  align-items: center; gap: 24px; padding: 20px 24px;
+  /* 内容超高(账号多/新建表单展开)时可滚动:靠顶部排布,不裁顶部。
+     justify-content:center 在溢出时会裁掉顶部(无法滚到),故不用 */
   overflow-y: auto;
 }
-.login-hero { margin-top: auto; }
 .login-panel { margin-bottom: auto; }
 .login-hero {
   display: flex; flex-direction: column;
