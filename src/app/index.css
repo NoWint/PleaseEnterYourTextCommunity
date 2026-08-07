@@ -36,3 +36,23 @@ html, body {
   align-items: center;
   justify-content: center;
 }
+
+/* 布局骨架样式 */
+[data-component="sidebar-rail"] {
+  width: 64px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Tauri 拖拽区域：标题栏内的交互元素取消拖拽 */
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] input {
+  -webkit-app-region: no-drag;
+}
