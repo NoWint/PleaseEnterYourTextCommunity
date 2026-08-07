@@ -456,6 +456,8 @@ export async function openSummaryDashboard(anchor: HTMLElement, chatId: number, 
   // 兜底:若该 chat 缓存为空(60s 防抖刚清缓存/从冷启动直接开 popup)且无请求在途,
   // 补批预请求(anyCached 守卫保证不重复整批;beginDetailRequest 按 kind 幂等)。
   void prefetchSummary(chatId, msgs, resolve).catch(() => {});
+  // 水合 mention-chip 头像(按名字查成员 → asset URL → img src)
+  void import('../utils/tagParser.js').then(({ hydrateMentionAvatars }) => hydrateMentionAvatars(overlay));
 }
 
 function kindOf(k: AnalysisKind): AnalysisKind { return k; }
@@ -596,6 +598,7 @@ function bindFullscreenEvents(): void {
           ? `<div class="sd-insight-text">${renderMarkdown(cur.text)}</div>`
           : renderDetailBody(p.kind as AnalysisKind, cur.text, p.chatId);
         bindCheckboxPersistence(target, p.chatId); // 行动项勾选 → localStorage 持久化
+        void import('../utils/tagParser.js').then(({ hydrateMentionAvatars }) => hydrateMentionAvatars(target)); // 水合 mention-chip 头像
         // 卡片出现动画:done 后加 .sd-reveal,stagger 由子项 animation-delay 控制
         const block = target.closest('.sd-block');
         if (block) {

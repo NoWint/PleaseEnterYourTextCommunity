@@ -4,7 +4,7 @@
 // 再把占位 token 替换成可点击 chip(客户端点击 → 名片/定位原文)。
 import { marked } from 'marked';
 import { escapeHtml } from '../components/escape.js';
-import { displayTime } from './tagParser.js';
+import { displayTime, userChipHtml } from './tagParser.js';
 import { state } from '../state.js';
 import { resolveMessageText } from './envelope.js';
 
@@ -121,7 +121,7 @@ function restoreTags(html: string, tags: Map<string, { kind: TagKind; value: str
       ? `<a class="mention-chip mention-chip-msg" data-msg-ref="${escapeHtml(t.value)}">${escapeHtml(msgText(t.value) ?? `消息 ${t.value}`)}</a>`
       : t.kind === 'time'
         ? `<span class="mention-chip" data-time-ref="${escapeHtml(t.value)}">🕐 ${escapeHtml(displayTime(t.value))}</span>`
-        : `<span class="mention-chip" data-user-ref="${escapeHtml(t.value)}">@${escapeHtml(t.value)}</span>`;
+        : userChipHtml(t.value, escapeHtml(t.value));
     out = out.split(tok).join(chip);
   }
   return out;

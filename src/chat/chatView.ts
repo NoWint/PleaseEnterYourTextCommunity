@@ -764,6 +764,8 @@ function scheduleTopicRefresh(): void {
         bindTopicChipClick(); // 委托已在,幂等
         // 防抖窗口内 re-render → 恢复「Xs总结」读秒
         void import('../components/summaryDashboard.js').then((m) => m.restoreBubbleIndicator());
+        // 水合 mention-chip 头像
+        void import('../utils/tagParser.js').then(({ hydrateMentionAvatars }) => hydrateMentionAvatars(chip));
       }
       return;
     }
@@ -856,6 +858,8 @@ function bindSummaryEvents(): void {
       bindTopicChipClick(); // 委托已在,幂等
       // re-render 重建了空 indicator span → 恢复读秒/loading/绿勾状态
       void import('../components/summaryDashboard.js').then((m) => m.restoreBubbleIndicator());
+      // 水合 mention-chip 头像
+      void import('../utils/tagParser.js').then(({ hydrateMentionAvatars }) => hydrateMentionAvatars(chip));
     }
   });
 }

@@ -38,6 +38,32 @@ function msgText(id: string): string | null {
   return text.length > 40 ? text.slice(0, 40) + '…' : text;
 }
 
+/** user chip HTML:左侧头像 img 占位(data-avatar-name 供异步水合)+ 名字。 */
+export function userChipHtml(name: string, escaped: string): string {
+  return `<span class="mention-chip" data-user-ref="${escaped}"><img class="mention-avatar" alt="" data-avatar-name="${escapeHtml(name)}">@${escaped}</span>`;
+}
+
+/**
+ * 异步水合 mention-chip 头像:遍历 root 内 data-user-ref chip 的 .mention-avatar,
+ * 按名字查当前会话成员头像 → transformBlobURL 转 asset URL → 设 img src。
+ * 无头像/失败 → 移除 img(纯文本 chip)。幂等。
+ */
+export async function hydrateMentionAvatars(root: HTMLElement): Promise<void> {
+  const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('.mention-avatar'));
+  if (imgs.length === 0) return;
+  const { transformBlobURL } = await import('../api.js');
+  for (const img of imgs) {
+    const name = img.dataset.avatarName;
+    if (!name) { img.remove(); continue; }
+    const member = state.currentMembers?.find((m) => m.name === name);
+    if (!member?.avatar) { img.remove(); continue; }
+    try {
+      const url = await transformBlobURL(member.avatar);
+      if (url) { img.src = url; } else { img.remove(); }
+    } catch { img.remove(); }
+  }
+}
+
 // 转义后文本上的白名单匹配:escapeHtml 后标签形如 &lt;message=&#39;…&#39;&gt;
 // (&#39;=单引号, &quot;=双引号, 裸值无引号)。值扫描到 &gt; 前(值内可含 &amp;/&#39;/&quot; 实体,
 // 即原值含撇号/引号/& 的都可匹配)。剥最外层同型引号实体。
@@ -80,7 +106,7 @@ export function parseSafeTags(input: string): string {
       // 时间显示只涉及数字/冒号/连字符,实体不影响;文本再 escapeHtml 一次无害(双转义)。
       return `<span class="ref-time" data-time="${value}">🕐 ${escapeHtml(displayTime(value))}</span>`;
     }
-    return `<span class="ref-user" data-user="${value}">@${value}</span>`;
+    return userChipHtml(value, value);
   });
 }
 
@@ -156,7 +182,8 @@ export function parseTags(text: string): ParsedSegment[] {
   while ((m = TAG_RE.exec(text))) {
     if (m.index > last) segments.push({ type: 'text', value: escapeHtml(text.slice(last, m.index)) });
     const kind = m[1] === 'message' ? 'message' : m[1] === 'time' ? 'time' : 'user';
-    segments.push({ type: kind, value: escapeHtml(stripQuotes(m[2])) });
+    // 存原始值(renderParsed 渲染时再转义)——message/time/user 的 data 属性与原文查询都需原始
+    segments.push({ type: kind, value: stripQuotes(m[2]) });
     last = m.index + m[0].length;
   }
   if (last < text.length) segments.push({ type: 'text', value: escapeHtml(text.slice(last)) });
@@ -168,9 +195,9 @@ export function parseTags(text: string): ParsedSegment[] {
 export function renderParsed(segments: ParsedSegment[], onRef: (id: string) => void): string {
   return segments
     .map((s) => {
-      if (s.type === 'message') return `<a class="mention-chip mention-chip-msg" data-msg-ref="${s.value}">${escapeHtml(msgText(s.value) ?? `消息 ${s.value}`)}</a>`;
-      if (s.type === 'time') return `<span class="mention-chip" data-time-ref="${s.value}">🕐 ${displayTime(s.value)}</span>`;
-      if (s.type === 'user') return `<span class="mention-chip" data-user-ref="${s.value}">@${s.value}</span>`;
+      if (s.type === 'message') return `<a class="mention-chip mention-chip-msg" data-msg-ref="${escapeHtml(s.value)}">${escapeHtml(msgText(s.value) ?? `消息 ${s.value}`)}</a>`;
+      if (s.type === 'time') return `<span class="mention-chip" data-time-ref="${escapeHtml(s.value)}">🕐 ${escapeHtml(displayTime(s.value))}</span>`;
+      if (s.type === 'user') return userChipHtml(s.value, escapeHtml(s.value));
       return s.value;
     })
     .join('');

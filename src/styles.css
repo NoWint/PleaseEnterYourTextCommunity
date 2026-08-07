@@ -4493,6 +4493,11 @@ body {
   border: 1px solid color-mix(in srgb, var(--accent, #4a90d9) 25%, transparent);
   transition: background 140ms var(--ease-out), transform 100ms var(--ease-out), box-shadow 140ms var(--ease-out);
 }
+/* 头像:14px 圆,垂直居中于胶囊(align-items:center 已由 .mention-chip 提供) */
+.mention-chip .mention-avatar {
+  width: 14px; height: 14px; border-radius: 50%;
+  object-fit: cover; flex-shrink: 0;
+}
 .mention-chip:hover {
   background: color-mix(in srgb, var(--accent, #4a90d9) 20%, transparent);
   box-shadow: 0 1px 4px color-mix(in srgb, var(--accent, #4a90d9) 20%, transparent);
