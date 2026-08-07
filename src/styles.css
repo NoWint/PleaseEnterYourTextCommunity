@@ -229,55 +229,113 @@ html.window-frame #titlebar-tools { height: 34px; }
   display: flex; flex-direction: column;
   align-items: center; gap: 14px;
 }
-.login-hero-logo { width: 96px; height: 96px; border-radius: 28px; object-fit: cover; }
-.login-hero-title { font-size: var(--font-scale-display); font-weight: 800; letter-spacing: -1px; line-height: 1.05; }
-.login-hero-slogan { font-size: var(--font-scale-page); color: var(--text-mute); letter-spacing: 0.02em; }
+.login-hero-logo {
+  width: 96px; height: 96px; border-radius: 28px; object-fit: cover;
+  /* 材质:柔和投影衬出 logo(§12 材料层次) */
+  box-shadow: 0 12px 32px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.12);
+}
+/* 排版(§15):display 标题负 tracking,大标题紧凑;slogan 舒适行距 */
+.login-hero-title {
+  font-size: var(--font-scale-display); font-weight: 800;
+  letter-spacing: -0.03em; line-height: 1.05;
+}
+.login-hero-slogan { font-size: var(--font-scale-page); color: var(--text-mute); letter-spacing: 0.06em; }
 
 .login-panel { width: 460px; max-width: 100%; }
 .login-form {
-  display: flex; flex-direction: column; gap: var(--space-4);
-  width: 100%; padding: var(--space-7);
-  background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+  display: flex; flex-direction: column; gap: 20px;
+  width: 100%; padding: 36px 32px;
+  /* 玻璃卡:材料化(§12) — 半透明 + blur,大圆角,柔和阴影衬出层级 */
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid color-mix(in srgb, var(--border-strong) 30%, transparent);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.10);
 }
-.login-form .ui-input, .login-form .ui-select, .login-form .ui-button {
-  padding: 13px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
-  background: var(--panel); color: var(--text); font-size: var(--font-scale-body); font-family: var(--font);
+/* 输入框:内嵌凹陷字段(iOS Messages 式,§12) — inset 阴影 + 微深底,
+   输入区材料层次;focus 内阴影加深提示可编辑(§4 行为) */
+.login-form .ui-input, .login-form .ui-select {
+  padding: 14px 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--capsule) 60%, transparent);
+  color: var(--text); font-size: 15px; font-family: var(--font);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, #000 16%, transparent);
+  transition: box-shadow 180ms var(--ease-out), background 180ms var(--ease-out), border-color 180ms var(--ease-out);
 }
-.login-form .ui-button { cursor: pointer; background: var(--text); color: var(--on-accent); border-color: var(--text); }
-.login-form .ui-button:disabled { opacity: 0.5; cursor: default; }
+.login-form .ui-input::placeholder { color: var(--text-weak); }
+.login-form .ui-input:hover, .login-form .ui-select:hover { border-color: color-mix(in srgb, var(--text) 8%, transparent); }
+.login-form .ui-input:focus, .login-form .ui-select:focus {
+  outline: none;
+  background: color-mix(in srgb, var(--capsule) 80%, transparent);
+  box-shadow: inset 0 1px 3px color-mix(in srgb, #000 26%, transparent), 0 0 0 3px color-mix(in srgb, var(--accent, #4a90d9) 18%, transparent);
+}
+/* 操作按钮组:全宽主按钮 — 主色圆底 + 白字 + 弹簧按压(§1/§4) */
+.login-form .ui-button {
+  width: 100%;
+  padding: 15px 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--text); color: var(--on-accent);
+  font-size: 15px; font-weight: 600; font-family: var(--font);
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: transform 140ms var(--ease-out), opacity 180ms var(--ease-out), filter 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
+}
+.login-form .ui-button:not(:disabled):hover { filter: brightness(1.08); box-shadow: 0 4px 16px color-mix(in srgb, var(--text) 22%, transparent); }
+.login-form .ui-button:not(:disabled):active { transform: scale(0.97); }
+.login-form .ui-button:disabled { opacity: 0.4; cursor: default; }
 
-/* 登录页 tab 切换（快速开始 / 邮箱登录）*/
+/* 登录页 tab 切换(快速开始 / 邮箱登录):iOS 分段控件 — 毛玻璃底 + 活动项滑块 */
 .login-form .tabs {
+  position: relative;
   display: flex; gap: 4px; padding: 4px;
-  background: var(--capsule); border: 1px solid var(--border-strong); border-radius: 10px;
+  background: color-mix(in srgb, var(--capsule) 80%, transparent);
+  border-radius: 12px;
 }
 .login-form .tab {
-  flex: 1; padding: 9px 0; border: none; border-radius: 7px;
-  background: transparent; color: var(--text-mute); font-size: var(--font-scale-body); font-family: var(--font);
-  cursor: pointer; transition: background 150ms var(--anim-ease), color 150ms var(--anim-ease);
+  flex: 1; padding: 10px 0; border: none; border-radius: 9px;
+  background: transparent; color: var(--text-mute); font-size: 14px; font-family: var(--font);
+  cursor: pointer; position: relative; z-index: 1;
+  transition: color 200ms var(--ease-out);
 }
 .login-form .tab:hover { color: var(--text); }
-.login-form .tab.active { background: var(--active); color: var(--text); font-weight: 600; }
-.login-form .tab-panel { flex-direction: column; gap: var(--space-2); }
-.login-form .tab-panel:not([hidden]) { display: flex; }
+.login-form .tab.active {
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  color: var(--text); font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.14), inset 0 0 0 0.5px color-mix(in srgb, var(--border-strong) 40%, transparent);
+}
+.login-form .tab-panel { flex-direction: column; gap: 14px; }
+.login-form .tab-panel:not([hidden]) { display: flex; animation: login-panel-in 240ms var(--ease-out); }
 .login-form .tab-panel[hidden] { display: none; }
+@keyframes login-panel-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-form .tab-panel:not([hidden]) { animation: none; }
+}
 
 /* 高级设置折叠区 */
 .login-form .advanced {
-  flex-direction: column; gap: var(--space-2); padding: 10px; margin-top: 4px;
-  background: var(--capsule); border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
+  flex-direction: column; gap: 12px; padding: 16px;
+  margin-top: 2px;
+  background: color-mix(in srgb, var(--capsule) 70%, transparent);
+  border-radius: 12px;
 }
-.login-form .advanced:not([hidden]) { display: flex; }
+.login-form .advanced:not([hidden]) { display: flex; animation: login-panel-in 240ms var(--ease-out); }
 .login-form .advanced[hidden] { display: none; }
 
-.login-form .hint { font-size: var(--font-scale-body); line-height: 1.6; }
+.login-form .hint { font-size: 14px; line-height: 1.6; color: var(--text-mute); }
 
-/* 文本链接按钮（如「高级设置」） */
+/* 文本链接按钮(如「高级设置」) */
 .login-form .link {
-  background: transparent; border: none; color: var(--text-mute);
-  padding: 4px 0; text-align: left; font-size: var(--font-scale-body); font-family: var(--font); cursor: pointer;
+  background: transparent; border: none; color: var(--accent, #4a90d9);
+  padding: 4px 0; text-align: left; font-size: 14px; font-family: var(--font); cursor: pointer;
+  align-self: flex-start;
 }
-.login-form .link:hover { color: var(--text); text-decoration: underline; }
+.login-form .link:hover { text-decoration: underline; }
 
 /* 四栏外壳 */
 .shell { display: flex; height: 100%; width: 100%; overflow: hidden; }
