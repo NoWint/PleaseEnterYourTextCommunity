@@ -37,15 +37,16 @@ impl Notifications {
     /// Windows 未打包(dev)时 AUMID 未注册 → CreateToastNotifierWithId 失败 → user-notify
     /// 回退 mock manager(通知静默丢弃)。修复:启动时先 SetCurrentProcessExplicitAppUserModelID
     /// 设置进程级 AUMID,让 CreateToastNotifierWithId 成功,dev 也能弹原生 toast。
-    /// `notification_protocol` 传 None:Windows 点击唤起走 toast.Activated(app 运行时),
-    /// 不注册自定义 URI scheme(需要处理 deeplink 启动,超出当前范围)。
-    pub fn new(app_id: String) -> Self {
+    /// `notification_protocol` = Windows toast 激活用的 URI scheme(对齐 Delta 的 dcnotification)。
+    /// 提供后 toast 用 activationType=protocol → app 未运行时点通知由系统经该 scheme 唤起,
+    /// URL 由 handle_protocol_click 解码(见下);app 运行时点击仍走 register 的 Activated 回调。
+    pub fn new(app_id: String, notification_protocol: Option<String>) -> Self {
         #[cfg(target_os = "windows")]
         {
             set_process_app_user_model_id(&app_id);
         }
         Self {
-            manager: get_notification_manager(app_id, None),
+            manager: get_notification_manager(app_id, notification_protocol),
         }
     }
 
@@ -80,6 +81,45 @@ impl Notifications {
             Vec::new(),
         );
     }
+}
+
+/// 处理 app 未运行时点击通知经协议唤起的 URL(Windows toast activationType=protocol,
+/// 格式 `{scheme}://{notification_id}/__default__?{base64(user_info_json)}`)。
+/// 复用 user-notify 的 decode_deeplink 解析出 user_info 里的 chat_id,
+/// emit NotificationClick(与 app 运行时 Activated 回调同一事件路径)。
+/// 返回是否已消费该 URL(是通知点击而非普通深链)。
+#[cfg(target_os = "windows")]
+pub(crate) fn handle_protocol_click(app: &AppHandle, url: &str) -> bool {
+    let response = match user_notify::windows::decode_deeplink(url) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    let Some(chat_id) = response
+        .user_info
+        .get(PAYLOAD_CHAT_ID)
+        .and_then(|s| s.parse::<u32>().ok())
+    else {
+        return false;
+    };
+    // 聚焦主窗口(与 initialize 的点击回调一致)
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    let _ = app.emit(
+        "dc-event",
+        NotificationClickPayload {
+            typ: "NotificationClick",
+            chat_id,
+        },
+    );
+    true
+}
+
+/// 非 Windows 平台无 toast protocol 激活,恒返回 false(URL 走普通深链)。
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn handle_protocol_click(_app: &AppHandle, _url: &str) -> bool {
+    false
 }
 
 /// 发原生通知。前端 shell.ts 在收到新消息且当前聊天不是该会话时调用。

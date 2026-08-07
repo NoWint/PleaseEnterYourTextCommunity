@@ -17,10 +17,16 @@ use crate::dto::DeepLinkPayload;
 static PENDING: Mutex<Option<String>> = Mutex::new(None);
 
 /// 注册的自定义 scheme(与 tauri.conf.json plugins.deep-link.desktop.schemes 一致)。
-const KNOWN_SCHEMES: &[&str] = &["openpgp4fpr", "dcaccount", "dclogin"];
+/// peytnotification 用于 Windows toast 通知点击唤起(app 未运行时),经 handle_protocol_click 解码。
+const KNOWN_SCHEMES: &[&str] = &["openpgp4fpr", "dcaccount", "dclogin", "peytnotification"];
 
 /// 聚焦主窗口 + 存入 PENDING + 发 dc-event 给前端。
 pub fn handle_url(app: &AppHandle, url: &str) {
+    // 通知点击(app 未运行时经 peytnotification scheme 唤起):URL 格式是通知激活专用,
+    // 直接走通知跳转,不当作普通深链(否则 openpgp4fpr:// 会被前端误判成 securejoin)。
+    if crate::notifications::handle_protocol_click(app, url) {
+        return;
+    }
     // 聚焦主窗
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();

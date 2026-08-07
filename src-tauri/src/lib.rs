@@ -57,6 +57,15 @@ pub fn run() {
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let handle = app.handle().clone();
+                // Windows/Linux:运行时注册全部 scheme(dev/便携版/未装包时安装器没写注册表)。
+                // 写 HKCU\Software\Classes(Windows) 或 data-dir .desktop + xdg-mime(Linux);
+                // macOS 的 CFBundleURLTypes 由打包注入,不支持运行时注册。
+                #[cfg(not(target_os = "macos"))]
+                {
+                    if let Err(e) = handle.deep_link().register_all() {
+                        log::warn!("deep-link: register_all failed: {e}");
+                    }
+                }
                 // Windows/Linux:冷启动 URL 从 get_current() 拿(读 argv)。
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -81,7 +90,12 @@ pub fn run() {
             }
             // 原生系统通知:注册点击回调(点击 → 聚焦窗口 + 事件给前端)。
             // app_id 用 bundle identifier (Windows AUMID),对齐 Delta 桌面端。
-            let notif = notifications::Notifications::new(app.config().identifier.clone());
+            // notification_protocol 传 peytnotification:Windows toast 用协议激活,
+            // app 未运行时点通知 → 系统经该 scheme 唤起 → handle_protocol_click 解码跳会话。
+            let notif = notifications::Notifications::new(
+                app.config().identifier.clone(),
+                Some("peytnotification".to_string()),
+            );
             notif.initialize(app.handle().clone());
             app.manage(notif);
             // Windows 无边框窗口:子类化窗口过程,让最大化/还原按钮区域返回 HTMAXBUTTON,
