@@ -85,7 +85,12 @@ function accountCard(a: AccountInfo, onSuccess: () => void | Promise<void>): HTM
   avatar.textContent = letter;
   if (a.avatar) {
     void transformBlobURL(a.avatar).then((url) => {
-      if (url) { avatar.innerHTML = `<img src="${url}" alt="" />`; }
+      if (!url) return;
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      avatar.textContent = '';
+      avatar.appendChild(img);
     });
   }
 
@@ -113,11 +118,12 @@ function accountCard(a: AccountInfo, onSuccess: () => void | Promise<void>): HTM
     btn.disabled = true;
     try {
       await call('switch_account', { id: a.id });
-      await onSuccess();
     } catch (e) {
       btn.disabled = false;
       ui.toast(e instanceof Error ? e.message : String(e));
+      return;
     }
+    await onSuccess();
   });
   return btn;
 }
@@ -161,12 +167,14 @@ function bindNewAccountForm(formEl: HTMLFormElement, onSuccess: () => void | Pro
     } catch {}
     try {
       await call('create_chatmail_account', { displayName: name });
-      if (unlisten) unlisten();
-      await onSuccess();
-    } catch {
+    } catch (err) {
       if (unlisten) unlisten();
       createBtn.disabled = false;
       createBtn.textContent = '创建账号';
+      ui.toast(err instanceof Error ? err.message : String(err));
+      return;
     }
+    if (unlisten) unlisten();
+    await onSuccess();
   });
 }
