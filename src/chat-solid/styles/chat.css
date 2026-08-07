@@ -95,3 +95,16 @@
 .peyt-context-menu-item { padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; }
 .peyt-context-menu-item:hover { background: var(--v2-overlay-simple-overlay-hover); }
 .peyt-context-menu-separator { height: 1px; background: var(--v2-border-border-muted); margin: 4px 0; }
+
+/* Dialog */
+.peyt-dialog-overlay { position: fixed; inset: 0; z-index: 50; background: var(--v2-overlay-simple-overlay-scrim); }
+.peyt-dialog { position: fixed; z-index: 50; background: var(--v2-background-bg-layer-01); box-shadow: var(--v2-elevation-overlay); border-radius: 6px; }
+.peyt-dialog[data-size="normal"] { width: 480px; }
+.peyt-dialog[data-size="large"] { width: 640px; }
+.peyt-dialog[data-size="fit"] { width: auto; }
+.peyt-dialog-header { padding: 16px; }
+.peyt-dialog-title { font-size: 15px; font-weight: 530; line-height: 20px; letter-spacing: -0.13px; }
+.peyt-dialog-desc { font-size: 13px; font-weight: 440; color: var(--v2-text-text-muted); margin-top: 4px; }
+.peyt-dialog-body { padding: 0 16px; max-height: 60vh; overflow: auto; }
+.peyt-dialog-footer { padding: 16px; display: flex; justify-content: flex-end; gap: 8px; }
+.peyt-toast { width: 320px; background: var(--v2-background-bg-layer-01); box-shadow: var(--v2-elevation-floating); border-radius: 8px; padding: 12px; }
