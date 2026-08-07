@@ -200,9 +200,13 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   // 正文:信封带 markdown:true → md 渲染;否则纯文本
   const env = tryParseEnvelope(msg.text);
   const isMd = env ? envelopeMarkdown(env) : false;
-  const textHtml = isMd
-    ? renderMarkdown(resolveMessageText(msg.text))
-    : renderText(resolveMessageText(msg.text));
+  // 手写消息(iMessage 风格):只显示视频,不显示正文/文件名
+  const isHw = envelopeHw(msg.text);
+  const textHtml = isHw
+    ? ''
+    : isMd
+      ? renderMarkdown(resolveMessageText(msg.text))
+      : renderText(resolveMessageText(msg.text));
   // 链接卡片: 正文里所有网页 URL → 消息体下方各渲染一张链接卡片(标题/描述/favicon)。
   // 先渲染壳(host + url), 预览由 hydrateLinkCard 异步水合, 避免阻塞渲染。
   const linkCardHtml = extractWebUrls(resolveMessageText(msg.text))
@@ -282,9 +286,9 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
           </div>`;
           break;
         case 'Video':
-          // 手写消息(hw 标记):自动循环播放(无声笔迹视频);普通视频需点击播放
-          attachmentHtml = `<div class="msg-attachment video">
-          <video ${envelopeHw(msg.text) ? 'autoplay muted loop playsinline' : ''} controls src="${escapeAttr(assetUrl)}"></video>
+          // 手写消息(hw 标记):纯视频自动循环播放,iMessage 风格(无控件/无文件名)
+          attachmentHtml = `<div class="msg-attachment video${isHw ? ' hw' : ''}">
+          <video ${isHw ? 'autoplay muted loop playsinline disablepictureinpicture' : 'controls'} src="${escapeAttr(assetUrl)}"></video>
         </div>`;
           break;
       }

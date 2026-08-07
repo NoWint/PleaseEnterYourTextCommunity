@@ -2131,6 +2131,13 @@ html.window-frame #titlebar-tools { height: 34px; }
   border-radius: 16px; display: block; object-fit: scale-down;
   background-color: #000;
 }
+/* 手写消息(iMessage Digital Touch):方正自动循环播放,无控件 */
+.msg-attachment.video.hw video {
+  width: 100%; max-width: 240px; height: 240px;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+  background: #fdfdfd;
+}
 .msg-attachment.file {
   display: inline-flex; align-items: center; gap: 10px;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm);
