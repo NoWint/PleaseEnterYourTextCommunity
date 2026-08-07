@@ -40,7 +40,8 @@ function msgText(id: string): string | null {
 
 /** user chip HTML:左侧头像 img 占位(data-avatar-name 供异步水合)+ 名字。 */
 export function userChipHtml(name: string, escaped: string): string {
-  return `<span class="mention-chip" data-user-ref="${escaped}"><img class="mention-avatar" alt="" data-avatar-name="${escapeHtml(name)}">@${escaped}</span>`;
+  // 头像 + 名字,无 @ 前缀
+  return `<span class="mention-chip" data-user-ref="${escaped}"><img class="mention-avatar" alt="" data-avatar-name="${escapeHtml(name)}">${escaped}</span>`;
 }
 
 /** time chip HTML:内联 clock SVG + 显示时间(颜色由 .mention-chip-time CSS 区分)。 */
