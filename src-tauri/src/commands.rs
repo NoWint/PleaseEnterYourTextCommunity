@@ -494,6 +494,7 @@ pub async fn get_chat_info(
         is_self_talk,
         chat_type,
         is_encrypted,
+        is_muted: chat.is_muted(),
         members,
         description,
         avatar,

@@ -21,6 +21,7 @@ interface Reaction {
 
 interface ChatInfo {
   name: string;
+  is_muted?: boolean;
   members?: Array<{ avatar: string | null; is_self: boolean }>;
 }
 
@@ -376,6 +377,8 @@ async function handleIncomingMsg(e: { [key: string]: unknown }): Promise<void> {
   } else {
     try {
       const info = await call<ChatInfo>('get_chat_info', { chatId });
+      // 静音会话不弹系统通知(对齐 Delta:静音不打扰,但角标/未读照常)
+      if (info.is_muted) return;
       const name = info.name || '新消息';
       const preview = resolveMessageText(text || '').slice(0, 50);
       // 通知头像:单聊取对方头像;群聊用会话头像。get_chat_info 的成员(含 avatar)。

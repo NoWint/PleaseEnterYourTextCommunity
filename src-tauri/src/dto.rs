@@ -105,6 +105,7 @@ pub struct ChatInfoDto {
     pub is_self_talk: bool,
     pub chat_type: String,
     pub is_encrypted: bool,
+    pub is_muted: bool,
     pub members: Vec<MemberDto>,
     pub description: String,
     pub avatar: Option<String>,
