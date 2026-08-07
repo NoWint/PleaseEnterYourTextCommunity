@@ -43,35 +43,51 @@ async function initLogin(form: HTMLElement, onSuccess: () => void | Promise<void
   }
 }
 
-// ── 账号选择:账号卡 + 「新建账号」入口 ─────────────────
+// ── 账号选择:顶部切换 tab(选择账号 / 新建账号)──────────
 function renderAccountPicker(form: HTMLElement, accounts: AccountInfo[], onSuccess: () => void | Promise<void>): void {
-  const title = document.createElement('h2');
-  title.className = 'login-accounts-title';
-  title.textContent = '选择账号';
-  form.appendChild(title);
+  // iOS 分段式切换 tab:选择账号 / 新建账号
+  const tabsEl = document.createElement('div');
+  tabsEl.className = 'tabs';
+  const tabSelect = document.createElement('button');
+  tabSelect.type = 'button';
+  tabSelect.className = 'tab active';
+  tabSelect.textContent = '选择账号';
+  const tabNew = document.createElement('button');
+  tabNew.type = 'button';
+  tabNew.className = 'tab';
+  tabNew.textContent = '新建账号';
+  tabsEl.append(tabSelect, tabNew);
+  form.appendChild(tabsEl);
 
-  const grid = document.createElement('div');
-  grid.className = 'login-accounts';
-  for (const a of accounts) grid.appendChild(accountCard(a, onSuccess));
-  form.appendChild(grid);
+  // 面板 1:账号卡列表
+  const selectPanel = document.createElement('div');
+  selectPanel.className = 'tab-panel';
+  const list = document.createElement('div');
+  list.className = 'login-accounts';
+  for (const a of accounts) list.appendChild(accountCard(a, onSuccess));
+  selectPanel.appendChild(list);
+  form.appendChild(selectPanel);
 
-  const sep = document.createElement('div');
-  sep.className = 'login-separator';
-  form.appendChild(sep);
-
-  const newBtn = ui.button({ label: '新建账号', variant: 'ghost' });
-  newBtn.id = 'login-new-account-btn';
-  newBtn.classList.add('login-new-account');
-  form.appendChild(newBtn);
-
+  // 面板 2:新建账号表单
   const newForm = document.createElement('form');
   newForm.id = 'login-new-form';
-  newForm.className = 'login-new-form';
+  newForm.className = 'login-new-form tab-panel';
   newForm.hidden = true;
   bindNewAccountForm(newForm, onSuccess);
   form.appendChild(newForm);
 
-  newBtn.addEventListener('click', () => { newForm.hidden = !newForm.hidden; });
+  tabSelect.addEventListener('click', () => {
+    tabSelect.classList.add('active');
+    tabNew.classList.remove('active');
+    selectPanel.hidden = false;
+    newForm.hidden = true;
+  });
+  tabNew.addEventListener('click', () => {
+    tabNew.classList.add('active');
+    tabSelect.classList.remove('active');
+    newForm.hidden = false;
+    selectPanel.hidden = true;
+  });
 }
 
 function accountCard(a: AccountInfo, onSuccess: () => void | Promise<void>): HTMLButtonElement {

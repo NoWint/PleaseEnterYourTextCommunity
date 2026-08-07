@@ -292,29 +292,39 @@ html.window-frame #titlebar-tools { height: 34px; }
 .login-form .ui-button:not(:disabled):active { transform: scale(0.97); }
 .login-form .ui-button:disabled { opacity: 0.4; cursor: default; }
 
-/* 新建账号 ghost 按钮:重置被 .login-form .ui-button 压过的 ghost 外观(特异性 0,2,0 > 0,1,0) */
-.login-form .ui-button-ghost {
-  background: var(--capsule); color: var(--text-mute);
+/* 登录页切换 tab(选择账号 / 新建账号):iOS 分段控件 — 毛玻璃底 + 活动项滑块 */
+.login-form .tabs {
+  position: relative;
+  display: flex; gap: 4px; padding: 4px;
+  background: color-mix(in srgb, var(--capsule) 80%, transparent);
+  border-radius: 12px;
 }
-.login-form .ui-button-ghost:not(:disabled):hover {
-  color: var(--text); background: var(--border-strong);
-  filter: none; box-shadow: none;
+.login-form .tab {
+  flex: 1; padding: 10px 0; border: none; border-radius: 9px;
+  background: transparent; color: var(--text-mute); font-size: 14px; font-family: var(--font);
+  cursor: pointer; position: relative; z-index: 1;
+  transition: color 200ms var(--ease-out);
 }
-
+.login-form .tab:hover { color: var(--text); }
+.login-form .tab.active {
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  color: var(--text); font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.14), inset 0 0 0 0.5px color-mix(in srgb, var(--border-strong) 40%, transparent);
+}
+.login-form .tab-panel { flex-direction: column; gap: 14px; }
+.login-form .tab-panel:not([hidden]) { display: flex; animation: login-panel-in 240ms var(--ease-out); }
+.login-form .tab-panel[hidden] { display: none; }
 @keyframes login-panel-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .login-form .login-new-form:not([hidden]) { animation: none; }
+  .login-form .tab-panel:not([hidden]) { animation: none; }
 }
 
 .login-form .hint { font-size: 14px; line-height: 1.6; color: var(--text-mute); }
 
-/* 账号选择:标题 + 2 列账号卡 */
-.login-accounts-title {
-  margin: 0; font-size: 15px; font-weight: 600; color: var(--text);
-}
+/* 账号选择:纵向账号卡列表 */
 .login-accounts {
   display: flex; flex-direction: column; gap: 10px;
 }
@@ -357,13 +367,6 @@ html.window-frame #titlebar-tools { height: 34px; }
   font-size: 11px; color: var(--text-weak);
   background: color-mix(in srgb, var(--capsule) 80%, transparent);
 }
-.login-separator { height: 1px; background: color-mix(in srgb, var(--border-strong) 30%, transparent); margin: 4px 0; }
-/* 新建账号:ghost 全宽按钮 + 折叠表单 */
-.login-new-account { width: 100%; }
-.login-new-form { flex-direction: column; gap: 14px; }
-.login-new-form:not([hidden]) { display: flex; animation: login-panel-in 240ms var(--ease-out); }
-.login-new-form[hidden] { display: none; }
-
 /* 四栏外壳 */
 .shell { display: flex; height: 100%; width: 100%; overflow: hidden; }
 .ws-rail { width: 56px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: var(--space-2); }
