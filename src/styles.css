@@ -316,7 +316,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   margin: 0; font-size: 15px; font-weight: 600; color: var(--text);
 }
 .login-accounts {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  display: flex; flex-direction: column; gap: 10px;
 }
 .login-account-card {
   display: flex; align-items: center; gap: 12px;
