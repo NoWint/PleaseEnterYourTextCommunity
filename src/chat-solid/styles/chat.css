@@ -82,3 +82,16 @@
 .peyt-avatar-blue { background: var(--v2-avatar-bg-blue, #3b82f6); }
 .peyt-avatar-purple { background: var(--v2-avatar-bg-purple, #a855f7); }
 .peyt-avatar-gray { background: var(--v2-avatar-bg-gray, #6b7280); }
+
+/* 浮层:Tooltip / Popover / ContextMenu */
+.peyt-tooltip, .peyt-popover, .peyt-context-menu {
+  background: var(--v2-background-bg-layer-01);
+  box-shadow: var(--v2-elevation-floating);
+  border-radius: 6px;
+  padding: 6px;
+  z-index: 100;
+}
+.peyt-tooltip { padding: 4px 8px; font-size: 11px; }
+.peyt-context-menu-item { padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.peyt-context-menu-item:hover { background: var(--v2-overlay-simple-overlay-hover); }
+.peyt-context-menu-separator { height: 1px; background: var(--v2-border-border-muted); margin: 4px 0; }
