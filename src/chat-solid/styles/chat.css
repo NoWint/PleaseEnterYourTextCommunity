@@ -51,3 +51,21 @@
   .fade-up > * { animation: none !important; }
   .hover-actions { transition: none !important; }
 }
+
+/* Button(对齐 opencode button-v2) */
+.peyt-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: none; border-radius: 6px; cursor: pointer;
+  font-family: inherit; font-weight: 530; font-size: 13px; line-height: 20px;
+  letter-spacing: -0.04px; font-variant-numeric: tabular-nums;
+  transition: background 120ms ease-out;
+}
+.peyt-btn[data-size="small"] { height: 24px; padding: 0 9px; border-radius: 4px; }
+.peyt-btn[data-size="normal"] { height: 28px; padding: 0 11px; }
+.peyt-btn[data-size="large"] { height: 32px; padding: 0 15px; }
+.peyt-btn[data-variant="primary"] { background: var(--v2-background-bg-contrast); color: var(--v2-text-text-inverse); }
+.peyt-btn[data-variant="primary"]:hover { background: var(--v2-background-bg-contrast); opacity: 0.9; }
+.peyt-btn[data-variant="ghost"] { background: transparent; color: var(--v2-text-text-base); }
+.peyt-btn[data-variant="ghost"]:hover { background: var(--v2-overlay-simple-overlay-hover); }
+.peyt-btn[data-variant="danger"] { background: var(--v2-state-bg-danger); color: var(--v2-state-fg-danger); }
+.peyt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
