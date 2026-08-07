@@ -431,6 +431,7 @@ export function openHandwritingPanel(chatId: number, onSent: () => void): void {
     }
     const payload: HandwritingPayload = { text: '', strokes };
     try {
+      console.log('[hw] sending:', JSON.stringify(payload).slice(0, 300));
       await call('send_handwriting', { chatId, payload });
       close();
       onSent();

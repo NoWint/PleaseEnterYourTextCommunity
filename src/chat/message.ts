@@ -210,11 +210,15 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   // 正文:信封带 markdown:true → md 渲染;否则纯文本
   const env = tryParseEnvelope(msg.text);
   const isMd = env ? envelopeMarkdown(env) : false;
-  // 手写消息(type=handwriting):canvas 透明回放卡片,不渲染正文/文件名/链接
-  const hwPayload = env && env.type === 'handwriting' ? parseHandwriting(env.payload) : null;
-  const isHw = hwPayload !== null;
+  // 手写消息(type=handwriting):canvas 透明回放卡片,不渲染正文/文件名/链接。
+  // isHw 按信封类型判断(解析失败也绝不把原始 JSON 当文本渲染,降级为「手写消息」)
+  const isHw = !!(env && env.type === 'handwriting');
+  const hwPayload = isHw ? parseHandwriting(env!.payload) : null;
+  if (isHw && !hwPayload) {
+    console.warn('[hw] handwriting 信封解析失败,原文:', msg.text);
+  }
   const textHtml = isHw
-    ? (hwPayload ? renderHandwritingCard(hwPayload) : '')
+    ? (hwPayload ? renderHandwritingCard(hwPayload) : '<span class="msg-text" style="color:var(--text-weak)">手写消息</span>')
     : isMd
       ? renderMarkdown(resolveMessageText(msg.text))
       : renderText(resolveMessageText(msg.text));
