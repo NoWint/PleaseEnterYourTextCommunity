@@ -44,7 +44,7 @@ async function boot(): Promise<void> {
       await renderShell();
       // 首次登录: 创建 PEYT Studio, founder 显示 nav banner 欢迎指引
       await ensurePeytStudio();
-      // 登录后处理暂存的深链(dclogin 预填 / 邀请)
+      // 登录后处理暂存的深链(邀请)
       void import('./utils/deepLink.js').then(({ processPendingDeepLink }) => processPendingDeepLink());
     });
   }

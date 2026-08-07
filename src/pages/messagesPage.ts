@@ -347,7 +347,7 @@ function showInlineQrInput(): void {
       const raw = input.trim();
       try {
         // 统一走深链路由:邮箱→create_chat_by_email;peyt/i.delta.chat/OPENPGP4FPR→
-        // normalize→secure_join;dcaccount/dclogin→登录预填。(复用唤起逻辑,一处维护)
+        // normalize→secure_join;dcaccount/dclogin→静默忽略。(复用唤起逻辑,一处维护)
         await import('../utils/deepLink.js').then(({ routeDeepLink }) => routeDeepLink(raw));
         await renderMessagesPage(panel!);
       } catch (e) {
