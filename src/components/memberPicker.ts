@@ -15,7 +15,12 @@ import { state } from '../state.js';
  * @param members 成员候选列表(默认 state.currentMembers)
  */
 export function openUserPicker(name: string, anchor: HTMLElement, members: MemberDto[] = state.currentMembers): void {
-  const hits = fuzzyMatchMembers(name, members, 5);
+  // 候选含 self(「我」= 当前用户,名字如 TiantianYZJ;currentMembers 不含自己)
+  const self = state.self;
+  const pool = self
+    ? [...members, { contact_id: self.id, name: self.name, addr: self.addr, avatar: self.avatar, color: self.color, is_self: true, last_seen: 0 }]
+    : members;
+  const hits = fuzzyMatchMembers(name, pool, 5);
   if (hits.length === 0) {
     ui.toast(`未找到成员:${name}`);
     return;
@@ -31,8 +36,9 @@ export function openUserPicker(name: string, anchor: HTMLElement, members: Membe
   const rows = hits
     .map((h, i) => {
       const m = h.member;
+      // img 占位,data-avatar 存 blobdir 路径,dialog 后异步水合(transformBlobURL 转 asset URL)
       const avatar = m.avatar
-        ? `<img src="${escapeHtml(m.avatar)}" alt="" class="mp-avatar-img">`
+        ? `<img data-avatar="${escapeHtml(m.avatar)}" alt="" class="mp-avatar-img">`
         : `<span class="mp-avatar-letter" style="background:${colorHex(m.color)}">${escapeHtml((m.name || '?').charAt(0).toUpperCase())}</span>`;
       return `<button class="mp-row" data-mp-i="${i}" type="button">
         <span class="mp-avatar">${avatar}</span>
@@ -50,6 +56,8 @@ export function openUserPicker(name: string, anchor: HTMLElement, members: Membe
     size: 'sm',
     closeable: true,
   });
+  // 异步水合列表头像:blobdir 路径 → asset URL
+  void hydrateListAvatars(dlg.overlay);
   dlg.overlay.querySelectorAll<HTMLElement>('.mp-row').forEach((row) => {
     row.addEventListener('click', () => {
       const i = Number(row.dataset.mpI || 0);
@@ -58,6 +66,22 @@ export function openUserPicker(name: string, anchor: HTMLElement, members: Membe
       if (hit) void openMemberCard(hit.member, anchor);
     });
   });
+}
+
+/** 水合成员列表头像:data-avatar(blobdir) → transformBlobURL → img.src。失败移除。 */
+export async function hydrateListAvatars(root: HTMLElement): Promise<void> {
+  const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('.mp-avatar-img'));
+  if (imgs.length === 0) return;
+  const { transformBlobURL } = await import('../api.js');
+  for (const img of imgs) {
+    const path = img.dataset.avatar;
+    if (!path) { img.remove(); continue; }
+    try {
+      const url = await transformBlobURL(path);
+      if (url) img.src = url;
+      else img.remove();
+    } catch { img.remove(); }
+  }
 }
 
 /** 打开单个成员名片(复用 contactCard popup)。 */
