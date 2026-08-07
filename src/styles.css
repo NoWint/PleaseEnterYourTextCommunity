@@ -2131,22 +2131,6 @@ html.window-frame #titlebar-tools { height: 34px; }
   border-radius: 16px; display: block; object-fit: scale-down;
   background-color: #000;
 }
-/* 手写消息(iMessage Digital Touch):方正自动循环播放,无控件;比例匹配录制画布,无上下白边 */
-.msg-attachment.video.hw video {
-  width: 100%; max-width: 240px;
-  aspect-ratio: 8 / 5;
-  border-radius: var(--radius-md);
-  object-fit: contain;
-  background: #fdfdfd;
-}
-/* 手写消息:不要气泡框,视频直接平铺在消息流(iMessage 风格) */
-.msg.msg-hw .msg-bubble {
-  background: transparent;
-  box-shadow: none;
-  border: none;
-  padding: 0;
-}
-.msg.msg-hw .msg-bubble .msg-meta { margin-left: 2px; }
 .msg-attachment.file {
   display: inline-flex; align-items: center; gap: 10px;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -5260,3 +5244,22 @@ body {
 .hw-send:hover { background: color-mix(in srgb, var(--text) 88%, var(--bg)); }
 .hw-send:disabled { opacity: 0.5; cursor: default; }
 .hw-hint { font-size: var(--font-scale-secondary); color: var(--text-weak); text-align: center; }
+
+/* ── 手写消息(iMessage Digital Touch)收件端 —— 置于文件末尾保证覆盖所有气泡规则 ── */
+/* 检测到 hw 消息:气泡完全透明无框,只留视频 */
+.msg.msg-hw[data-is-out="1"] .msg-bubble,
+.msg.msg-hw:not([data-is-out="1"]) .msg-bubble {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  padding: 0;
+}
+/* 纯视频,无上下白边:aspect-ratio 与录制画布(8:5)一致,fill 填满 */
+.msg-attachment.video.hw video {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  aspect-ratio: 8 / 5;
+  border-radius: var(--radius-md);
+  object-fit: fill;
+}
