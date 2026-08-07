@@ -437,6 +437,7 @@ pub fn run() {
             commands::save_avatar_from_bytes,
             commands::get_msg_theme,
             commands::set_msg_theme,
+            commands::send_handwriting,
             commands::get_my_qr,
             commands::logout,
             commands::delete_msg,

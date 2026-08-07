@@ -1,5 +1,6 @@
 import { call, transformBlobURL } from '../api.js';
 import { resolveMessageText, tryParseEnvelope, envelopeMarkdown, envelopeTheme } from '../utils/envelope.js';
+import { parseHandwriting, renderHandwritingCard, bindHandwritingCards } from '../utils/handwriting.js';
 import { renderMarkdown } from '../utils/markdown.js';
 import { msgThemeAttrs, registerSenderTheme, themeForSender } from '../msgTheme.js';
 import { state } from '../state.js';
@@ -128,6 +129,15 @@ export function chatPreviewText(c: {
 }): string {
   const text = c.last_msg ? resolveMessageText(c.last_msg) : '';
   if (!text) return '';
+  // 手写消息:会话列表只显示「手写」,不显示信封 JSON/文件名
+  if (c.last_msg) {
+    const env = tryParseEnvelope(c.last_msg);
+    if (env && env.type === 'handwriting') {
+      return c.last_msg_is_out && !c.last_msg_is_info
+        ? `${stateLabel(c.last_msg_state as MsgState, c.is_group, c.last_msg_read_count)} · 手写`
+        : '手写';
+    }
+  }
   if (c.last_msg_is_out && !c.last_msg_is_info) {
     // 草稿:显示 [草稿]XXX(无「· 状态」前缀)
     if (c.last_msg_state === 'draft') return `[草稿]${text}`;
@@ -200,14 +210,23 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
   // 正文:信封带 markdown:true → md 渲染;否则纯文本
   const env = tryParseEnvelope(msg.text);
   const isMd = env ? envelopeMarkdown(env) : false;
-  const textHtml = isMd
-    ? renderMarkdown(resolveMessageText(msg.text))
-    : renderText(resolveMessageText(msg.text));
+  // 手写消息(type=handwriting):canvas 透明回放卡片,不渲染正文/文件名/链接。
+  // isHw 按信封类型判断(解析失败也绝不把原始 JSON 当文本渲染,降级为「手写消息」)
+  const isHw = !!(env && env.type === 'handwriting');
+  const hwPayload = isHw ? parseHandwriting(env!.payload) : null;
+  const textHtml = isHw
+    ? (hwPayload ? renderHandwritingCard(hwPayload) : '<span class="msg-text" style="color:var(--text-weak)">手写消息</span>')
+    : isMd
+      ? renderMarkdown(resolveMessageText(msg.text))
+      : renderText(resolveMessageText(msg.text));
   // 链接卡片: 正文里所有网页 URL → 消息体下方各渲染一张链接卡片(标题/描述/favicon)。
   // 先渲染壳(host + url), 预览由 hydrateLinkCard 异步水合, 避免阻塞渲染。
-  const linkCardHtml = extractWebUrls(resolveMessageText(msg.text))
-    .map((u) => renderLinkCard(u))
-    .join('');
+  // 手写消息屏蔽(信封 JSON 里的文件名/内容会被裸域名正则误判为网址)
+  const linkCardHtml = isHw
+    ? ''
+    : extractWebUrls(resolveMessageText(msg.text))
+        .map((u) => renderLinkCard(u))
+        .join('');
   // 发送者头像:优先用成员头像(state.currentMembers 与资料页同源、更新鲜),
   // 消息内嵌 from_avatar 可能取自头像设置前的旧快照,导致聊天里不显示而资料页正常。
   // 再兜底 from_avatar(成员列表缺失/不匹配时)。
@@ -369,7 +388,7 @@ export async function renderMessage(m: MsgDto, groupRole: GroupRole = 'solo'): P
     </div>
   `;
   return `
-    <div class="msg${collapsedCls}${groupCls}${stateClass}" data-msg="${msg.msg_id}"${isOutAttr} style="position:relative">
+    <div class="msg${collapsedCls}${groupCls}${stateClass}${isHw ? ' msg-hw' : ''}" data-msg="${msg.msg_id}"${isOutAttr} style="position:relative">
       <div class="msg-row">
         ${avatarDisplay}
         ${bubble}
@@ -819,6 +838,8 @@ export function bindMessageActions(container: HTMLElement): void {
   bindVoicePlayer(container);
   // Delta 批次 3:绑定 webxdc 卡片(启动按钮 + 信息水合)
   bindWebxdcCard(container);
+  // 手写消息:自动一步步回放 + 点击重播
+  bindHandwritingCards(container);
 
   // Task 14: hover action buttons — react/reply/pin/more
   container.querySelectorAll<HTMLElement>('.msg-action-btn').forEach((btn) => {

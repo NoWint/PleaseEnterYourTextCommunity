@@ -5175,3 +5175,123 @@ body {
 .mp-name { font-size: 13px; font-weight: 600; color: var(--text); }
 .mp-addr { font-size: 11px; color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-score { font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* ── 手写消息(MP4 方案)发送面板 ─────────────────────────────────── */
+.hw-panel {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.35); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  animation: fade-in 150ms var(--ease-out);
+}
+.hw-panel.closing { animation: fade-out 150ms var(--ease-out) forwards; }
+.hw-panel-inner {
+  width: min(560px, 92vw);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-floating);
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.hw-panel-head { display: flex; align-items: center; gap: 8px; }
+.hw-panel-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.hw-rec-status { font-size: var(--font-scale-secondary); color: var(--text-mute); }
+.hw-panel-close {
+  margin-left: auto; width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--capsule); border: none; color: var(--text-mute);
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.hw-panel-close:hover { background: var(--active); color: var(--text); }
+.hw-panel-close::after { content: "✕"; font-size: 12px; }
+.hw-draw-wrap {
+  border-radius: var(--radius-sm);
+  background: #fdfdfd; /* 纸面:恒定浅色,笔迹可见 */
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+}
+.hw-draw-canvas {
+  display: block; width: 100%; height: auto;
+  touch-action: none; -webkit-user-select: none; user-select: none;
+  cursor: crosshair;
+}
+.hw-panel-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hw-tool {
+  background: var(--control-bg); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: var(--radius-sm); padding: 5px 12px;
+  font-size: var(--font-scale-body); font-family: inherit; cursor: pointer;
+}
+.hw-tool:hover { background: var(--active); }
+.hw-colors { display: flex; gap: 6px; align-items: center; margin-left: 6px; }
+.hw-color {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer; padding: 0;
+}
+.hw-color.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface); }
+.hw-panel-actions { margin-left: auto; display: flex; gap: 8px; }
+.hw-cancel {
+  background: var(--control-bg); color: var(--text-mute);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: var(--radius-sm); padding: 6px 14px;
+  font-size: var(--font-scale-body); font-family: inherit; cursor: pointer;
+}
+.hw-cancel:hover { background: var(--active); color: var(--text); }
+.hw-send {
+  background: var(--text); color: var(--on-accent);
+  border: none; border-radius: var(--radius-sm); padding: 6px 16px;
+  font-size: var(--font-scale-body); font-weight: 600; font-family: inherit; cursor: pointer;
+}
+.hw-send:hover { background: color-mix(in srgb, var(--text) 88%, var(--bg)); }
+.hw-send:disabled { opacity: 0.5; cursor: default; }
+.hw-hint { font-size: var(--font-scale-secondary); color: var(--text-weak); text-align: center; }
+
+/* ── 手写消息(iMessage Digital Touch)收件端 —— 置于文件末尾保证覆盖所有气泡规则 ── */
+/* 检测到 hw 消息:气泡完全透明无框,笔迹画在聊天背景上 */
+.msg.msg-hw[data-is-out="1"] .msg-bubble,
+.msg.msg-hw:not([data-is-out="1"]) .msg-bubble {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  padding: 0;
+}
+/* 手写消息收件端(canvas 透明回放) */
+
+/* 手写消息收件端(canvas 透明回放):气泡无框,笔迹直接画在聊天背景上 */
+.hw-card {
+  position: relative;
+  display: inline-block;
+  margin: 2px 0 4px;
+}
+.hw-canvas {
+  display: block;
+  max-width: 200px;
+  height: auto;
+  background: transparent;
+}
+/* 重播按钮:悬浮在画布右下角,回放中隐藏 */
+.hw-replay {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--capsule);
+  color: var(--text-mute);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+.hw-card:hover .hw-replay { opacity: 1; }
+.hw-replay.playing { opacity: 0; }
+.hw-replay:hover { color: var(--text); background: var(--active); }
+.hw-text {
+  margin-top: 4px;
+  font-size: var(--font-scale-body);
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}

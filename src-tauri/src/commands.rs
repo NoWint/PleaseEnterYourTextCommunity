@@ -715,6 +715,38 @@ pub async fn send_text(
     Ok(send_text_impl(&ctx, chat_id, text, markdown, theme).await?.to_u32())
 }
 
+/// 发送手写消息(iMessage Digital Touch,canvas 透明回放):
+/// payload 结构(见 src/utils/handwriting.ts):
+///   { "text": 附言(可选), "strokes": [{ "c": 颜色, "wt": 线宽, "pts": [[x,y,t], ...] }] }
+/// x/y 归一化到 [0,1],t 为全局相对毫秒;接收端按时间轴逐步重绘 = 手写动画回放。
+#[tauri::command]
+pub async fn send_handwriting(
+    state: State<'_, AppState>,
+    chat_id: u32,
+    payload: serde_json::Value,
+) -> AppResult<u32> {
+    let ctx = state
+        .current()
+        .await
+        .ok_or_else(|| AppError::Core("no account".into()))?;
+    let payload = match payload {
+        serde_json::Value::Object(mut map) => {
+            map.entry("text")
+                .or_insert_with(|| serde_json::Value::String(String::new()));
+            serde_json::Value::Object(map)
+        }
+        v => v,
+    };
+    let envelope = crate::envelope::build_envelope("handwriting", payload)?;
+    Ok(chat::send_text_msg(
+        &ctx,
+        deltachat::chat::ChatId::new(chat_id),
+        envelope,
+    )
+    .await?
+    .to_u32())
+}
+
 #[tauri::command]
 pub async fn get_contacts(state: State<'_, AppState>) -> AppResult<Vec<ContactDto>> {
     let ctx = state.current().await.ok_or(AppError::Core("no account".into()))?;
