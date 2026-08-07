@@ -1,6 +1,10 @@
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: "src",
@@ -25,6 +29,9 @@ export default defineConfig({
     tailwindcss(),
   ],
   test: {
+    // vitest 的 root 默认 = vite root(src), 但项目测试在项目根的 test/ 下,
+    // 这里把 test.root 设为项目根, include 仍走 vitest 默认即可发现 test/**
+    root: projectRoot,
     environment: "jsdom",
     globals: true,
     setupFiles: ["./test/setup.ts"],
