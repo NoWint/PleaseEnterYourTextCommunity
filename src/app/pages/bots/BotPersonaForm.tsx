@@ -2,7 +2,7 @@
 // 人设 Tab：list_bot_personas 列表（名称/描述）+ 当前人设高亮 + 「应用」→
 // apply_bot_persona（后端同时覆写 system_prompt）→ 重新拉配置刷新。
 
-import { createSignal, For, Show, type Component, type Setter } from "solid-js"
+import { createSignal, For, Show, type Component } from "solid-js"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Tag as BadgeV2 } from "@opencode-ai/ui/v2/badge-v2"
 import { call } from "@/api"
@@ -12,7 +12,8 @@ import type { BotConfig, BotDto, PersonaDto } from "./types"
 interface BotPersonaFormProps {
   bot: BotDto
   cfg: () => BotConfig | null
-  setCfg: Setter<BotConfig | null>
+  /** 按 botId 写入配置（应用完成时若已切 Bot，旧结果不会污染新 Bot 视图）。 */
+  setCfg: (botId: number, next: BotConfig | null) => void
   personas: PersonaDto[]
   onChanged: () => void
 }
@@ -28,7 +29,7 @@ export function BotPersonaForm(props: BotPersonaFormProps) {
     try {
       await call("apply_bot_persona", { botId: props.bot.id, personaId: persona.id })
       const fresh = await call<BotConfig | null>("get_bot_config", { botId: props.bot.id })
-      props.setCfg(fresh)
+      props.setCfg(props.bot.id, fresh)
       showToast({ title: `已应用人设「${persona.name}」` })
       props.onChanged()
     } catch (e) {

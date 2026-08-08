@@ -36,19 +36,35 @@ interface BotDetailProps {
 
 export function BotDetail(props: BotDetailProps) {
   const [tab, setTab] = createSignal<DetailTab>("config")
-  const [cfg, setCfg] = createSignal<BotConfig | null>(null)
-  const [stats, setStats] = createSignal<BotStatsDto | null>(null)
-  const [statsLoading, setStatsLoading] = createSignal(true)
+  // 详情数据按 bot.id 绑定：id 不匹配时读取返回 null/未就绪，
+  // 切换 Bot 时子组件同步进入加载态，不会短暂读到上一 Bot 的数据。
+  const [cfgState, setCfgState] = createSignal<{ id: number; cfg: BotConfig | null; ready: boolean }>({
+    id: -1,
+    cfg: null,
+    ready: false,
+  })
+  const [statsState, setStatsState] = createSignal<{ id: number; stats: BotStatsDto | null; loading: boolean }>({
+    id: -1,
+    stats: null,
+    loading: true,
+  })
   const [typing, setTyping] = createSignal(false)
+
+  const botId = () => props.bot.id
+  const cfg = () => (cfgState().id === botId() ? cfgState().cfg : null)
+  const cfgReady = () => cfgState().id === botId() && cfgState().ready
+  const stats = () => (statsState().id === botId() ? statsState().stats : null)
+  const statsLoading = () => statsState().id !== botId() || statsState().loading
+
+  // setCfg 按 botId 落位：表单保存/人设应用完成时若已切换 Bot，
+  // 旧请求的完成结果只会写入旧 Bot 的槽位（当前视图读不到），不会污染新 Bot 状态。
+  const setCfg = (forId: number, next: BotConfig | null) =>
+    setCfgState({ id: forId, cfg: next, ready: true })
 
   // 打开详情：并行拉配置 + 统计（b5 §3.5）。仅随 bot.id 重载，
   // 顶栏启停等就地更新（同一对象引用替换）不会触发重载、不会覆盖表单未保存输入。
-  const botId = () => props.bot.id
   createEffect(() => {
     const id = botId()
-    setCfg(null)
-    setStats(null)
-    setStatsLoading(true)
     setTyping(false)
     void (async () => {
       let c: BotConfig | null = null
@@ -57,6 +73,8 @@ export function BotDetail(props: BotDetailProps) {
       } catch (e) {
         showToast({ title: "加载配置失败", description: e instanceof Error ? e.message : String(e) })
       }
+      if (botId() !== id) return
+      setCfgState({ id, cfg: c, ready: true })
       let s: BotStatsDto | null = null
       try {
         s = await call<BotStatsDto>("get_bot_stats", { botId: id })
@@ -64,9 +82,7 @@ export function BotDetail(props: BotDetailProps) {
         showToast({ title: "加载统计失败", description: e instanceof Error ? e.message : String(e) })
       }
       if (botId() !== id) return
-      setCfg(c)
-      setStats(s)
-      setStatsLoading(false)
+      setStatsState({ id, stats: s, loading: false })
     })()
   })
 
@@ -131,29 +147,62 @@ export function BotDetail(props: BotDetailProps) {
           </For>
         </TabsV2.List>
 
+        {/* 每个 Tab 内容以 bot.id 为 key：切换 Bot 时重挂载，
+            onMount 加载的数据（时间线/定时/工具/表单）不会残留上一 Bot 的旧值。
+            注意不可用整个 bot 对象做 key（io 切换会换对象引用 → 误重挂载）。 */}
         <TabsV2.Content value="config" class="min-h-0 flex-1 overflow-y-auto">
-          <BotConfigForm bot={props.bot} cfg={cfg} setCfg={setCfg} onSaved={() => props.onChanged(props.bot)} />
+          <Show when={botId()} keyed>
+            {(id) => (
+              <BotConfigForm
+                bot={props.bot}
+                cfg={cfg}
+                cfgReady={cfgReady}
+                setCfg={(botId, next) => setCfg(botId, next)}
+                onSaved={() => props.onChanged(props.bot)}
+              />
+            )}
+          </Show>
         </TabsV2.Content>
         <TabsV2.Content value="schedule" class="min-h-0 flex-1 overflow-y-auto">
-          <BotScheduleForm bot={props.bot} />
+          <Show when={botId()} keyed>
+            {(id) => <BotScheduleForm bot={props.bot} />}
+          </Show>
         </TabsV2.Content>
         <TabsV2.Content value="persona" class="min-h-0 flex-1 overflow-y-auto">
-          <BotPersonaForm
-            bot={props.bot}
-            cfg={cfg}
-            setCfg={setCfg}
-            personas={props.personas}
-            onChanged={() => props.onChanged(props.bot)}
-          />
+          <Show when={botId()} keyed>
+            {(id) => (
+              <BotPersonaForm
+                bot={props.bot}
+                cfg={cfg}
+                setCfg={(botId, next) => setCfg(botId, next)}
+                personas={props.personas}
+                onChanged={() => props.onChanged(props.bot)}
+              />
+            )}
+          </Show>
         </TabsV2.Content>
         <TabsV2.Content value="tools" class="min-h-0 flex-1 overflow-y-auto">
-          <BotToolsPanel bot={props.bot} cfg={cfg} setCfg={setCfg} onSaved={() => props.onChanged(props.bot)} />
+          <Show when={botId()} keyed>
+            {(id) => (
+              <BotToolsPanel
+                bot={props.bot}
+                cfg={cfg}
+                cfgReady={cfgReady}
+                setCfg={(botId, next) => setCfg(botId, next)}
+                onSaved={() => props.onChanged(props.bot)}
+              />
+            )}
+          </Show>
         </TabsV2.Content>
         <TabsV2.Content value="timeline" class="min-h-0 flex-1 overflow-y-auto">
-          <BotTimeline bot={props.bot} />
+          <Show when={botId()} keyed>
+            {(id) => <BotTimeline bot={props.bot} />}
+          </Show>
         </TabsV2.Content>
         <TabsV2.Content value="stats" class="min-h-0 flex-1 overflow-y-auto">
-          <BotStats stats={stats} loading={statsLoading} />
+          <Show when={botId()} keyed>
+            {(id) => <BotStats stats={stats} loading={statsLoading} />}
+          </Show>
         </TabsV2.Content>
       </TabsV2>
     </div>

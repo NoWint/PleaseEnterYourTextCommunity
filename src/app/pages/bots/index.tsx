@@ -71,6 +71,8 @@ const BotsPage: Component = () => {
       patchBot(bot.id, { io_running: updated.io_running })
     } catch (e) {
       showToast({ title: "操作失败", description: e instanceof Error ? e.message : String(e) })
+      // 失败回滚：重拉列表，开关/徽标回到服务端实际状态（同 legacy onChanged 重渲染）
+      await refresh()
     }
   }
 
