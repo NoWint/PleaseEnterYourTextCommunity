@@ -794,6 +794,19 @@ function bindTopicChipClick(): void {
   if (topicChipClickBound) return;
   topicChipClickBound = true;
   document.addEventListener('click', (e) => {
+    // @成员 tag 点击 → 弹成员名片(复用 memberPicker 模糊匹配,self 走 self 名片)
+    const memberTag = (e.target as HTMLElement).closest<HTMLElement>('.mention-tag[data-kind="member"]');
+    if (memberTag) {
+      e.stopPropagation();
+      const name = memberTag.dataset.name || '';
+      if (name === (state.self?.name || '')) {
+        void import('../components/contactCard.js').then(({ openContactCard }) =>
+          openContactCard({ contactId: state.self!.id, name: state.self!.name, addr: state.self!.addr, avatar: state.self!.avatar ?? null, anchor: memberTag }));
+      } else {
+        void import('../components/memberPicker.js').then(({ openUserPicker }) => openUserPicker(name, memberTag));
+      }
+      return;
+    }
     // 优先:点击气泡内可交互 chip(<user>/<message>/<time> 标签) → 弹名片/跳原文,不打开看板
     const mention = (e.target as HTMLElement).closest<HTMLElement>('.mention-chip[data-user-ref], .mention-chip[data-msg-ref], .mention-chip[data-time-ref]');
     if (mention) {
