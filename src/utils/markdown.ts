@@ -3,7 +3,7 @@
 // 避免 markdown 把尖括号当 HTML 标签;marked 渲染后白名单清洗 HTML,
 // 再把占位 token 替换成可点击 chip(客户端点击 → 名片/定位原文)。
 import { marked } from 'marked';
-import { escapeHtml } from '../components/escape.js';
+import { escapeHtml, escapeAttr } from '../components/escape.js';
 import { displayTime, userChipHtml, timeChipHtml } from './tagParser.js';
 import { state } from '../state.js';
 import { resolveMessageText } from './envelope.js';
@@ -12,6 +12,7 @@ import { resolveMessageText } from './envelope.js';
 const U_PREFIX = '⟦U:'; // ⟦U:
 const M_PREFIX = '⟦M:'; // ⟦M:
 const T_PREFIX = '⟦T:'; // ⟦T:
+const AT_PREFIX = '⟦@:'; // ⟦@: @成员 mention 占位(与 M_PREFIX(消息)区分)
 
 /** 剥最外层同型包裹引号:<user='张三'> → 张三;裸值原样。 */
 function stripQuote(v: string): string {
@@ -34,7 +35,7 @@ const ALLOWED_TAGS = new Set([
  * 把 AI 文本中的 <user='..'> / <message='..'> 替换成占位 token。
  * 返回 { text, tags } —— tags 记录 token → 真实标签值,渲染后回填。
  */
-type TagKind = 'user' | 'message' | 'time';
+type TagKind = 'user' | 'message' | 'time' | 'mention';
 
 function placeholderTags(text: string): { text: string; tags: Map<string, { kind: TagKind; value: string }> } {
   const tags = new Map<string, { kind: TagKind; value: string }>();
@@ -50,6 +51,26 @@ function placeholderTags(text: string): { text: string; tags: Map<string, { kind
     tags.set(tok, { kind: kind as TagKind, value: val });
     return tok;
   });
+  // @成员 mention → 占位 token(与 <user> 标签机制一致,避免 marked 破坏)。
+  // 只匹配当前聊天成员;非成员 @nobody 原样保留为纯文本。
+  const memberNames = [...new Set((state.currentMembers || []).map((m) => m.name).filter(Boolean))];
+  if (memberNames.length > 0) {
+    // 长名优先,避免子串冲突("李" 抢先匹配 "李雷")
+    const sorted = [...memberNames].sort((a, b) => b.length - a.length);
+    let out2 = out;
+    for (const name of sorted) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // 前瞻:@name 之后允许空白/行尾/常见句读,不允许再跟标识符字符 ——
+      // 长名优先已处理同名前缀冲突,此前瞻防止 "@李雷" 被 "李" 规则截断为 "@李雷 残片"
+      const re = new RegExp(`@(${escaped})(?=\\s|$|[，。！？!?.,;:、/])`, 'g');
+      out2 = out2.replace(re, (_m, captured: string) => {
+        const tok = `${AT_PREFIX}${n++}${SUFFIX}`;
+        tags.set(tok, { kind: 'mention', value: captured });
+        return tok;
+      });
+    }
+    return { text: out2, tags };
+  }
   return { text: out, tags };
 }
 
@@ -116,12 +137,15 @@ function msgText(id: string): string | null {
 function restoreTags(html: string, tags: Map<string, { kind: TagKind; value: string }>): string {
   let out = html;
   for (const [tok, t] of tags) {
-    const chip = t.kind === 'message'
-      // 显示原文(不同颜色区分),找不到才回退「消息 XXX」
-      ? `<a class="mention-chip mention-chip-msg" data-msg-ref="${escapeHtml(t.value)}">${escapeHtml(msgText(t.value) ?? `消息 ${t.value}`)}</a>`
-      : t.kind === 'time'
-        ? timeChipHtml(t.value, escapeHtml(t.value))
-        : userChipHtml(t.value, escapeHtml(t.value));
+    const chip = t.kind === 'mention'
+      // @成员 mention → 与输入框/纯文本路径同款 tag,点击由 chatView 委托弹成员名片
+      ? `<span class="mention-tag tag-member" data-kind="member" data-name="${escapeAttr(t.value)}">@${escapeHtml(t.value)}</span>`
+      : t.kind === 'message'
+        // 显示原文(不同颜色区分),找不到才回退「消息 XXX」
+        ? `<a class="mention-chip mention-chip-msg" data-msg-ref="${escapeHtml(t.value)}">${escapeHtml(msgText(t.value) ?? `消息 ${t.value}`)}</a>`
+        : t.kind === 'time'
+          ? timeChipHtml(t.value, escapeHtml(t.value))
+          : userChipHtml(t.value, escapeHtml(t.value));
     out = out.split(tok).join(chip);
   }
   return out;
