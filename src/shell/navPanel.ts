@@ -1,7 +1,6 @@
 import { call } from '../api.js';
 import { state } from '../state.js';
 import { saveState } from '../persist.js';
-import { escapeHtml as esc } from '../components/escape.js';
 import type { ChannelDto, Page, SpaceType } from '../types.js';
 
 export async function refreshChannels(): Promise<void> {
@@ -77,20 +76,18 @@ export async function renderNavPanel(): Promise<void> {
         break;
       }
       case 'github': {
-        // VSCode 式侧边栏:仓库树 + 设置 + 搜索入口 (renderGithubMain 渲染主编辑区)
-        const { renderGithubNav } = await import('../pages/githubPage.js');
-        await renderGithubNav(panel);
+        // GitHub 页已迁移至 v2 路由(/github,原生 Solid 组件);legacy 壳仅占位。
+        panel.innerHTML = '';
         break;
       }
       case 'intelligence': {
-        // 智能中心侧边栏:标题 + 刷新入口 (renderIntelligenceMain 渲染主区四 Tab)
-        const { renderIntelligenceNav } = await import('../pages/intelligencePage.js');
-        await renderIntelligenceNav(panel);
+        // 智能中心页已迁移至 v2 路由(/intelligence,原生 Solid 组件);legacy 壳仅占位。
+        panel.innerHTML = '';
         break;
       }
       case 'plugins': {
-        const { renderPluginsNav } = await import('../plugins/view.js');
-        await renderPluginsNav(panel);
+        // 已迁移至 v2 原生页（/plugins 路由），legacy 壳仅保留占位
+        panel.innerHTML = `<div class="nav-empty">插件页已迁移至新版界面</div>`;
         break;
       }
       case 'settings': {
@@ -99,8 +96,8 @@ export async function renderNavPanel(): Promise<void> {
         break;
       }
       case 'debug': {
-        const { renderDebugNav } = await import('../pages/debugPage.js');
-        await renderDebugNav(panel);
+        // 已迁移至 v2 原生页（/debug 路由），legacy 壳仅保留占位
+        panel.innerHTML = `<div class="nav-empty">调试页已迁移至新版界面</div>`;
         break;
       }
     }
@@ -124,13 +121,8 @@ export async function renderMain(): Promise<void> {
   }
 
   if (state.currentPage === 'plugins') {
-    try {
-      const { renderPluginsMain } = await import('../plugins/view.js');
-      await renderPluginsMain(main);
-    } catch (err) {
-      console.error('[plugins] renderPluginsMain failed:', err);
-      main.innerHTML = `<div class="empty">插件页加载失败<br><span style="font-size:var(--font-scale-micro);color:var(--text-faint)">${esc(String(err))}</span></div>`;
-    }
+    // 已迁移至 v2 原生页（/plugins 路由），legacy 壳仅保留占位
+    main.innerHTML = `<div class="empty">插件页已迁移至新版界面</div>`;
     return;
   }
 
@@ -145,53 +137,32 @@ export async function renderMain(): Promise<void> {
   }
 
   if (state.currentPage === 'inbox') {
-    try {
-      const { renderInboxMain } = await import('../pages/inboxPage.js');
-      await renderInboxMain(main);
-    } catch {
-      main.innerHTML = `<div class="empty">通知加载失败</div>`;
-    }
+    // 已迁移至 v2 原生页（/inbox 路由），legacy 壳仅保留占位
+    main.innerHTML = `<div class="empty">通知页已迁移至新版界面</div>`;
     return;
   }
 
   if (state.currentPage === 'debug') {
-    try {
-      const { renderDebugMain } = await import('../pages/debugPage.js');
-      await renderDebugMain(main);
-    } catch {
-      main.innerHTML = `<div class="empty">调试页加载失败</div>`;
-    }
+    // 已迁移至 v2 原生页（/debug 路由），legacy 壳仅保留占位
+    main.innerHTML = `<div class="empty">调试页已迁移至新版界面</div>`;
     return;
   }
 
   if (state.currentPage === 'github') {
-    try {
-      const { renderGithubMain } = await import('../pages/githubPage.js');
-      await renderGithubMain(main);
-    } catch {
-      main.innerHTML = `<div class="empty">GitHub 页加载失败</div>`;
-    }
+    // GitHub 页已迁移至 v2 路由(/github,原生 Solid 组件);legacy 壳仅占位。
+    main.innerHTML = `<div class="empty">GitHub 页已迁移至新界面(v2 路由 /github)</div>`;
     return;
   }
 
   if (state.currentPage === 'intelligence') {
-    try {
-      const { renderIntelligenceMain } = await import('../pages/intelligencePage.js');
-      await renderIntelligenceMain(main);
-    } catch {
-      main.innerHTML = `<div class="empty">智能中心加载失败</div>`;
-    }
+    // 智能中心页已迁移至 v2 路由(/intelligence,原生 Solid 组件);legacy 壳仅占位。
+    main.innerHTML = `<div class="empty">智能中心已迁移到新版界面，请从主界面打开</div>`;
     return;
   }
 
-  // bots 页:机器人管理,全屏主区化 (同 inbox/debug)
+  // bots 页:机器人管理已迁移到新版界面(/bots 路由,src/app/pages/bots);legacy 壳仅占位
   if (state.currentPage === 'bots') {
-    try {
-      const { renderBots } = await import('../pages/botsPage.js');
-      await renderBots(main);
-    } catch {
-      main.innerHTML = `<div class="empty">机器人页加载失败</div>`;
-    }
+    main.innerHTML = `<div class="empty">机器人中心已迁移到新版界面，请从主界面打开</div>`;
     return;
   }
 

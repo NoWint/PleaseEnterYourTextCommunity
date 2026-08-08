@@ -31,13 +31,13 @@ import MessagesPage from "./pages/MessagesPage"
 import NewChatPage from "./pages/NewChatPage"
 import WorkPage from "./pages/WorkPage"
 import LoginPage from "./pages/login"
-// legacy 页按需加载（code-split，避免 6 个 legacy vanilla 页面进首屏 bundle）
-const BotsPage = lazy(() => import("./pages/legacy/BotsPage"))
-const PluginsPage = lazy(() => import("./pages/legacy/PluginsPage"))
-const InboxPage = lazy(() => import("./pages/legacy/InboxPage"))
-const GithubPage = lazy(() => import("./pages/legacy/GithubPage"))
-const IntelligencePage = lazy(() => import("./pages/legacy/IntelligencePage"))
-const DebugPage = lazy(() => import("./pages/legacy/DebugPage"))
+// legacy 页按需加载（code-split，避免 legacy vanilla 页面进首屏 bundle）
+const BotsPage = lazy(() => import("./pages/bots"))
+const PluginsPage = lazy(() => import("./pages/plugins/PluginsPage"))
+const InboxPage = lazy(() => import("./pages/inbox/InboxPage"))
+const GithubPage = lazy(() => import("./pages/github"))
+const IntelligencePage = lazy(() => import("./pages/intelligence"))
+const DebugPage = lazy(() => import("./pages/debug/DebugPage"))
 
 // 路由守卫：未登录（is_configured=false）→ 重定向 /login；探测完成前显示加载占位。
 const RequireAuth: Component<ParentProps> = (props) => {
@@ -100,7 +100,7 @@ const App: Component = () => {
                   <Route path="/chat/new" component={() => <AuthedLayout><NewChatPage /></AuthedLayout>} />
                   <Route path="/chat/:id" component={() => <AuthedLayout><MessagesPage /></AuthedLayout>} />
                   <Route path="/work" component={() => <AuthedLayout><WorkPage /></AuthedLayout>} />
-                  {/* Task 3：legacy 页路由（Cmd+K 可达，页面内容为 legacy vanilla 挂载） */}
+                  {/* Task 3：legacy 页路由（Cmd+K 可达；github 已迁移为原生 Solid 组件） */}
                   <Route path="/bots" component={() => <AuthedLayout><BotsPage /></AuthedLayout>} />
                   <Route path="/plugins" component={() => <AuthedLayout><PluginsPage /></AuthedLayout>} />
                   <Route path="/inbox" component={() => <AuthedLayout><InboxPage /></AuthedLayout>} />
