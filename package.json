@@ -21,6 +21,7 @@
     "@tanstack/solid-virtual": "^3.13.36",
     "@tauri-apps/api": "^2.0.0",
     "@thisbeyond/solid-dnd": "^0.7.5",
+    "fuzzysort": "3.1.0",
     "highlight.js": "^11.11.1",
     "jieba-wasm": "^2.4.0",
     "luxon": "3.6.1",

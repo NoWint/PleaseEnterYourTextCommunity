@@ -1,19 +1,25 @@
 // src/app/context/command.tsx
-// 照抄 opencode context/command.tsx 的简化版：register/keybind/keybindParts/trigger +
-// 全局 keydown 分发。省略 palette（命令面板 UI）与 catalog 持久化。
-// TODO(Task 2): 若实现命令面板，补齐 palette/show。
+// 照抄 opencode context/command.tsx（Task 2 全量版）：register/keybind/keybindParts/trigger/
+// show(palette)/keybinds(suspend) + catalog + 全局 keydown 分发 + 命令面板（mod+k）。
+// 与 opencode 的差异：
+// - catalog 不做持久化（无 Persist 工具），改为注册命令的内存镜像；
+// - 键位标签用本地中文常量（KEY_TEXT），不依赖 i18n dict；
+// - EDITABLE_KEYBIND_IDS 为空（IM 无 terminal/file 类命令）。
 
-import {
-  createMemo,
-  createSignal,
-  onCleanup,
-  onMount,
-  type Accessor,
-} from "solid-js"
+import { createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { makeEventListener } from "@solid-primitives/event-listener"
+import { useSettings } from "./settings"
 
 const IS_MAC = typeof navigator === "object" && /(Mac|iPod|iPhone|iPad)/.test(navigator.platform)
+
+const PALETTE_ID = "command.palette"
+export const DEFAULT_PALETTE_KEYBIND = "mod+k,mod+shift+p"
+const SUGGESTED_PREFIX = "suggested."
+// IM 无 terminal/file 类命令：输入框内不拦截任何快捷键。
+const EDITABLE_KEYBIND_IDS = new Set<string>()
 
 type KeyLabel =
   | "common.key.ctrl"
@@ -32,22 +38,52 @@ type KeyLabel =
   | "common.key.insert"
   | "common.key.esc"
 
-const keyText: Record<KeyLabel, string> = {
+const KEY_TEXT: Record<KeyLabel, string> = {
   "common.key.ctrl": "Ctrl",
   "common.key.alt": "Alt",
   "common.key.shift": "Shift",
   "common.key.meta": "Cmd",
-  "common.key.space": "Space",
-  "common.key.backspace": "Backspace",
-  "common.key.enter": "Enter",
+  "common.key.space": "空格",
+  "common.key.backspace": "退格",
+  "common.key.enter": "回车",
   "common.key.tab": "Tab",
-  "common.key.delete": "Delete",
+  "common.key.delete": "删除",
   "common.key.home": "Home",
   "common.key.end": "End",
   "common.key.pageUp": "PageUp",
   "common.key.pageDown": "PageDown",
   "common.key.insert": "Insert",
   "common.key.esc": "Esc",
+}
+
+function keyText(key: KeyLabel) {
+  return KEY_TEXT[key]
+}
+
+function actionId(id: string) {
+  if (!id.startsWith(SUGGESTED_PREFIX)) return id
+  return id.slice(SUGGESTED_PREFIX.length)
+}
+
+function normalizeKey(key: string) {
+  if (key === ",") return "comma"
+  if (key === "+") return "plus"
+  if (key === " ") return "space"
+  return key.toLowerCase()
+}
+
+function signature(key: string, ctrl: boolean, meta: boolean, shift: boolean, alt: boolean) {
+  const mask = (ctrl ? 1 : 0) | (meta ? 2 : 0) | (shift ? 4 : 0) | (alt ? 8 : 0)
+  return `${key}:${mask}`
+}
+
+function signatureFromEvent(event: KeyboardEvent) {
+  return signature(normalizeKey(event.key), event.ctrlKey, event.metaKey, event.shiftKey, event.altKey)
+}
+
+function isAllowedEditableKeybind(id: string | undefined) {
+  if (!id) return false
+  return EDITABLE_KEYBIND_IDS.has(actionId(id))
 }
 
 export type KeybindConfig = string
@@ -75,34 +111,60 @@ export interface CommandOption {
   onHighlight?: () => (() => void) | void
 }
 
+export function commandPaletteOptions(options: CommandOption[]) {
+  return options.filter(
+    (option) =>
+      !option.disabled && !option.hidden && !option.id.startsWith(SUGGESTED_PREFIX) && option.id !== "file.open",
+  )
+}
+
+export function resolveKeybindOption(candidates: CommandOption[] | undefined, event: KeyboardEvent) {
+  return candidates?.find((option) => option.when?.(event)) ?? candidates?.find((option) => !option.when)
+}
+
 type CommandSource = "palette" | "keybind" | "slash"
+
+export type CommandCatalogItem = {
+  title: string
+  description?: string
+  category?: string
+  keybind?: KeybindConfig
+  slash?: string
+  hidden?: boolean
+}
 
 export type CommandRegistration = {
   key?: string
   options: Accessor<CommandOption[]>
 }
 
-function normalizeKey(key: string) {
-  if (key === ",") return "comma"
-  if (key === "+") return "plus"
-  if (key === " ") return "space"
-  return key.toLowerCase()
+export function addCommandRegistration(registrations: CommandRegistration[], entry: CommandRegistration) {
+  return [entry, ...registrations]
 }
 
-function signature(key: string, ctrl: boolean, meta: boolean, shift: boolean, alt: boolean) {
-  const mask = (ctrl ? 1 : 0) | (meta ? 2 : 0) | (shift ? 4 : 0) | (alt ? 8 : 0)
-  return `${key}:${mask}`
-}
-
-function signatureFromEvent(event: KeyboardEvent) {
-  return signature(normalizeKey(event.key), event.ctrlKey, event.metaKey, event.shiftKey, event.altKey)
+export function activeCommandRegistrations(registrations: CommandRegistration[]) {
+  const keys = new Set<string>()
+  return registrations.filter((entry) => {
+    if (entry.key === undefined) return true
+    if (keys.has(entry.key)) return false
+    keys.add(entry.key)
+    return true
+  })
 }
 
 export function parseKeybind(config: string): Keybind[] {
   if (!config || config === "none") return []
+
   return config.split(",").map((combo) => {
     const parts = combo.trim().toLowerCase().split("+")
-    const keybind: Keybind = { key: "", ctrl: false, meta: false, shift: false, alt: false }
+    const keybind: Keybind = {
+      key: "",
+      ctrl: false,
+      meta: false,
+      shift: false,
+      alt: false,
+    }
+
     for (const part of parts) {
       switch (part) {
         case "ctrl":
@@ -130,16 +192,19 @@ export function parseKeybind(config: string): Keybind[] {
           break
       }
     }
+
     return keybind
   })
 }
 
-function displayKeybindParts(kb: Keybind): string[] {
+function displayKeybindParts(kb: Keybind) {
   const parts: string[] = []
-  if (kb.ctrl) parts.push(IS_MAC ? "⌃" : "Ctrl")
-  if (kb.alt) parts.push(IS_MAC ? "⌥" : "Alt")
-  if (kb.shift) parts.push(IS_MAC ? "⇧" : "Shift")
-  if (kb.meta) parts.push(IS_MAC ? "⌘" : "Cmd")
+
+  if (kb.ctrl) parts.push(IS_MAC ? "⌃" : keyText("common.key.ctrl"))
+  if (kb.alt) parts.push(IS_MAC ? "⌥" : keyText("common.key.alt"))
+  if (kb.shift) parts.push(IS_MAC ? "⇧" : keyText("common.key.shift"))
+  if (kb.meta) parts.push(IS_MAC ? "⌘" : keyText("common.key.meta"))
+
   if (!kb.key) return parts
 
   const keys: Record<string, string> = {
@@ -150,26 +215,30 @@ function displayKeybindParts(kb: Keybind): string[] {
     comma: ",",
     plus: "+",
   }
-  const named: Record<string, string> = {
-    backspace: keyText["common.key.backspace"],
-    delete: keyText["common.key.delete"],
-    end: keyText["common.key.end"],
-    enter: keyText["common.key.enter"],
-    esc: keyText["common.key.esc"],
-    escape: keyText["common.key.esc"],
-    home: keyText["common.key.home"],
-    insert: keyText["common.key.insert"],
-    pagedown: keyText["common.key.pageDown"],
-    pageup: keyText["common.key.pageUp"],
-    space: keyText["common.key.space"],
-    tab: keyText["common.key.tab"],
+  const named: Record<string, KeyLabel> = {
+    backspace: "common.key.backspace",
+    delete: "common.key.delete",
+    end: "common.key.end",
+    enter: "common.key.enter",
+    esc: "common.key.esc",
+    escape: "common.key.esc",
+    home: "common.key.home",
+    insert: "common.key.insert",
+    pagedown: "common.key.pageDown",
+    pageup: "common.key.pageUp",
+    space: "common.key.space",
+    tab: "common.key.tab",
   }
   const key = kb.key.toLowerCase()
   const displayKey =
     keys[key] ??
-    named[key] ??
-    (key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1))
+    (named[key]
+      ? keyText(named[key])
+      : key.length === 1
+        ? key.toUpperCase()
+        : key.charAt(0).toUpperCase() + key.slice(1))
   parts.push(displayKey)
+
   return parts
 }
 
@@ -185,6 +254,11 @@ export function formatKeybind(config: string): string {
   return IS_MAC ? parts.join("") : parts.join("+")
 }
 
+// KeybindV2 takes an array instead of a string
+export function formatKeybindKeys(config: string): string[] {
+  return formatKeybindParts(config)
+}
+
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false
   if (target.isContentEditable) return true
@@ -193,46 +267,117 @@ function isEditableTarget(target: EventTarget | null) {
   return false
 }
 
-interface CommandStore {
-  register(cb: () => CommandOption[]): void
-  register(key: string, cb: () => CommandOption[]): void
-  trigger(id: string, source?: CommandSource): void
-  keybind(id: string): string
-  keybindParts(id: string): string[]
-  show(): void
-  keybinds(enabled: boolean): void
-  suspended(): boolean
-}
+export const { use: useCommand, provider: CommandProvider } = createSimpleContext<
+  ReturnType<typeof createCommandStore>,
+  Record<string, any>
+>({
+  name: "Command",
+  gate: false,
+  init: () => createCommandStore(),
+})
 
-function createCommandStore(): CommandStore {
+function createCommandStore() {
+  const dialog = useDialog()
+  const settings = useSettings()
   const [store, setStore] = createStore({
     registrations: [] as CommandRegistration[],
     suspendCount: 0,
   })
+  const warnedDuplicates = new Set<string>()
 
-  const options = createMemo(() => {
+  type CommandCatalog = Record<string, CommandCatalogItem>
+  // TODO(Task 2): catalog 不做持久化（无 Persist 工具），仅内存镜像注册命令。
+  const [catalog, setCatalog] = createStore<CommandCatalog>({})
+
+  const bind = (id: string, def: KeybindConfig | undefined) => {
+    const custom = settings.keybinds.get(actionId(id))
+    const config = custom ?? def
+    if (!config || config === "none") return
+    return config
+  }
+
+  const registered = createMemo(() => {
     const seen = new Set<string>()
     const all: CommandOption[] = []
-    for (const reg of store.registrations) {
+
+    for (const reg of activeCommandRegistrations(store.registrations)) {
       for (const opt of reg.options()) {
-        if (seen.has(opt.id)) continue
+        if (seen.has(opt.id)) {
+          if (import.meta.env.DEV && !warnedDuplicates.has(opt.id)) {
+            warnedDuplicates.add(opt.id)
+            console.warn(`[command] duplicate command id "${opt.id}" registered; keeping first entry`)
+          }
+          continue
+        }
         seen.add(opt.id)
         all.push(opt)
       }
     }
+
     return all
+  })
+
+  createEffect(() => {
+    setCatalog(
+      registered().reduce((acc, opt) => {
+        const id = actionId(opt.id)
+        if (opt.title)
+          acc[id] = {
+            title: opt.title,
+            description: opt.description,
+            category: opt.category,
+            keybind: opt.keybind,
+            slash: opt.slash,
+          }
+        return acc
+      }, {} as CommandCatalog),
+    )
+  })
+
+  const catalogOptions = createMemo(() => Object.entries(catalog).map(([id, meta]) => ({ id, ...meta })))
+
+  const options = createMemo(() => {
+    const resolved = registered().map((opt) => ({
+      ...opt,
+      keybind: bind(opt.id, opt.keybind),
+    }))
+
+    const suggested = resolved.filter((x) => x.suggested && !x.disabled)
+
+    return [
+      ...suggested.map((x) => ({
+        ...x,
+        id: SUGGESTED_PREFIX + x.id,
+      })),
+      ...resolved,
+    ]
+  })
+
+  const suspended = () => store.suspendCount > 0
+
+  const palette = createMemo(() => {
+    const config = settings.keybinds.get(PALETTE_ID) ?? DEFAULT_PALETTE_KEYBIND
+    const keybinds = parseKeybind(config)
+    return new Set(keybinds.map((kb) => signature(kb.key, kb.ctrl, kb.meta, kb.shift, kb.alt)))
   })
 
   const keymap = createMemo(() => {
     const map = new Map<string, CommandOption[]>()
     for (const option of options()) {
-      if (option.disabled || !option.keybind) continue
-      for (const kb of parseKeybind(option.keybind)) {
+      if (option.id.startsWith(SUGGESTED_PREFIX)) continue
+      if (option.disabled) continue
+      if (!option.keybind) continue
+
+      const keybinds = parseKeybind(option.keybind)
+      for (const kb of keybinds) {
         if (!kb.key) continue
         const sig = signature(kb.key, kb.ctrl, kb.meta, kb.shift, kb.alt)
         const existing = map.get(sig)
-        if (existing) existing.push(option)
-        else map.set(sig, [option])
+        if (existing) {
+          existing.push(option)
+          continue
+        }
+        map.set(sig, [option])
       }
     }
     return map
@@ -240,18 +385,41 @@ function createCommandStore(): CommandStore {
 
   const optionMap = createMemo(() => {
     const map = new Map<string, CommandOption>()
-    for (const option of options()) map.set(option.id, option)
+    for (const option of options()) {
+      map.set(option.id, option)
+      map.set(actionId(option.id), option)
+    }
     return map
   })
 
-  const suspended = () => store.suspendCount > 0
+  const run = (id: string, source?: CommandSource) => {
+    const option = optionMap().get(id)
+    option?.onSelect?.(source)
+  }
+
+  const showPalette = () => {
+    run(PALETTE_ID, "palette")
+  }
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (suspended()) return
+    if (suspended() || dialog.active) return
+
     const sig = signatureFromEvent(event)
-    const option =
-      keymap().get(sig)?.find((item) => item.when?.(event)) ??
-      keymap().get(sig)?.find((item) => !item.when)
+    const isPalette = palette().has(sig)
+    const option = resolveKeybindOption(keymap().get(sig), event)
+    const modified = event.ctrlKey || event.metaKey || event.altKey
+    const isTab = event.key === "Tab"
+
+    if (isEditableTarget(event.target) && !isPalette && !isAllowedEditableKeybind(option?.id) && !modified && !isTab)
+      return
+
+    if (isPalette) {
+      event.preventDefault()
+      event.stopPropagation()
+      showPalette()
+      return
+    }
+
     if (!option) return
     event.preventDefault()
     event.stopPropagation()
@@ -259,10 +427,7 @@ function createCommandStore(): CommandStore {
   }
 
   onMount(() => {
-    document.addEventListener("keydown", handleKeyDown, { capture: true })
-    onCleanup(() => {
-      document.removeEventListener("keydown", handleKeyDown, { capture: true })
-    })
+    makeEventListener(document, "keydown", handleKeyDown, { capture: true })
   })
 
   function register(cb: () => CommandOption[]): void
@@ -272,39 +437,46 @@ function createCommandStore(): CommandStore {
     const next = typeof key === "function" ? key : cb
     if (!next) return
     const options = createMemo(next)
-    const entry: CommandRegistration = { key: id, options }
-    setStore("registrations", (arr) => [entry, ...arr])
+    const entry: CommandRegistration = {
+      key: id,
+      options,
+    }
+    setStore("registrations", (arr) => addCommandRegistration(arr, entry))
     onCleanup(() => {
       setStore("registrations", (arr) => arr.filter((x) => x !== entry))
     })
   }
 
-  const run = (id: string, source?: CommandSource) => {
-    optionMap().get(id)?.onSelect?.(source)
+  const keybindConfig = (id: string) => {
+    if (id === PALETTE_ID) return settings.keybinds.get(PALETTE_ID) ?? DEFAULT_PALETTE_KEYBIND
+    const base = actionId(id)
+    return options().find((x) => actionId(x.id) === base)?.keybind ?? bind(base, catalog[base]?.keybind)
   }
 
   return {
     register,
-    trigger: run,
+    trigger(id: string, source?: CommandSource) {
+      run(id, source)
+    },
     keybind(id: string) {
-      const config = options().find((x) => x.id === id)?.keybind
-      return config ? formatKeybind(config) : ""
+      const config = keybindConfig(id)
+      if (!config) return ""
+      return formatKeybind(config)
     },
     keybindParts(id: string) {
-      const config = options().find((x) => x.id === id)?.keybind
+      const config = keybindConfig(id)
       return config ? formatKeybindParts(config) : []
     },
-    // TODO(Task 2): 命令面板 UI（当前为 no-op 占位）
-    show() {},
+    show: showPalette,
     keybinds(enabled: boolean) {
       setStore("suspendCount", (count) => Math.max(0, count + (enabled ? -1 : 1)))
     },
     suspended,
+    get catalog() {
+      return catalogOptions()
+    },
+    get options() {
+      return options()
+    },
   }
 }
-
-export const { use: useCommand, provider: CommandProvider } = createSimpleContext<CommandStore, Record<string, any>>({
-  name: "Command",
-  gate: false,
-  init: () => createCommandStore(),
-})

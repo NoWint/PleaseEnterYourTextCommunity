@@ -25,6 +25,11 @@ import { isTabRecentlyRemoved, tabKey, useTabs, type Tab } from "../../context/t
 import { useChat } from "../../context/chat"
 import type { LayoutRoute } from "../../context/layout"
 import { newTabTooltipKeybind } from "./command-tooltip-keybind"
+import { ImCommandCenter } from "../../components/dialogs/im-command-center"
+import { StatusPopoverV2 } from "../../components/dialogs/status-popover"
+import { HelpButton } from "../../components/dialogs/help-button"
+import { useSettingsCommand } from "../../components/dialogs/settings-dialog"
+import { dialogsT } from "../../components/dialogs/i18n"
 import "./titlebar.css"
 
 const v2TitlebarHeight = 36
@@ -216,6 +221,10 @@ export function Titlebar() {
 
   const [tabsAreOverflowing, setTabsAreOverflowing] = createSignal(false)
 
+  // 设置按钮 + 命令注册（settings.dialog.open）：打开设置对话框。
+  // 注：AppLayout 已注册 settings.open（跳转 /settings 页面），本处用独立 id。
+  const openSettings = useSettingsCommand()
+
   return (
     <header
       data-slot={useV2Titlebar() ? "titlebar-v2" : undefined}
@@ -301,8 +310,23 @@ export function Titlebar() {
           />
         </TooltipV2>
         <div class="flex-1" />
-        <div id="opencode-titlebar-right" class="flex shrink-0 items-center justify-end gap-0" />
+        <div id="opencode-titlebar-right" class="flex shrink-0 items-center justify-end gap-0">
+          <StatusPopoverV2 />
+          <HelpButton />
+          <TooltipV2 placement="bottom" value={dialogsT("command.settings.open")}>
+            <IconButtonV2
+              type="button"
+              variant="ghost-muted"
+              size="large"
+              class="!w-9 shrink-0"
+              icon={<IconV2 name="settings-gear" />}
+              onClick={openSettings}
+              aria-label={dialogsT("command.settings.open")}
+            />
+          </TooltipV2>
+        </div>
       </div>
+      <ImCommandCenter />
     </header>
   )
 }
