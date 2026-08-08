@@ -54,6 +54,12 @@ function createSettingsStore(): SettingsStore {
   )
 
   // feature flags
+  // 注意：peyt.useSolidApp 目前无消费方，是遗留兼容占位，勿据此判断壳层入口。
+  // 实际切换机制（Phase 6 前）：
+  // - dev：src-tauri/tauri.conf.json 的 devUrl = http://localhost:1420/app.html
+  //   → 开发与 Tauri dev 都跑新 Solid 壳（src/app/entry.tsx）；
+  // - 生产：frontendDist = ../dist 加载构建产物，当前同时产出 index.html（legacy 壳）
+  //   与 app.html（新壳），生产入口在 Phase 6 固定（见 vite.config.ts 注释）。
   const useSolidApp = () => localStorage.getItem("peyt.useSolidApp") !== "false"
 
   const [keybinds, setKeybinds] = createSignal<Record<string, string>>(loadKeybinds())

@@ -100,11 +100,7 @@ export const KanbanView: Component<KanbanViewProps> = (props) => {
 
   return (
     <div class="flex h-full min-h-0 flex-1 flex-col">
-      <Show when={props.cards.length === 0} fallback={<></>}>
-        <div class="flex flex-1 items-center justify-center text-[13px] text-v2-text-text-faint">
-          {props.loading ? "加载中…" : "暂无卡片"}
-        </div>
-      </Show>
+      {/* 三列始终可见（空列显示 0 计数 + 添加按钮），不单独渲染空态提示 */}
       <div class="flex min-h-0 flex-1 gap-3 p-3">
         <For each={STATUS_ORDER}>
           {(status) => (

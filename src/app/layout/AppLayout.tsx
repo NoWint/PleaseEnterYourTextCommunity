@@ -24,6 +24,7 @@ import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { useSettingsDialog } from "../components/dialogs/settings-dialog"
 import { Titlebar } from "./titlebar/titlebar"
 import { SidebarContent } from "./sidebar/sidebar-shell"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./sidebar/sidebar-project"
@@ -253,7 +254,8 @@ const AppLayout: Component<ParentProps> = (props) => {
     navigate("/home")
   }
 
-  const openSettings = () => navigate("/settings")
+  // 设置统一走对话框（settings-v2），无 /settings 页面路由。
+  const openSettings = useSettingsDialog()
 
   command.register(() => [
     {

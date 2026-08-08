@@ -5,7 +5,9 @@ import "./index.css"
 
 // dev 入口可能是 /app.html 或 /，Tauri 桌面端可能是 / 或 /index.html。
 // 这些 pathname 都不匹配 Router 的路由，需在渲染前重定向到默认页。
-const VALID_PATHS = ["/home", "/work", "/settings"]
+// 注意：/settings 无页面路由（设置统一走对话框），不加进白名单；
+// /login 是真实路由（登录页），硬刷新时必须保留，否则会双跳回 /home。
+const VALID_PATHS = ["/home", "/work", "/login"]
 if (!VALID_PATHS.includes(location.pathname) && !location.pathname.startsWith("/chat/") && !location.pathname.startsWith("/home/")) {
   history.replaceState(null, "", "/home")
 }

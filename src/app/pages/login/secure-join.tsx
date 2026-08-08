@@ -62,9 +62,10 @@ export const SecureJoinSection: Component = () => {
     if (!raw || busy()) return
     setBusy(true)
     try {
-      await account.joinSecure(normalizeUrlForQr(raw))
+      // secure_join 返回加入后的 chatId；有则直达该会话，否则回首页
+      const chatId = await account.joinSecure(normalizeUrlForQr(raw))
       showToast({ title: "已加入" })
-      navigate("/home")
+      navigate(chatId ? `/chat/${chatId}` : "/home")
     } catch (e) {
       showToast({ title: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -106,7 +107,7 @@ export const SecureJoinSection: Component = () => {
           </ButtonV2>
         </Show>
         <Show when={qrFailed()}>
-          <p class="login-status">登录后可在账号管理里生成个人邀请二维码</p>
+          <p class="login-status">登录后即可获取个人邀请二维码</p>
         </Show>
       </div>
     </div>

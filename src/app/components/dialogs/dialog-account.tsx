@@ -3,15 +3,14 @@
 // 新建账号（→ /login 的账号选择）、登出（→ /login，账号保留）。
 // 由设置对话框「服务器」页签的账号管理区打开（见 settings-v2/servers.tsx）。
 
-import { For, Show, createSignal, onMount } from "solid-js"
+import { For, Show, createSignal } from "solid-js"
 import { useNavigate } from "@solidjs/router"
-import { Avatar } from "@opencode-ai/ui/v2/avatar-v2"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { DividerV2 } from "@opencode-ai/ui/v2/divider-v2"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from "@opencode-ai/ui/v2/dialog-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useAccount, type AccountInfo } from "../../context/account"
-import { transformBlobURL } from "../../../api"
+import { AccountAvatar } from "../account-avatar"
 import { showToast } from "../../utils/toast"
 import "./dialog-account.css"
 
@@ -95,21 +94,5 @@ export function DialogAccount() {
         </ButtonV2>
       </DialogFooter>
     </Dialog>
-  )
-}
-
-/** 账号头像：有 avatar 用图片（blobdir → transformBlobURL），无则首字母占位。 */
-function AccountAvatar(props: { account: AccountInfo }) {
-  const [url, setUrl] = createSignal<string>("")
-  onMount(() => {
-    if (!props.account.avatar) return
-    void transformBlobURL(props.account.avatar).then((u) => setUrl(u))
-  })
-  return (
-    <Avatar
-      fallback={(props.account.name || props.account.addr || "?").charAt(0).toUpperCase()}
-      src={url() || undefined}
-      size="normal"
-    />
   )
 }

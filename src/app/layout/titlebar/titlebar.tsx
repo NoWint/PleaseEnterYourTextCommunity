@@ -222,7 +222,7 @@ export function Titlebar() {
   const [tabsAreOverflowing, setTabsAreOverflowing] = createSignal(false)
 
   // 设置按钮 + 命令注册（settings.dialog.open）：打开设置对话框。
-  // 注：AppLayout 已注册 settings.open（跳转 /settings 页面），本处用独立 id。
+  // 注：AppLayout 的 settings.open（mod+, + 侧栏按钮）也指向同一对话框，无 /settings 页面路由。
   const openSettings = useSettingsCommand()
 
   return (

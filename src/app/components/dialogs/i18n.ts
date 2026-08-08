@@ -14,7 +14,7 @@ const DICT: Record<string, string> = {
 
   // ── 命令 ──
   "command.palette": "命令面板",
-  // 与 AppLayout 注册的 "settings.open"（跳转 /settings 页面，标题"设置"）区分。
+  // 设置入口统一为对话框（settings.dialog.open）；无 /settings 页面路由。
   "command.settings.open": "打开设置对话框",
   "command.session.new": "新建会话",
   "command.session.switch": "切换会话",
@@ -85,7 +85,6 @@ const DICT: Record<string, string> = {
   "settings.placeholder.bot.title": "机器人管理",
   "settings.placeholder.bot.description": "机器人（Bot）的接入与管理将在后续版本开放。",
   "settings.placeholder.account.title": "账号管理",
-  "settings.placeholder.account.description": "账号与服务器的管理将在后续版本开放。",
   "settings.placeholder.account.local": "本地服务",
 
   // ── 工作区编辑对话框（占位） ──

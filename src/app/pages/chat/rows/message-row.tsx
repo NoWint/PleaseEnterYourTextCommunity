@@ -118,6 +118,14 @@ export const MessageRow: Component<MessageRowProps> = (props) => {
   const collapsed = () => props.groupRole === "middle" || props.groupRole === "last"
 
   const member = createMemo(() => members().find((mm) => mm.contact_id === message().from_id))
+  // 角色 tag：SP2 简化模型下 roles() 只是工作区级角色定义（无 contact→role 映射，
+  // 见 legacy getRoleName），无法据此解析发送者角色；沿用 legacy 语义——
+  // from_id===1 或自己 → 核心，其余 → 成员。roleNames 仅用于正文 @提及高亮。
+  const roleLabel = createMemo(() => {
+    const fromId = message().from_id
+    const selfId = chat.self()?.id
+    return fromId === 1 || (selfId != null && fromId === selfId) ? "核心" : "成员"
+  })
   const avatarPath = createMemo(() => member()?.avatar ?? message().from_avatar ?? null)
   const [avatarUrl] = createResource(avatarPath, (path) => (path ? transformBlobURL(path) : Promise.resolve("")))
   const avatarColor = createMemo(() => colorHex(message().from_color ?? member()?.color))
@@ -262,7 +270,7 @@ export const MessageRow: Component<MessageRowProps> = (props) => {
           <div class="cm-meta">
             <Show when={!collapsed() && !isOut() && isGroup()}>
               <span class="cm-name">{message().from_name}</span>
-              <span class="cm-role">{message().from_id === 1 ? "核心" : "成员"}</span>
+              <span class="cm-role">{roleLabel()}</span>
             </Show>
             <Show when={message().quote_from}>
               <span class="cm-reply-mark">

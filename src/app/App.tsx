@@ -1,7 +1,9 @@
 // src/app/App.tsx
 // 完整 Provider 树 + Router + AppLayout
-// Task 1：路由重排 / → /home、/home、/home/:wsId、/chat/:id、/chat/new、/work、/settings
+// Task 1：路由重排 / → /home、/home、/home/:wsId、/chat/:id、/chat/new、/work
 // Task 5：新增 /login 路由 + 未登录重定向（RequireAuth）；登录后进 /home。
+// 设置入口统一走对话框（settings.dialog.open，见 components/dialogs/settings-dialog.tsx），
+// 无 /settings 页面路由；壳层（AppLayout）只包已登录分支。
 //
 // 注意：Layout/Tabs/Command 依赖 @solidjs/router hooks（useLocation/useNavigate），
 // 因此必须挂在 Router root 内部（Router 会把 children 当作 Route 分支，不能直接包）。
@@ -28,7 +30,6 @@ import { NewHome } from "./pages/home/home"
 import MessagesPage from "./pages/MessagesPage"
 import NewChatPage from "./pages/NewChatPage"
 import WorkPage from "./pages/WorkPage"
-import SettingsPage from "./pages/SettingsPage"
 import LoginPage from "./pages/login"
 
 // 路由守卫：未登录（is_configured=false）→ 重定向 /login；探测完成前显示加载占位。
@@ -42,6 +43,14 @@ const RequireAuth: Component<ParentProps> = (props) => {
     </Show>
   )
 }
+
+// 已登录分支统一包 AppLayout（titlebar+sidebar 只出现在已登录页面；
+// /login 与启动占位走裸 main 区，不渲染壳层）。
+const AuthedLayout: Component<ParentProps> = (props) => (
+  <RequireAuth>
+    <AppLayout>{props.children}</AppLayout>
+  </RequireAuth>
+)
 
 // 登录态探测中的最小占位（避免壳层加载前白屏）。
 const BootLoading: Component = () => (
@@ -68,9 +77,7 @@ const App: Component = () => {
                         <TabsProvider>
                           <CommandProvider>
                             <WorkspaceProvider>
-                              <ChatProvider>
-                                <AppLayout>{props.children}</AppLayout>
-                              </ChatProvider>
+                              <ChatProvider>{props.children}</ChatProvider>
                             </WorkspaceProvider>
                           </CommandProvider>
                         </TabsProvider>
@@ -80,12 +87,11 @@ const App: Component = () => {
                 >
                   <Route path="/" component={() => <Navigate href="/home" />} />
                   <Route path="/login" component={LoginPage} />
-                  <Route path="/home" component={() => <RequireAuth><NewHome /></RequireAuth>} />
-                  <Route path="/home/:wsId" component={() => <RequireAuth><WorkPage /></RequireAuth>} />
-                  <Route path="/chat/new" component={() => <RequireAuth><NewChatPage /></RequireAuth>} />
-                  <Route path="/chat/:id" component={() => <RequireAuth><MessagesPage /></RequireAuth>} />
-                  <Route path="/work" component={() => <RequireAuth><WorkPage /></RequireAuth>} />
-                  <Route path="/settings" component={() => <RequireAuth><SettingsPage /></RequireAuth>} />
+                  <Route path="/home" component={() => <AuthedLayout><NewHome /></AuthedLayout>} />
+                  <Route path="/home/:wsId" component={() => <AuthedLayout><WorkPage /></AuthedLayout>} />
+                  <Route path="/chat/new" component={() => <AuthedLayout><NewChatPage /></AuthedLayout>} />
+                  <Route path="/chat/:id" component={() => <AuthedLayout><MessagesPage /></AuthedLayout>} />
+                  <Route path="/work" component={() => <AuthedLayout><WorkPage /></AuthedLayout>} />
                 </Router>
               </SettingsProvider>
             </ServerProvider>

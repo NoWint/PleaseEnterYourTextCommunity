@@ -8,13 +8,13 @@
 // 登录/切换成功后 navigate("/home")；已登录访问 /login 时重定向回 /home。
 
 import type { Component } from "solid-js"
-import { For, Show, createMemo, createSignal, onMount } from "solid-js"
+import { For, Show, createMemo, createSignal } from "solid-js"
 import { Navigate, useNavigate } from "@solidjs/router"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
-import { Avatar } from "@opencode-ai/ui/v2/avatar-v2"
 import { useAccount, type AccountInfo } from "../../context/account"
-import { onEvent, transformBlobURL } from "../../../api"
+import { AccountAvatar } from "../../components/account-avatar"
+import { onEvent } from "../../../api"
 import { showToast } from "../../utils/toast"
 import { SecureJoinSection } from "./secure-join"
 import "./login.css"
@@ -98,7 +98,7 @@ export const AccountPicker: Component<{
               disabled={props.busyId !== null}
               onClick={() => props.onPick(a)}
             >
-              <AccountAvatar account={a} />
+              <AccountAvatar account={a} size="large" />
               <span class="login-account-name">{accountLabel(a)}</span>
               <span class="login-account-mail">{a.addr}</span>
               <Show when={a.is_current}>
@@ -115,21 +115,7 @@ export const AccountPicker: Component<{
   )
 }
 
-/** 账号头像：有 avatar 用图片（blobdir → transformBlobURL），无则首字母占位。 */
-const AccountAvatar: Component<{ account: AccountInfo }> = (props) => {
-  const [url, setUrl] = createSignal<string>("")
-  onMount(() => {
-    if (!props.account.avatar) return
-    void transformBlobURL(props.account.avatar).then((u) => setUrl(u))
-  })
-  return (
-    <Avatar
-      fallback={(props.account.name || props.account.addr || "?").charAt(0).toUpperCase()}
-      src={url() || undefined}
-      size="large"
-    />
-  )
-}
+/** 账号头像（共享组件 src/app/components/account-avatar.tsx，登录页用大尺寸）。 */
 
 /** 有账号时的「新建账号」折叠入口：展开/收起表单。 */
 const NewAccountToggle: Component = () => {

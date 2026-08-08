@@ -3,18 +3,19 @@
 // - 多 server 管理删除（单本地 server）
 // - 目录选择/编辑/显示对话框 → TODO 占位（Task 3 接 Tauri 对话框）
 
-import { useNavigate } from "@solidjs/router"
 import { useLanguage } from "../../context/language"
 import { useChat } from "../../context/chat"
 import { useLayout, type LocalProject } from "../../context/layout"
+import { useSettingsDialog } from "../../components/dialogs/settings-dialog"
 import type { ServerConnection } from "../../context/server"
 import type { HomeController } from "./home-controller"
 
 export function createHomeProjectsController(home: HomeController) {
-  const navigate = useNavigate()
   const language = useLanguage()
   const chat = useChat()
   const layout = useLayout()
+  // 设置入口统一走对话框（settings-v2），无 /settings 页面路由。
+  const openSettings = useSettingsDialog()
 
   function directories(project: LocalProject) {
     return [project.worktree, ...(project.sandboxes ?? [])]
@@ -79,7 +80,7 @@ export function createHomeProjectsController(home: HomeController) {
       reveal: () => {},
     },
     utility: {
-      settings: () => navigate("/settings"),
+      settings: openSettings,
       help: () => {
         // TODO(Task 3): 帮助链接（打开文档）
       },
