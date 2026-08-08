@@ -4037,6 +4037,34 @@ pub async fn list_accounts(state: State<'_, AppState>) -> AppResult<Vec<crate::d
     Ok(out)
 }
 
+/// 列出全部已注册 slash 命令元数据(/ 建议面板单一事实源)。
+#[derive(serde::Serialize)]
+pub struct CommandInfoDto {
+    pub name: String,
+    pub scope: &'static str,
+    pub description: &'static str,
+}
+
+#[tauri::command]
+pub async fn list_commands() -> AppResult<Vec<CommandInfoDto>> {
+    use crate::commands::registry::{CommandRegistry, CommandScope};
+    let reg = CommandRegistry::global();
+    let scope_str = |s: &CommandScope| match s {
+        CommandScope::Bot => "bot",
+        CommandScope::User => "user",
+        CommandScope::Both => "both",
+    };
+    Ok(reg
+        .list()
+        .into_iter()
+        .map(|s| CommandInfoDto {
+            name: s.name.to_string(),
+            scope: scope_str(&s.scope),
+            description: s.description,
+        })
+        .collect())
+}
+
 /// 切换到指定账号(选中 + 设 current + 启动 IO)。前端切换后 reload 重建 UI。
 #[tauri::command]
 pub async fn switch_account(state: State<'_, AppState>, id: u32) -> AppResult<crate::dto::AccountInfoDto> {

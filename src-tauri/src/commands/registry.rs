@@ -109,6 +109,13 @@ impl CommandRegistry {
             .insert(spec.name.to_string(), spec);
     }
 
+    /// 列出全部已注册命令元数据(name, scope, description),供 / 建议面板与 /help 使用。
+    pub fn list(&self) -> Vec<CommandSpec> {
+        let mut specs: Vec<CommandSpec> = self.inner.read().unwrap().values().cloned().collect();
+        specs.sort_by(|a, b| a.name.cmp(b.name));
+        specs
+    }
+
     /// 解析命令文本:trim → 以 '/' 开头 → 命令名(首个空白前)+ 参数按空白分割
     /// (支持双引号包裹含空白的参数)。非命令文本返回 None。
     pub fn parse(text: &str) -> Option<CommandInvocation> {

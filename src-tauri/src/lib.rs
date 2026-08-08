@@ -595,6 +595,8 @@ pub fn run() {
             summary::commands::summary_enqueue,
             summary::commands::summary_load_cache,
             summary::commands::summary_save_cache,
+            // 命令注册表:slash 命令元数据(/ 建议面板)
+            commands::list_commands,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
