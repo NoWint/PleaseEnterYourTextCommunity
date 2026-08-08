@@ -8,6 +8,7 @@
 
 import { createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
+import { useNavigate } from "@solidjs/router"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -279,6 +280,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
 function createCommandStore() {
   const dialog = useDialog()
   const settings = useSettings()
+  const navigate = useNavigate()
   const [store, setStore] = createStore({
     registrations: [] as CommandRegistration[],
     suspendCount: 0,
@@ -452,6 +454,46 @@ function createCommandStore() {
     const base = actionId(id)
     return options().find((x) => actionId(x.id) === base)?.keybind ?? bind(base, catalog[base]?.keybind)
   }
+
+  // Task 3：legacy 页入口命令（页面内容为 legacy vanilla 挂载，标签中文，归入「页面」分组）
+  register("legacy-pages", () => [
+    {
+      id: "page.bots",
+      title: "机器人",
+      category: "页面",
+      onSelect: () => navigate("/bots"),
+    },
+    {
+      id: "page.plugins",
+      title: "插件",
+      category: "页面",
+      onSelect: () => navigate("/plugins"),
+    },
+    {
+      id: "page.inbox",
+      title: "通知",
+      category: "页面",
+      onSelect: () => navigate("/inbox"),
+    },
+    {
+      id: "page.github",
+      title: "GitHub",
+      category: "页面",
+      onSelect: () => navigate("/github"),
+    },
+    {
+      id: "page.intelligence",
+      title: "智能",
+      category: "页面",
+      onSelect: () => navigate("/intelligence"),
+    },
+    {
+      id: "page.debug",
+      title: "调试",
+      category: "页面",
+      onSelect: () => navigate("/debug"),
+    },
+  ])
 
   return {
     register,

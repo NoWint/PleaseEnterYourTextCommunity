@@ -31,6 +31,12 @@ import MessagesPage from "./pages/MessagesPage"
 import NewChatPage from "./pages/NewChatPage"
 import WorkPage from "./pages/WorkPage"
 import LoginPage from "./pages/login"
+import BotsPage from "./pages/legacy/BotsPage"
+import PluginsPage from "./pages/legacy/PluginsPage"
+import InboxPage from "./pages/legacy/InboxPage"
+import GithubPage from "./pages/legacy/GithubPage"
+import IntelligencePage from "./pages/legacy/IntelligencePage"
+import DebugPage from "./pages/legacy/DebugPage"
 
 // 路由守卫：未登录（is_configured=false）→ 重定向 /login；探测完成前显示加载占位。
 const RequireAuth: Component<ParentProps> = (props) => {
@@ -93,6 +99,13 @@ const App: Component = () => {
                   <Route path="/chat/new" component={() => <AuthedLayout><NewChatPage /></AuthedLayout>} />
                   <Route path="/chat/:id" component={() => <AuthedLayout><MessagesPage /></AuthedLayout>} />
                   <Route path="/work" component={() => <AuthedLayout><WorkPage /></AuthedLayout>} />
+                  {/* Task 3：legacy 页路由（Cmd+K 可达，页面内容为 legacy vanilla 挂载） */}
+                  <Route path="/bots" component={() => <AuthedLayout><BotsPage /></AuthedLayout>} />
+                  <Route path="/plugins" component={() => <AuthedLayout><PluginsPage /></AuthedLayout>} />
+                  <Route path="/inbox" component={() => <AuthedLayout><InboxPage /></AuthedLayout>} />
+                  <Route path="/github" component={() => <AuthedLayout><GithubPage /></AuthedLayout>} />
+                  <Route path="/intelligence" component={() => <AuthedLayout><IntelligencePage /></AuthedLayout>} />
+                  <Route path="/debug" component={() => <AuthedLayout><DebugPage /></AuthedLayout>} />
                 </Router>
               </SettingsProvider>
             </ServerProvider>
