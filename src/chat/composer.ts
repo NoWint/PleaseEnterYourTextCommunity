@@ -397,8 +397,9 @@ function isEmptyInput(el: HTMLElement): boolean {
 // 检测 contenteditable 中光标前的 @xxx / #xxx 模式,弹出对应建议列表
 function handleMentionInput(input: HTMLElement): void {
   const text = textBeforeCaret(input);
-  // @ 提及:匹配光标前最近的 @ 后跟(可能为空的)标识符
-  const atMatch = text.match(/@(\w*)$/);
+  // @ 提及:匹配光标前最近的 @ 后跟(可能为空的)标识符。
+  // [^\s@#/] 非空白字符集(含中文),遇空白/@#/ 截断
+  const atMatch = text.match(/@([^\s@#/]*)$/);
   if (atMatch) {
     const query = atMatch[1].toLowerCase();
     const members = state.currentMembers.filter((m) => m.name.toLowerCase().includes(query));
@@ -413,8 +414,9 @@ function handleMentionInput(input: HTMLElement): void {
     }
     return;
   }
-  // # 频道引用:匹配光标前最近的 # 后跟(可能为空的)标识符
-  const hashMatch = text.match(/#(\w*)$/);
+  // # 频道引用:匹配光标前最近的 # 后跟(可能为空的)标识符。
+  // [^\s@#/] 非空白字符集(含中文),遇空白/@#/ 截断
+  const hashMatch = text.match(/#([^\s@#/]*)$/);
   if (hashMatch) {
     const query = hashMatch[1].toLowerCase();
     const channels = state.channels.filter((c: ChannelDto) => c.name.toLowerCase().includes(query));
@@ -431,7 +433,7 @@ function handleMentionInput(input: HTMLElement): void {
   }
   // / 命令:匹配光标前最近的 / 后跟(可能为空的)标识符。
   // 前置要求行首或空白/换行符(避免把 URL 里的 / 误判为命令)
-  const slashMatch = text.match(/(?:^|[\s>])\/(\w*)$/);
+  const slashMatch = text.match(/(?:^|[\s>])\/([^\s@#/]*)$/);
   if (slashMatch) {
     const query = slashMatch[1].toLowerCase();
     const cmds = commandSuggestions(query);
@@ -550,7 +552,8 @@ function insertSelectedMention(input: HTMLElement): void {
 function insertTag(input: HTMLElement, kind: '@' | '#' | '/', name: string): void {
   // 复用 insertSelectedMention 的查询文本删除逻辑(元素边界光标经 walk-down 处理)
   const before = textBeforeCaret(input);
-  const re = new RegExp(`\\${kind}(\\w*)$`);
+  // [^\s@#/] 非空白字符集(含中文);模板字符串里 \\s 生成正则的 \s
+  const re = new RegExp(`\\${kind}([^\\s@#/]*)$`);
   const m = before.match(re);
   if (m) {
     const sel = window.getSelection();
