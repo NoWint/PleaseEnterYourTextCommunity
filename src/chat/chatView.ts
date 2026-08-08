@@ -798,11 +798,15 @@ function bindTopicChipClick(): void {
     const memberTag = (e.target as HTMLElement).closest<HTMLElement>('.mention-tag[data-kind="member"]');
     if (memberTag) {
       e.stopPropagation();
+      // 输入框内的 tag 由 composer 处理(整块删除等),不在此弹名片
+      if (memberTag.closest('#composer-input')) {
+        return;
+      }
       const name = memberTag.dataset.name || '';
-      if (name === (state.self?.name || '')) {
+      if (name && state.self && name === state.self.name) {
         void import('../components/contactCard.js').then(({ openContactCard }) =>
           openContactCard({ contactId: state.self!.id, name: state.self!.name, addr: state.self!.addr, avatar: state.self!.avatar ?? null, anchor: memberTag }));
-      } else {
+      } else if (name) {
         void import('../components/memberPicker.js').then(({ openUserPicker }) => openUserPicker(name, memberTag));
       }
       return;
