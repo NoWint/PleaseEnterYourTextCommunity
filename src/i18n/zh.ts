@@ -264,10 +264,12 @@ export const zh: Record<string, string> = {
   'dialog.workspace.reset.description': '将清除该工作区的本地会话缓存与未读状态（后端暂无重置命令）。',
   'dialog.workspace.reset.confirm': '重置',
   'dialog.workspace.delete.title': '删除工作区',
-  'dialog.workspace.delete.description': '将从侧栏移除该工作区，本地会话缓存一并清除（后端暂无删除命令）。',
+  'dialog.workspace.delete.description': '将从侧栏移除该工作区，并退出其关联频道与群组（后端删除，消息数据保留）。',
   'dialog.workspace.delete.confirm': '删除',
   'dialog.workspace.toast.reset': '已重置工作区（本地）',
-  'dialog.workspace.toast.delete': '已删除工作区（本地）',
+  'dialog.workspace.toast.delete': '已删除工作区',
+  'dialog.workspace.toast.deleteFailed': '删除失败，请重试',
+  'dialog.workspace.toast.renameFailed': '重命名失败，已还原',
   'status.popover.trigger': '服务器状态',
   'status.popover.title': '服务器',
   'status.popover.server.healthy': '运行中',
@@ -285,4 +287,21 @@ export const zh: Record<string, string> = {
 
   // ── 设置机器人页签（b5 bot-center 入口）──
   'settings.bots.manage': '前往 Bot 管理中心',
+
+  // ── 新会话页（/chat/new）──
+  'newchat.title': '新建会话',
+  'newchat.placeholder': '输入邮箱或粘贴邀请链接，开始私聊',
+  'newchat.start': '开始',
+  'newchat.joining': '加入中…',
+  'newchat.joined': '已加入',
+  'newchat.group.title': '新建群聊',
+  'newchat.group.placeholder': '群聊名称',
+  'newchat.group.creating': '创建中…',
+  'newchat.group.create': '创建',
+  'newchat.scan.title': '扫码加群',
+  'newchat.scan.unavailable': '二维码暂不可用（需激活账号）',
+  'newchat.scan.linkPlaceholder': '或粘贴邀请链接 / 邮箱',
+  'newchat.scan.join': '加入',
+  'newchat.scan.hint': '对方扫码或粘贴链接即可加入你的频道',
+  'newchat.scan.close': '关闭',
 };

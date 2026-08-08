@@ -1,7 +1,7 @@
 // src/app/pages/NewChatPage.tsx
 // 新会话页（/chat/new）：新建私聊输入 + 快速入口（新建群聊 / 扫码加群 / 邀请链接）。
 // 提交后创建会话（create_chat_by_email / create_group / secure_join）并导航 /chat/:id
-// （titlebar 的 auto-add effect 会自动补 session tab）。
+// （titlebar 的 auto-add effect 会自动补 session tab）。文案统一走 dialogsT（src/i18n）。
 
 import { createSignal, Show, type Component } from "solid-js"
 import { useNavigate } from "@solidjs/router"
@@ -15,6 +15,7 @@ import { call } from "../../api"
 import { useAccount } from "../context/account"
 import { normalizeUrlForQr } from "../../utils/deepLink"
 import { isEmail } from "../../utils/inviteLink"
+import { dialogsT } from "../components/dialogs/i18n"
 import { showToast } from "../utils/toast"
 import { PanelCard } from "./panel-card"
 
@@ -44,7 +45,7 @@ const NewChatPage: Component = () => {
         return
       }
       const chatId = await account.joinSecure(normalizeUrlForQr(raw))
-      showToast({ title: "已加入" })
+      showToast({ title: dialogsT("newchat.joined") })
       if (chatId) openChat(chatId)
     } catch (e) {
       showToast({ title: e instanceof Error ? e.message : String(e) })
@@ -69,7 +70,7 @@ const NewChatPage: Component = () => {
         <div class="flex-1 min-h-0 flex flex-col items-center justify-center gap-10 px-6">
           <div class="flex max-w-[560px] w-full flex-col items-center gap-8">
             <h1 class="text-[22px] font-[640] leading-7 tracking-[-0.02em] text-v2-text-text-strong">
-              新建会话
+              {dialogsT("newchat.title")}
             </h1>
             <form
               class="flex w-full items-center gap-2"
@@ -82,18 +83,18 @@ const NewChatPage: Component = () => {
                 autofocus
                 appearance="large"
                 class="!w-full"
-                placeholder="输入邮箱或粘贴邀请链接，开始私聊"
+                placeholder={dialogsT("newchat.placeholder")}
                 value={input()}
                 onInput={(event) => setInput(event.currentTarget.value)}
-                aria-label="新建会话输入"
+                aria-label={dialogsT("newchat.title")}
               />
               <ButtonV2 type="submit" variant="contrast" size="large" disabled={busy() || !input().trim()}>
-                {busy() ? "加入中…" : "开始"}
+                {busy() ? dialogsT("newchat.joining") : dialogsT("newchat.start")}
               </ButtonV2>
             </form>
             <div class="flex items-center justify-center gap-3">
-              <QuickEntry icon="grid-plus" label="新建群聊" onClick={createGroup} />
-              <QuickEntry icon="outline-share" label="扫码加群" onClick={scanJoin} />
+              <QuickEntry icon="grid-plus" label={dialogsT("newchat.group.title")} onClick={createGroup} />
+              <QuickEntry icon="outline-share" label={dialogsT("newchat.scan.title")} onClick={scanJoin} />
             </div>
           </div>
         </div>
@@ -139,7 +140,7 @@ function CreateGroupDialog(props: { onCreated: (chatId: number) => void }) {
     <Dialog fit>
       <form onSubmit={submit} class="contents">
         <DialogHeader>
-          <DialogTitle>新建群聊</DialogTitle>
+          <DialogTitle>{dialogsT("newchat.group.title")}</DialogTitle>
         </DialogHeader>
         <DividerV2 />
         <DialogBody class="flex flex-col gap-4 px-4 pt-4 pb-1">
@@ -147,18 +148,18 @@ function CreateGroupDialog(props: { onCreated: (chatId: number) => void }) {
             autofocus
             appearance="large"
             class="!w-full"
-            placeholder="群聊名称"
+            placeholder={dialogsT("newchat.group.placeholder")}
             value={name()}
             onInput={(event) => setName(event.currentTarget.value)}
-            aria-label="群聊名称"
+            aria-label={dialogsT("newchat.group.placeholder")}
           />
         </DialogBody>
         <DialogFooter>
           <ButtonV2 type="button" variant="neutral" onClick={() => dialog.close()}>
-            取消
+            {dialogsT("common.cancel")}
           </ButtonV2>
           <ButtonV2 type="submit" variant="contrast" disabled={busy() || !name().trim()}>
-            {busy() ? "创建中…" : "创建"}
+            {busy() ? dialogsT("newchat.group.creating") : dialogsT("newchat.group.create")}
           </ButtonV2>
         </DialogFooter>
       </form>
@@ -168,9 +169,9 @@ function CreateGroupDialog(props: { onCreated: (chatId: number) => void }) {
 
 function ScanJoinDialog() {
   const dialog = useDialog()
+  const navigate = useNavigate()
   const account = useAccount()
   const [qrUrl, setQrUrl] = createSignal("")
-  const [qrText, setQrText] = createSignal("")
   const [link, setLink] = createSignal("")
   const [busy, setBusy] = createSignal(false)
 
@@ -178,7 +179,6 @@ function ScanJoinDialog() {
     try {
       const qr = await call<string>("get_securejoin_qr", { chatId: null })
       const dataUrl = await QRCode.toDataURL(normalizeUrlForQr(qr), { margin: 1, width: 220 })
-      setQrText(qr)
       setQrUrl(dataUrl)
     } catch {
       setQrUrl("")
@@ -192,7 +192,9 @@ function ScanJoinDialog() {
     setBusy(true)
     try {
       const chatId = await account.joinSecure(normalizeUrlForQr(raw))
-      showToast({ title: "已加入" })
+      showToast({ title: dialogsT("newchat.joined") })
+      // 与 startChat 路径一致：加入成功后直达新会话（secure_join 返回 chatId）
+      if (chatId) navigate(`/chat/${chatId}`)
     } catch (e) {
       showToast({ title: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -203,30 +205,33 @@ function ScanJoinDialog() {
   return (
     <Dialog fit>
       <DialogHeader>
-        <DialogTitle>扫码加群</DialogTitle>
+        <DialogTitle>{dialogsT("newchat.scan.title")}</DialogTitle>
       </DialogHeader>
       <DividerV2 />
       <DialogBody class="flex flex-col items-center gap-4 px-4 pt-4 pb-1">
-        <Show when={qrUrl()} fallback={<div class="text-[13px] text-v2-text-text-faint">二维码暂不可用（需激活账号）</div>}>
-          <img src={qrUrl()} width={220} height={220} alt="我的邀请二维码" class="rounded-md" />
+        <Show
+          when={qrUrl()}
+          fallback={<div class="text-[13px] text-v2-text-text-faint">{dialogsT("newchat.scan.unavailable")}</div>}
+        >
+          <img src={qrUrl()} width={220} height={220} alt={dialogsT("newchat.scan.title")} class="rounded-md" />
         </Show>
         <div class="flex w-full items-center gap-2">
           <TextInputV2
             class="!w-full"
-            placeholder="或粘贴邀请链接 / 邮箱"
+            placeholder={dialogsT("newchat.scan.linkPlaceholder")}
             value={link()}
             onInput={(event) => setLink(event.currentTarget.value)}
-            aria-label="邀请链接"
+            aria-label={dialogsT("newchat.scan.linkPlaceholder")}
           />
           <ButtonV2 type="button" variant="contrast" disabled={busy() || !link().trim()} onClick={() => void join()}>
-            加入
+            {dialogsT("newchat.scan.join")}
           </ButtonV2>
         </div>
-        <p class="text-[12px] text-v2-text-text-faint">对方扫码或粘贴链接即可加入你的频道</p>
+        <p class="text-[12px] text-v2-text-text-faint">{dialogsT("newchat.scan.hint")}</p>
       </DialogBody>
       <DialogFooter>
         <ButtonV2 type="button" variant="neutral" onClick={() => dialog.close()}>
-          关闭
+          {dialogsT("newchat.scan.close")}
         </ButtonV2>
       </DialogFooter>
     </Dialog>

@@ -32,6 +32,7 @@ import { dialogsT } from "../components/dialogs/i18n"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useWorkspace } from "../context/workspace"
 import { showToast } from "../utils/toast"
+import { call } from "../../api"
 import { Titlebar } from "./titlebar/titlebar"
 import { SidebarContent } from "./sidebar/sidebar-shell"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./sidebar/sidebar-project"
@@ -219,7 +220,7 @@ const AppLayout: Component<ParentProps> = (props) => {
       if (value) layout.projects.expand(directory)
       else layout.projects.collapse(directory)
     },
-    // 重置/删除：后端无对应命令（survey 仅 list/create/join），本地清空 + toast。
+    // 重置/删除：重置无后端命令（本地清空 + toast）；删除走后端 delete_workspace。
     showResetWorkspaceDialog: (root, directory) => {
       void dialog.show(() => (
         <ConfirmWorkspaceDialog
@@ -227,7 +228,7 @@ const AppLayout: Component<ParentProps> = (props) => {
           description={dialogsT("dialog.workspace.reset.description")}
           confirmLabel={dialogsT("dialog.workspace.reset.confirm")}
           onConfirm={() => {
-            // TODO(Task 6): 后端 reset_workspace 命令缺失，当前仅本地清空
+            // TODO(Task 6): 后端无 reset_workspace 命令，仅本地清空（见 clearLocalWorkspaceData 注释）
             clearLocalWorkspaceData(directory)
             showToast({ title: dialogsT("dialog.workspace.toast.reset") })
           }}
@@ -241,7 +242,17 @@ const AppLayout: Component<ParentProps> = (props) => {
           description={dialogsT("dialog.workspace.delete.description")}
           confirmLabel={dialogsT("dialog.workspace.delete.confirm")}
           onConfirm={() => {
-            // TODO(Task 6): 后端 delete_workspace 命令缺失，当前仅本地移除
+            const wsId = workspace.wsIdFor(directory)
+            // 真实工作区：后端 delete_workspace（退出关联 channel/master chat + 删本地元数据）。
+            // 假数据/浏览器 dev 工作区（wsId 为 null）：仅本地移除。
+            if (wsId != null) {
+              call("delete_workspace", { id: wsId }).catch(() => {
+                // 失败回滚：恢复侧栏/左列条目，避免下次 refreshWorkspaces 把已删工作区再开回来
+                layout.projects.open(directory)
+                workspace.reopen(directory)
+                showToast({ title: dialogsT("dialog.workspace.toast.deleteFailed") })
+              })
+            }
             clearLocalWorkspaceData(directory)
             layout.projects.close(directory)
             workspace.close(directory)
@@ -254,7 +265,9 @@ const AppLayout: Component<ParentProps> = (props) => {
     setScrollContainerRef: () => {},
   }
 
-  // 重置/删除：清除该工作区全部本地会话缓存（未读清零 + 侧栏/左列移除），不发后端写命令
+  // 重置/删除：本地近似清理 —— 仅清零该工作区会话的未读并把项目从侧栏/左列移除；
+  // 会话本身仍在 chat 列表（后端无批量删除会话命令，delete_workspace 只退出并删除
+  // 工作区元数据，不删消息）。真实删除请求由调用方（delete handler）先发后端。
   const clearLocalWorkspaceData = (directory: string) => {
     for (const session of chat.chatList()) {
       if (session.directory === directory && session.unread > 0) chat.markRead(session.id)
