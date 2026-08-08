@@ -23,6 +23,11 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ["jieba-wasm", "@opencode-ai/ui"],
   },
+  resolve: {
+    alias: {
+      "@": path.resolve(projectRoot, "src"),
+    },
+  },
   plugins: [
     solid(),
     tailwindcss(),
