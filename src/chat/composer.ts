@@ -497,8 +497,17 @@ function insertSelectedMention(input: HTMLElement): void {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
-      const node = range.startContainer;
-      const offset = range.startOffset;
+      let node = range.startContainer;
+      let offset = range.startOffset;
+      // 光标在元素边界(如 re-focus 后 collapse 到末尾)→ 走进最后一个文本节点子节点
+      if (node.nodeType === Node.ELEMENT_NODE && offset > 0) {
+        let child = node.lastChild;
+        while (child) {
+          if (child.nodeType === Node.TEXT_NODE) { node = child; offset = (child.textContent ?? '').length; break; }
+          if (child.lastChild) { child = child.lastChild; continue; }
+          break;
+        }
+      }
       const back = m[0].length;
       try {
         if (node.nodeType === Node.TEXT_NODE && offset >= back) {
