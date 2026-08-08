@@ -517,20 +517,17 @@ function createChatStore(): ChatStore {
     const wsId = workspaceIdFor(chatId)
     if (wsId == null) return
     try {
-      const pinned = await call<boolean>("toggle_pin", {
+      await call<boolean>("toggle_pin", {
         workspaceId: wsId,
         chatId: Number(chatId),
         msgId,
       })
+      // toggle_pin 返回 bool 表示置顶状态；本地切换与后端保持一致
       const current = state.pinnedMap[chatId] ?? []
       const next = current.includes(msgId)
         ? current.filter((id) => id !== msgId)
         : [...current, msgId]
       setState("pinnedMap", chatId, next)
-      if (!pinned) {
-        // toggle_pin 返回 bool 表示置顶状态；以上本地切换已同步
-        void pinned
-      }
     } catch {
       /* 置顶失败静默 */
     }

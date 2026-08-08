@@ -68,6 +68,8 @@ function createWorkspaceStore(): WorkspaceStore {
     loading: () => state.loading,
     currentWsId: () => state.currentWsId,
     setCurrentWs: (id) => setState("currentWsId", id),
+    // TODO(Task 4): wire workspace chats — 会话列表/未读现由 chat context 提供
+    // （directory 映射经 list_workspaces + list_channels 反查），此处暂返回空。
     chats: (directory: string) => [],
     allChats: () => [],
     refreshWorkspaces,

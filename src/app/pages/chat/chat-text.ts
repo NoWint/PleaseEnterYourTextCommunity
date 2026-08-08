@@ -110,33 +110,28 @@ function emojiSizeClass(count: number): string | null {
 const LINK_RE =
   /(https?:\/\/[^\s<"']+)|(www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:\/[^\s<"']*)?)|([\w.+-]+@[\w-]+(?:\.[\w-]+)+)|((?:^|(?<=[\s(]))[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?(?:\/[^\s<"']*)?)/gi
 
-export function autolink(text: string): string {
-  if (!text.includes("http") && !text.includes("@") && !text.includes("www") && !text.includes(".")) return escapeHtml(text)
-  LINK_RE.lastIndex = 0
-  let last = 0
-  const out: string[] = []
-  let m: RegExpExecArray | null
-  while ((m = LINK_RE.exec(text)) !== null) {
-    if (m.index > last) out.push(escapeHtml(text.slice(last, m.index)))
-    const raw = m[0].replace(/[.,;:!?，。；、!?]+$/, "")
-    const [http, , mail] = [m[1], m[2], m[3]]
-    let href: string
-    if (http) href = raw
-    else if (mail) href = "mailto:" + raw
-    else href = "http://" + raw
-    out.push(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="cm-link">${escapeHtml(raw)}</a>`)
-    last = m.index + m[0].length
-  }
-  if (last < text.length) out.push(escapeHtml(text.slice(last)))
-  return out.join("")
-}
-
-// 高亮 @提及（自己/角色名）。
+// 高亮 @提及（自己/角色名）——安全版本：
+// - 只作用于文本节点：先把 <...> 标签替换为占位符，避免在 href 属性内插入 span
+//   （例如 http://x.com/@小明 的 href 会被占位保护，不参与匹配）
+// - 名字按「已转义形态」匹配（autolink 输出中文本均已 escapeHtml）；
+//   插入 span 时若捕获组含原始 < > & "（说明未经转义，属防御性路径）则再转义一次，
+//   已转义内容（如 &lt;）不含原始特殊字符，原样插入不会二次转义
 export function highlightMentions(html: string, selfName: string, roleNames: string[]): string {
-  const targets = [selfName, ...roleNames].filter(Boolean).map(escapeRegex)
+  const targets = [selfName, ...roleNames].filter(Boolean).map((name) => escapeRegex(escapeHtml(name)))
   if (targets.length === 0) return html
   const re = new RegExp(`@(${targets.join("|")})`, "g")
-  return html.replace(re, '<span class="cm-mention">@$1</span>')
+  const tags: string[] = []
+  const guarded = html.replace(/<[^>]*>/g, (tag) => {
+    tags.push(tag)
+    return `\uE000${tags.length - 1}\uE000`
+  })
+  const highlighted = guarded.replace(re, (_match, name: string) => {
+    // 已转义文本不含原始 < > "；含原始字符（防御非转义输入）才需再转义。
+    // 注意不能按 & 判断：&lt;/&amp; 等实体本就含 &，再转义会双重转义。
+    const safeName = /[<>"]/.test(name) ? escapeHtml(name) : name
+    return `<span class="cm-mention">@${safeName}</span>`
+  })
+  return highlighted.replace(/\uE000(\d+)\uE000/g, (_m, i: string) => tags[Number(i)] ?? "")
 }
 
 function escapeRegex(s: string): string {
@@ -161,7 +156,7 @@ export function renderMessageText(
   let last = 0
   let match: RegExpExecArray | null
   const inline = (s: string) =>
-    highlightMentions(autolink(s), input.selfName, input.roleNames).replace(/\r?\n/g, "<br>")
+    autolinkWithMentions(s, input.selfName, input.roleNames).replace(/\r?\n/g, "<br>")
   while ((match = regex.exec(plain)) !== null) {
     if (match.index > last) parts.push(inline(plain.slice(last, match.index)))
     const lang = match[1]
@@ -177,6 +172,50 @@ export function renderMessageText(
   }
   if (last < plain.length) parts.push(inline(plain.slice(last)))
   return parts.join("")
+}
+
+// 行内渲染：先按 LINK_RE 切分「链接段 / 文本段」，文本段才做转义 + @提及高亮。
+// 链接段（<a href>）整体转义，提及永不进入属性值 → 无 href 注入、无破标记。
+export function autolinkWithMentions(text: string, selfName: string, roleNames: string[]): string {
+  const targets = [selfName, ...roleNames].filter(Boolean).map(escapeRegex)
+  const mentionRe = targets.length > 0 ? new RegExp(`@(${targets.join("|")})`, "g") : null
+
+  // 文本段：转义 + 提及高亮（名字在原文中匹配，插入时转义一次）
+  const renderTextRun = (raw: string): string => {
+    if (!mentionRe) return escapeHtml(raw)
+    mentionRe.lastIndex = 0
+    const out: string[] = []
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = mentionRe.exec(raw)) !== null) {
+      if (m.index > last) out.push(escapeHtml(raw.slice(last, m.index)))
+      out.push(`<span class="cm-mention">@${escapeHtml(m[1])}</span>`)
+      last = m.index + m[0].length
+    }
+    if (last < raw.length) out.push(escapeHtml(raw.slice(last)))
+    return out.join("")
+  }
+
+  if (!text.includes("http") && !text.includes("@") && !text.includes("www") && !text.includes(".")) {
+    return renderTextRun(text)
+  }
+  LINK_RE.lastIndex = 0
+  let last = 0
+  const out: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = LINK_RE.exec(text)) !== null) {
+    if (m.index > last) out.push(renderTextRun(text.slice(last, m.index)))
+    const raw = m[0].replace(/[.,;:!?，。；、!?]+$/, "")
+    const [http, , mail] = [m[1], m[2], m[3]]
+    let href: string
+    if (http) href = raw
+    else if (mail) href = "mailto:" + raw
+    else href = "http://" + raw
+    out.push(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="cm-link">${escapeHtml(raw)}</a>`)
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(renderTextRun(text.slice(last)))
+  return out.join("")
 }
 
 // 引用块文本：跟随被引用消息的 markdown 标记。

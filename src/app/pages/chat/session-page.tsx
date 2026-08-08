@@ -221,23 +221,33 @@ export function ChatPage() {
     ),
   )
 
-  // #message-xxx 锚点：跳转到指定消息
+  // #message-xxx 锚点：跳转到指定消息（消息加载完成后重试，直到命中）
   createEffect(() => {
     const id = chatId()
     if (!id) return
     const msgId = messageIdFromHash(window.location.hash)
     if (!msgId || Number.isNaN(Number(msgId))) return
     setUi("messageId", msgId)
-    revealMessage(Number(msgId))
   })
 
-  // 消息跳转（引用/置顶点击）
+  createEffect(() => {
+    const id = chatId()
+    const msgId = ui.messageId
+    if (!id || !msgId) return
+    if (!chat.messages(id).some((m) => String(m.msg_id) === msgId)) return
+    // 已加载 → 跳转并清掉待跳转标记（与 resumeScroll 语义一致）
+    revealRef?.(msgId)
+    setUi("messageId", undefined)
+  })
+
+  // 消息跳转（引用/置顶点击 / #message- 锚点）
   const revealMessage = (msgId: number) => {
     const id = chatId()
     if (!id) return
     const loaded = chat.messages(id).some((m) => m.msg_id === msgId)
     if (!loaded) {
-      // TODO(Task 3): 目标消息未加载时先 loadOlder 直到命中（legacy jumpToMessage 行为）
+      // 未加载（更早历史）→ 记录待跳转，loadOlder 加载到后由上方 effect 触发
+      setUi("messageId", String(msgId))
       return
     }
     revealRef?.(String(msgId))
@@ -320,7 +330,6 @@ export function ChatPage() {
                   content = el
                   autoScroll.contentRef(el)
                 }}
-                anchor={(id) => `#message-${id}`}
                 setRevealMessage={(fn) => {
                   revealRef = fn
                 }}

@@ -262,7 +262,7 @@ export const MessageRow: Component<MessageRowProps> = (props) => {
           <div class="cm-meta">
             <Show when={!collapsed() && !isOut() && isGroup()}>
               <span class="cm-name">{message().from_name}</span>
-              <span class="cm-role">{message().from_id === 1 ? "core" : "member"}</span>
+              <span class="cm-role">{message().from_id === 1 ? "核心" : "成员"}</span>
             </Show>
             <Show when={message().quote_from}>
               <span class="cm-reply-mark">

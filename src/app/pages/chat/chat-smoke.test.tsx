@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest"
 import { createRoot } from "solid-js"
 import { createTimelineProjection, dateLabel } from "./projection"
-import { renderMessageText, stateLabel, formatTs } from "./chat-text"
+import { renderMessageText, highlightMentions, stateLabel, formatTs } from "./chat-text"
 import { TimelineRow } from "./rows"
 import { reuseTimelineRows } from "./row-reconciliation"
 import type { RenderableMsg } from "../../context/chat"
@@ -107,6 +107,58 @@ describe("chat text rendering", () => {
   it("highlights mentions", () => {
     const html = renderMessageText("hi @小明", { selfName: "我", roleNames: ["小明"], markdown: true })
     expect(html).toContain("cm-mention")
+  })
+
+  it("escapes hostile member names in mentions (XSS)", () => {
+    const hostile = '<img src=x onerror=alert(1)>'
+    const html = renderMessageText(`hi @${hostile}`, { selfName: "我", roleNames: [hostile], markdown: true })
+    // 不得产出原始标签（<img 必须被转义为 &lt;img）
+    expect(html).not.toContain("<img")
+    // 名字被转义后仍高亮
+    expect(html).toContain("cm-mention")
+    expect(html).toContain("&lt;img")
+  })
+
+  it("does not inject mentions into link href attributes", () => {
+    const html = renderMessageText("see http://example.com/x ok @小明", {
+      selfName: "我",
+      roleNames: ["小明"],
+      markdown: true,
+    })
+    // href 保持完整、未被 span 打断
+    expect(html).toContain('href="http://example.com/x"')
+    const hrefMatches = html.match(/href="[^"]*"/g) ?? []
+    for (const href of hrefMatches) {
+      expect(href).not.toContain("cm-mention")
+      expect(href).not.toContain("<span")
+    }
+    // 链接文本之外的 @小明 正常高亮
+    expect(html).toContain('<span class="cm-mention">@小明</span>')
+  })
+
+  it("keeps @ inside a URL part of the link (never injected into href)", () => {
+    const html = renderMessageText("see http://example.com/@小明 ok", {
+      selfName: "我",
+      roleNames: ["小明"],
+      markdown: true,
+    })
+    expect(html).toContain('href="http://example.com/@小明"')
+    expect(html).not.toContain('href="http://example.com/@<span')
+  })
+
+  it("escapes quotes in mention names", () => {
+    const hostile = 'a" onmouseover="alert(1)'
+    const html = renderMessageText(`hi @${hostile}`, { selfName: "我", roleNames: [hostile], markdown: true })
+    expect(html).not.toContain('onmouseover="alert(1)')
+    expect(html).toContain("cm-mention")
+    expect(html).toContain("&quot;")
+  })
+
+  it("highlightMentions: tag-protected + no double escape for escaped names", () => {
+    const html = highlightMentions('@&lt;img&gt; ok', "我", ["<img>"])
+    expect(html).toContain("cm-mention")
+    expect(html).toContain("&lt;img&gt;")
+    expect(html).not.toContain("&amp;lt;")
   })
 
   it("labels message state", () => {

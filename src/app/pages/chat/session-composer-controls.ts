@@ -6,6 +6,7 @@
 
 import { createMemo, createSignal, type Accessor } from "solid-js"
 import { useChat } from "../../context/chat"
+import { showToast } from "../../utils/toast"
 import type { MemberDto } from "@/types"
 
 export interface SessionComposerControls {
@@ -34,6 +35,7 @@ export interface SessionComposerControls {
   }
   updateMention: (value: string, selectionStart: number) => void
   insertMention: (name: string) => void
+  cursorPosition: Accessor<number>
 }
 
 export function createSessionComposerControls(input: {
@@ -49,6 +51,8 @@ export function createSessionComposerControls(input: {
   const [mentionQueryStart, setMentionQueryStart] = createSignal(-1)
   const [mentionItems, setMentionItems] = createSignal<MemberDto[]>([])
   const [mentionSelected, setMentionSelected] = createSignal(0)
+  // 输入框真实光标位置（onInput 时更新；@提及插入用它，避免丢光标后的文本）
+  const [cursor, setCursor] = createSignal(0)
 
   const chatId = input.chatId
   const canSend = createMemo(() => text().trim().length > 0)
@@ -69,6 +73,7 @@ export function createSessionComposerControls(input: {
 
   // @提及检测：光标前 @xxx
   const updateMention = (value: string, selectionStart: number) => {
+    setCursor(selectionStart)
     const beforeCursor = value.slice(0, selectionStart)
     const atMatch = beforeCursor.match(/@(\w*)$/)
     if (atMatch) {
@@ -89,9 +94,10 @@ export function createSessionComposerControls(input: {
     const start = mentionQueryStart()
     if (start < 0) return
     const current = text()
-    const cursor = current.length
-    const next = current.slice(0, start) + `@${name} ` + current.slice(cursor)
+    const end = Math.max(start, cursor())
+    const next = current.slice(0, start) + `@${name} ` + current.slice(end)
     setText(next)
+    setCursor((start + name.length + 2))
     setMentionQueryStart(-1)
     setMentionItems([])
   }
@@ -112,6 +118,7 @@ export function createSessionComposerControls(input: {
     text,
     setText: (value: string) => {
       setText(value)
+      setCursor(value.length)
       // TODO(Task 3): 草稿防抖（set_draft），见 session-composer-region 的 onInput 处理
     },
     canSend,
@@ -121,11 +128,14 @@ export function createSessionComposerControls(input: {
       if (!id || !value) return
       const mdOn = localStorage.getItem("peyt.md.enabled") !== "0"
       setText("")
+      setCursor(0)
       setMentionQueryStart(-1)
       setMentionItems([])
       const quote = replyTo()
       try {
         await chat.sendText(id, value, { markdown: mdOn, quoteMsgId: quote ?? undefined })
+      } catch (e) {
+        showToast({ title: "发送失败", description: e instanceof Error ? e.message : String(e) })
       } finally {
         if (quote != null) setReplyTo(null)
       }
@@ -138,7 +148,11 @@ export function createSessionComposerControls(input: {
     emojiOpen,
     toggleEmoji: () => setEmojiOpen((v) => !v),
     insertEmoji: (emoji: string) => {
-      setText((v) => v + emoji)
+      setText((v) => {
+        const next = v + emoji
+        setCursor(next.length)
+        return next
+      })
       setEmojiOpen(false)
     },
     attach: async (file: File) => {
@@ -158,7 +172,12 @@ export function createSessionComposerControls(input: {
       if (recorder) {
         recorder.onstop = () => {
           const blob = new Blob(recorderChunks, { type: recorder?.mimeType || "audio/webm" })
-          void chat.sendVoice(id, blob).then(input.onSent)
+          void chat
+            .sendVoice(id, blob)
+            .then(input.onSent)
+            .catch((e) => {
+              showToast({ title: "发送语音失败", description: e instanceof Error ? e.message : String(e) })
+            })
         }
         recorder.stop()
         return
@@ -213,6 +232,7 @@ export function createSessionComposerControls(input: {
         setMentionItems([])
       },
     },
+    cursorPosition: cursor,
     updateMention,
     insertMention,
   }

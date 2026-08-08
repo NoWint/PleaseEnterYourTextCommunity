@@ -86,6 +86,13 @@ export function SessionComposerRegion(props: {
       if ((e.key === "Enter" || e.key === "Tab") && !composing) {
         e.preventDefault()
         controls.mention.insert()
+        // 恢复 DOM 光标到插入点之后（Solid 受控绑定会把光标重置到末尾）
+        requestAnimationFrame(() => {
+          if (textareaRef) {
+            const pos = controls.cursorPosition()
+            textareaRef.setSelectionRange(pos, pos)
+          }
+        })
         return
       }
       if (e.key === "Escape") {
@@ -250,7 +257,15 @@ export function SessionComposerRegion(props: {
                     class="cm-mention-item"
                     classList={{ selected: index() === controls.mention.selectedIndex() }}
                     onMouseEnter={() => controls.mention.move(index() - controls.mention.selectedIndex())}
-                    onClick={() => controls.mention.insert()}
+                    onClick={() => {
+                      controls.mention.insert()
+                      requestAnimationFrame(() => {
+                        if (textareaRef) {
+                          const pos = controls.cursorPosition()
+                          textareaRef.setSelectionRange(pos, pos)
+                        }
+                      })
+                    }}
                   >
                     <span class="cm-mention-prefix">@</span>
                     <span>{member.name}</span>

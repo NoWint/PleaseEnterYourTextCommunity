@@ -1,8 +1,9 @@
 // src/app/pages/chat/rows/message-reactions.tsx
 // 反应条 + 反应选择器（从 legacy message.ts renderReactions/反应选择器迁移）。
 // 反应数据来自 chat store 的 reactionCache（get_reactions invoke + 事件刷新）。
+// 选择器：常用快捷 emoji 一行 + 「更多表情」展开完整面板（不重复渲染）。
 
-import { For, Show, type Component } from "solid-js"
+import { createMemo, For, Show, type Component } from "solid-js"
 import { useChat } from "../../../context/chat"
 import { reactionQuick, reactionPanel } from "./message-row"
 
@@ -21,6 +22,11 @@ export const MessageReactions: Component<MessageReactionsProps> = (props) => {
     if (!id) return []
     return chat.reactionsFor(id, String(props.msgId))
   }
+  // 完整面板去掉与快捷组重复的 emoji
+  const panelOnly = createMemo(() => {
+    const quick = new Set(reactionQuick)
+    return reactionPanel.filter((emoji) => !quick.has(emoji))
+  })
 
   return (
     <>
@@ -56,16 +62,13 @@ export const MessageReactions: Component<MessageReactionsProps> = (props) => {
               </span>
             )}
           </For>
-          <Show when={props.open}>
-            {/* 完整面板在打开时展示（简单起见直接铺开常用面板前 16 个 + 更多提示） */}
-            <For each={reactionPanel.slice(0, 16)}>
-              {(emoji) => (
-                <span class="cm-reaction-pick" data-emoji={emoji} title={emoji} onClick={() => props.onToggle(emoji)}>
-                  {emoji}
-                </span>
-              )}
-            </For>
-          </Show>
+          <For each={panelOnly()}>
+            {(emoji) => (
+              <span class="cm-reaction-pick" data-emoji={emoji} title={emoji} onClick={() => props.onToggle(emoji)}>
+                {emoji}
+              </span>
+            )}
+          </For>
         </div>
       </Show>
     </>
