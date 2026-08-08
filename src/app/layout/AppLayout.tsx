@@ -606,16 +606,16 @@ const AppLayout: Component<ParentProps> = (props) => {
   const handleDragStart = (event: unknown) => {
     void event
   }
-  // rail 项目（工作区）拖拽排序：layout.projects.move 即时重排 rail，workspace.move 写入
-  // peyt.workspaceOrder（与首页左列共用同一持久化顺序）。
+  // rail 项目（工作区）拖拽排序：toIndex 在 workspace order 空间计算（与首页左列共用同一
+  // peyt.workspaceOrder 持久化顺序），唯一写入口 workspace.move；rail 视觉重排由
+  // workspace.tsx 的顺序同步 effect（layout.projects.reorder）负责，无需直接改 rail 列表。
   const handleDragEnd = (event?: DragEvent) => {
     if (!event) return
     const from = event.draggable.id
     const over = event.droppable?.id
     if (over == null || from === over) return
-    const toIndex = projects().findIndex((p) => p.worktree === over)
+    const toIndex = workspace.orderedWorkspaces().findIndex((ws) => ws.worktree === over)
     if (toIndex === -1) return
-    layout.projects.move(String(from), toIndex)
     workspace.move(String(from), toIndex)
   }
   const handleDragOver = (_event: unknown) => {}

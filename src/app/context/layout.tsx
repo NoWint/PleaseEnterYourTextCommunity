@@ -110,6 +110,7 @@ interface LayoutStore {
     expand: (directory: string) => void
     collapse: (directory: string) => void
     move: (directory: string, toIndex: number) => void
+    reorder: (keys: string[]) => void
     rename: (directory: string, name: string) => void
   }
   sidebar: {
@@ -213,6 +214,17 @@ function createLayoutStore(): LayoutStore {
           const [moved] = next.splice(index, 1)
           next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, moved)
           return next
+        })
+      },
+      // 按 keys 顺序重排列表（顺序单一来源 = workspace.orderedWorkspaces，见 workspace.tsx
+      // 同步 effect）；不在 keys 中的条目（如浏览器 dev 假数据兜底）保持相对顺序排在末尾。
+      reorder(keys: string[]) {
+        setStore("projects", "list", (items) => {
+          const position = new Map(keys.map((key, index) => [wsKey(key), index] as const))
+          const known = items.filter((p) => position.has(wsKey(p.worktree)))
+          const rest = items.filter((p) => !position.has(wsKey(p.worktree)))
+          known.sort((a, b) => position.get(wsKey(a.worktree))! - position.get(wsKey(b.worktree))!)
+          return [...known, ...rest]
         })
       },
       rename(directory: string, name: string) {

@@ -7,7 +7,8 @@
 // - Task 1（左列）：order/orderedWorkspaces/move（peyt.workspaceOrder 拖拽排序）、
 //   recentlyClosed/close/reopen（peyt.closedWorkspaces 退出历史）、
 //   unseenCount/markSeen（get_chatlist 未读按 workspace 聚合，chat 列表经
-//   bindChatListSource 桥接）
+//   bindChatListSource 桥接）；order 变化时经 layout.projects.reorder 同步 rail 顺序
+//   （侧栏与首页左列共用同一顺序来源，见 move 下方的同步 effect）
 //
 // Task 4（工作页 v2）：
 // - chats(directory)/allChats()：会话列表来自 chat context（directory 映射）
@@ -318,6 +319,13 @@ function createWorkspaceStore(): WorkspaceStore {
       // 忽略存储异常（如隐私模式）
     }
   }
+
+  // 顺序单一来源：peyt.workspaceOrder（home 左列与 rail 共用）。order 变化
+  // （home/rail 拖拽、reopen、账号切换重拉）后把 layout.projects.list（rail 渲染源）
+  // 重排到同一顺序，保证两视图永远同序、持久化与视觉一致。
+  createEffect(() => {
+    layout.projects.reorder(orderedWorkspaces().map((ws) => ws.worktree))
+  })
 
   function persistClosed(next: string[]) {
     setState("closed", next)
