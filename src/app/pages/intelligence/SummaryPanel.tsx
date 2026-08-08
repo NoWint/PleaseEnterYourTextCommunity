@@ -1,6 +1,7 @@
 // src/app/pages/intelligence/SummaryPanel.tsx
-// LLM 主题总结面板（mode="summary"：会话选择 + 触发 enqueue_summary + 结果展示 + summary-event 订阅；
-// mode="settings"：智能设置（模式/来源/档位/下载进度 + download-progress 订阅 + API 测试/保存）。
+// LLM 主题总结面板（mode="summary"：会话选择 + 触发 enqueue_summary + 结果展示 + summary-event 订阅，
+// 支持 streaming 增量逐段显示；mode="settings"：智能设置（模式/来源/档位/下载进度 +
+// download-progress 订阅 + API 测试/保存）。
 // summary-event / download-progress 为后端直接 emit 的 Tauri 事件，不走 dc-event 桥，用 listen 直连。
 
 import { createEffect, createSignal, For, onCleanup, Show, type Component } from "solid-js"
@@ -75,7 +76,7 @@ const SummaryTab: Component<{ refresh?: number }> = (props) => {
   const [kind, setKind] = createSignal("summary")
   const [count, setCount] = createSignal(50)
   const [running, setRunning] = createSignal(false)
-  const [status, setStatus] = createSignal<"idle" | "queued" | "done" | "error">("idle")
+  const [status, setStatus] = createSignal<"idle" | "queued" | "streaming" | "done" | "error">("idle")
   const [result, setResult] = createSignal("")
   const [errMsg, setErrMsg] = createSignal("")
   const [error, setError] = createSignal<string | null>(null)
@@ -98,13 +99,19 @@ const SummaryTab: Component<{ refresh?: number }> = (props) => {
     void loadChats()
   })
 
-  // summary-event 订阅：只关心当前选中会话（后端 emit 原始事件，需 listen 直连）
+  // summary-event 订阅：只关心当前选中会话（后端 emit 原始事件，需 listen 直连）。
+  // streaming 增量逐段追加到结果区；done 覆盖全文；error 显示错误。
   createEffect(() => {
+    let disposed = false
     let un: (() => void) | undefined
     void listen<SummaryEventPayload>("summary-event", (ev) => {
       const p = ev.payload as unknown as SummaryEventPayload
       if (!p || p.chatId !== chatId()) return
-      if (p.status === "done") {
+      if (p.status === "streaming") {
+        setStatus("streaming")
+        setErrMsg("")
+        if (p.delta) setResult((prev) => prev + p.delta)
+      } else if (p.status === "done") {
         setStatus("done")
         setResult(p.result ?? "")
         setErrMsg("")
@@ -114,9 +121,13 @@ const SummaryTab: Component<{ refresh?: number }> = (props) => {
         setErrMsg(p.error?.message ?? p.error?.code ?? "未知错误")
       }
     }).then((fn) => {
-      un = fn
+      if (disposed) fn()
+      else un = fn
     })
-    onCleanup(() => un?.())
+    onCleanup(() => {
+      disposed = true
+      un?.()
+    })
   })
 
   const trigger = async () => {
@@ -163,7 +174,9 @@ const SummaryTab: Component<{ refresh?: number }> = (props) => {
   const statusTag = () => {
     switch (status()) {
       case "queued":
-        return <Tag variant="accent">处理中</Tag>
+        return <Tag variant="accent">排队中</Tag>
+      case "streaming":
+        return <Tag variant="accent">生成中…</Tag>
       case "done":
         return <Tag variant="accent">已完成</Tag>
       case "error":
@@ -248,7 +261,7 @@ const SummaryTab: Component<{ refresh?: number }> = (props) => {
             <span class="text-[12px] text-v2-text-text-base">结果</span>
             {statusTag()}
           </div>
-          <Show when={status() === "done" && result()}>
+          <Show when={(status() === "done" || status() === "streaming") && result()}>
             <div class="whitespace-pre-wrap rounded-[8px] bg-v2-background-bg-base p-3 text-[12px] leading-relaxed text-v2-text-text-base">
               {result()}
             </div>
@@ -284,6 +297,7 @@ const SettingsTab: Component<{ refresh?: number }> = (props) => {
   const [testing, setTesting] = createSignal(false)
   const [testResult, setTestResult] = createSignal<{ ok: boolean; text: string } | null>(null)
   const [progress, setProgress] = createSignal<{ id: string; bytesDone: number; total: number; rate: number } | null>(null)
+  const [dlError, setDlError] = createSignal("")
 
   const load = async () => {
     try {
@@ -311,18 +325,39 @@ const SettingsTab: Component<{ refresh?: number }> = (props) => {
     void load()
   })
 
-  // download-progress 订阅（下载按钮触发后实时回传；面板卸载时退订）
+  // download-progress 订阅（下载按钮触发后实时回传；面板卸载时退订）。
+  // 两个 emit 路径字段不同：{id,bytesDone,total,rate}（start_engine_download）
+  // 与 {what,status,bytes,total,rate}/{status,message}（summary_download），
+  // 归一化后再渲染，未知字段按 0 处理并防 NaN。
   createEffect(() => {
+    let disposed = false
     let un: (() => void) | undefined
     void listen<DownloadProgressPayload>("download-progress", (ev) => {
-      setProgress(ev.payload as unknown as DownloadProgressPayload)
+      const p = ev.payload as unknown as DownloadProgressPayload
+      if (!p) return
+      if (p.status === "error") {
+        setDlError(p.message ?? "下载失败")
+        return
+      }
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0)
+      setProgress({
+        id: p.id ?? p.what ?? "engine",
+        bytesDone: num(p.bytesDone ?? p.bytes),
+        total: num(p.total),
+        rate: num(p.rate),
+      })
     }).then((fn) => {
-      un = fn
+      if (disposed) fn()
+      else un = fn
     })
-    onCleanup(() => un?.())
+    onCleanup(() => {
+      disposed = true
+      un?.()
+    })
   })
 
   const startDownload = async (which: "engine" | "model") => {
+    setDlError("")
     setProgress({ id: which, bytesDone: 0, total: 0, rate: 0 })
     try {
       await call("start_engine_download", { which })
@@ -420,24 +455,29 @@ const SettingsTab: Component<{ refresh?: number }> = (props) => {
                 {status()?.model_ready ? "模型已就绪" : "下载模型"}
               </ButtonV2>
             </div>
-            <Show when={progress()}>
+            <Show when={progress() || dlError()}>
               <div class="flex flex-col gap-1.5">
-                <div class="h-1.5 overflow-hidden rounded bg-v2-background-bg-base">
-                  <div
-                    class="h-full bg-v2-background-bg-accent transition-[width] duration-200"
-                    style={{
-                      width: `${progress() && progress()!.total > 0 ? Math.min(100, Math.round((progress()!.bytesDone / progress()!.total) * 100)) : 0}%`,
-                    }}
-                  />
-                </div>
-                <div class="text-[11px] text-v2-text-text-faint">
-                  {progress()!.id === "model" ? "模型" : "引擎"} {fmtBytes(progress()!.bytesDone)} /{" "}
-                  {fmtBytes(progress()!.total)}
-                  {progress()!.rate > 0 ? ` · ${fmtBytes(progress()!.rate)}/s` : ""}
-                  {progress()!.total > 0
-                    ? ` (${Math.min(100, Math.round((progress()!.bytesDone / progress()!.total) * 100))}%)`
-                    : ""}
-                </div>
+                <Show when={progress()}>
+                  <div class="h-1.5 overflow-hidden rounded bg-v2-background-bg-base">
+                    <div
+                      class="h-full bg-v2-background-bg-accent transition-[width] duration-200"
+                      style={{
+                        width: `${progress() && progress()!.total > 0 ? Math.min(100, Math.round((progress()!.bytesDone / progress()!.total) * 100)) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <div class="text-[11px] text-v2-text-text-faint">
+                    {progress()!.id === "model" ? "模型" : "引擎"} {fmtBytes(progress()!.bytesDone)} /{" "}
+                    {fmtBytes(progress()!.total)}
+                    {progress()!.rate > 0 ? ` · ${fmtBytes(progress()!.rate)}/s` : ""}
+                    {progress()!.total > 0
+                      ? ` (${Math.min(100, Math.round((progress()!.bytesDone / progress()!.total) * 100))}%)`
+                      : ""}
+                  </div>
+                </Show>
+                <Show when={dlError()}>
+                  <div class="text-[11px] text-v2-state-fg-danger">{dlError()}</div>
+                </Show>
               </div>
             </Show>
           </div>

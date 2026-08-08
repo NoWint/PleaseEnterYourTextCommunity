@@ -49,23 +49,38 @@ export interface ModelStatusDto {
   model_sha256?: string | null
 }
 
-/** summary-event 载荷（intelligence/queue.rs emit）。 */
+/** summary-event 载荷。
+ * 后端两条路径 emit 同一事件名：
+ * - `summary/queue.rs`（summary_enqueue 流式队列）：streaming 增量 + done + error
+ * - `intelligence/queue.rs`（enqueue_summary）：仅 done + error（非流式）
+ * 两处字段一致：{chatId, lane, kind, status, delta?/result?/error?}。
+ */
 export interface SummaryEventPayload {
   chatId: number
   lane: string // 'bubble' | 'detail'
   kind?: string | null
-  status: string // 'done' | 'error'（流式暂未实现）
+  status: "streaming" | "done" | "error"
+  /** status=streaming 时携带的增量文本。 */
   delta?: string
+  /** status=done 时的最终结果全文。 */
   result?: string
   error?: { code: string; message?: string }
 }
 
-/** download-progress 载荷（download.rs / downloader.rs emit）。 */
+/** download-progress 载荷（两个 emit 路径字段不同，统一可选 + 归一化）：
+ * - `intelligence/download.rs`（start_engine_download）：{id, bytesDone, total, rate}
+ * - `summary/downloader.rs` / `summary/commands.rs`（summary_download）：{what, status, bytes, total, rate} / {status, message}
+ */
 export interface DownloadProgressPayload {
-  id: string // 'engine' | 'model'
-  bytesDone: number
-  total: number
-  rate: number
+  id?: string
+  bytesDone?: number
+  total?: number
+  rate?: number
+  what?: string
+  status?: string
+  bytes?: number
+  sha256?: string
+  message?: string
 }
 
 /** 页内 Tab（与 legacy state.intelligenceTab 对应；持久化到 localStorage）。 */

@@ -95,7 +95,7 @@ export const CommandPanel: Component = () => {
         <div class="flex flex-col gap-1.5 rounded-[10px] bg-v2-background-bg-layer-01 p-4">
           <span class="text-[12px] text-v2-text-text-base">本页相关界面命令</span>
           <span class="text-[11px] leading-relaxed text-v2-text-text-faint">
-            知识库：list_knowledge / get_knowledge / update_knowledge / delete_knowledge / summarize_store_now /
+            知识库：list_knowledge / update_knowledge / delete_knowledge / summarize_store_now /
             list_knowledge_config / set_knowledge_config；主题总结：enqueue_summary（事件 summary-event /
             download-progress）；智能设置：get_intelligence_settings / set_intelligence_settings /
             get_llm_model_status / start_engine_download / test_llm_config。
