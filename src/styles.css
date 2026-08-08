@@ -1572,6 +1572,32 @@ html.window-frame #titlebar-tools { height: 34px; }
   .mention-list { animation: none !important; }
 }
 
+/* @ # / mention tag(输入框 + 接收端共用) */
+.mention-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: var(--radius-xs);
+  font-weight: 500;
+  line-height: 1.5;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.tag-member { background: color-mix(in srgb, #0a84ff 18%, transparent); color: #0a84ff; }
+.tag-channel { background: color-mix(in srgb, #34c759 16%, transparent); color: #34c759; }
+.tag-command { background: color-mix(in srgb, #ff9f0a 16%, transparent); color: #ff9f0a; }
+.mention-tag:active { filter: brightness(0.92); }
+/* 建议列表内命令描述小字 */
+.mention-desc { color: var(--text-weak); font-size: 12px; margin-left: 6px; }
+/* 输入框内 tag 不可编辑 token → 不用 pointer 光标 */
+.composer-input .mention-tag { cursor: text; }
+@media (prefers-color-scheme: dark) {
+  .tag-member { color: #5ab5ff; }
+  .tag-channel { color: #5ee87e; }
+  .tag-command { color: #ffb84d; }
+}
+
 /* reply preview */
 /* 回复预览条:材料化胶囊 + 左侧 accent 色条 + 图标 + 取消按钮 */
 .reply-preview {

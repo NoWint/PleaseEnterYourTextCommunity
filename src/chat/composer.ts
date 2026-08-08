@@ -429,8 +429,9 @@ function handleMentionInput(input: HTMLElement): void {
     }
     return;
   }
-  // / 命令:匹配光标前最近的 / 后跟(可能为空的)标识符
-  const slashMatch = text.match(/\/(\w*)$/);
+  // / 命令:匹配光标前最近的 / 后跟(可能为空的)标识符。
+  // 前置要求行首或空白/换行符(避免把 URL 里的 / 误判为命令)
+  const slashMatch = text.match(/(?:^|[\s>])\/(\w*)$/);
   if (slashMatch) {
     const query = slashMatch[1].toLowerCase();
     const cmds = commandSuggestions(query);
@@ -449,7 +450,7 @@ function commandSuggestions(query: string): Array<{ name: string; type: 'command
   const pluginMeta = window.__peytchat_commands_meta || {};
   const pluginNames = Object.keys(window.__peytchat_commands || {});
   const merged = new Map<string, string>();
-  for (const c of [...remoteCommands, ...BUILTIN_COMMANDS]) {
+  for (const c of [...BUILTIN_COMMANDS, ...remoteCommands]) {
     if (!merged.has(c.name)) merged.set(c.name, c.description);
   }
   for (const n of pluginNames) {
@@ -626,7 +627,9 @@ function deleteAdjacentTag(input: HTMLElement, dir: 'before' | 'after'): boolean
     }
     return false;
   }
-  const child = node.childNodes[offset];
+  // 元素节点:offset 指向光标处子节点。Backspace 删光标前的子节点,Delete 删光标后的。
+  // (dir==='before' && offset===0 时 offset-1 越界 → childNodes[-1] 为 undefined → 返回 false)
+  const child = node.childNodes[dir === 'before' ? offset - 1 : offset];
   if (child && (child as HTMLElement).classList?.contains?.('mention-tag')) {
     (child as HTMLElement).remove();
     return true;
