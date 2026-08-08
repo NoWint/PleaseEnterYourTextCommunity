@@ -117,9 +117,12 @@ export function createPluginApi(pluginName: string, unloadCallbacks: Array<() =>
     onCommand(name, cb) {
       if (!hasPermission(pluginName, 'commands')) return deny(pluginName, 'commands');
       if (!window.__peytchat_commands) window.__peytchat_commands = {};
+      if (!window.__peytchat_commands_meta) window.__peytchat_commands_meta = {};
       window.__peytchat_commands[name] = cb;
+      window.__peytchat_commands_meta[name] = ''; // 描述占位,插件当前无描述字段
       unloadCallbacks.push(() => {
         delete window.__peytchat_commands![name];
+        delete window.__peytchat_commands_meta![name];
       });
     },
 

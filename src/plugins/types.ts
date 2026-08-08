@@ -85,6 +85,7 @@ declare global {
   interface Window {
     __peytchat_themes?: Array<{ id: string; name: string; swatch: string }>;
     __peytchat_commands?: Record<string, (args: string, chatId: number) => unknown>;
+    __peytchat_commands_meta?: Record<string, string>; // 命令名 → 描述(空字符串=无描述)
     __peytchat_llms?: Record<string, Record<string, unknown>>;
     __peytchat_settings?: RegisteredPluginSetting[];
   }
