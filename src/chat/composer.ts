@@ -5,6 +5,8 @@ import { appendOptimisticMessage } from './chatView.js';
 import { iconSvg } from '../components/icon.js';
 import { escapeHtml, escapeAttr } from '../components/escape.js';
 import { showDropdown } from '../components/dropdown.js';
+import { serializeComposer } from './serialize.js';
+import { caretRect, textBeforeCaret, getCaretPoint, setCaretPoint } from './caret.js';
 import type { MsgDto, MemberDto, ChannelDto } from '../types.js';
 
 // 乐观更新临时消息类型 — message.js 读取这些字段渲染发送中状态。
@@ -38,21 +40,18 @@ interface TmpMsg {
 // mentionItems: 当前建议项数组(成员名或频道名)
 // mentionKind: '@' 成员建议 / '#' 频道建议
 // mentionSelectedIndex: 当前选中项索引(键盘导航)
-// mentionQueryStart: 在 textarea 中 @ 或 # 字符的位置,用于替换插入
 let mentionList: HTMLElement | null = null;
 let mentionItems: Array<{ name: string; type: 'member' | 'channel' }> = [];
 let mentionKind: '@' | '#' | null = null;
 let mentionSelectedIndex = 0;
-let mentionQueryStart = -1;
 // 草稿:输入防抖保存计时器(500ms 后写入后端)
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
 // 输入框两种模式(微信):
-// - 收起:单行自动增高,Enter 发送,Ctrl+Enter 换行
-// - 展开:大 textarea(顶部可拖拽调高),Enter 换行,Ctrl+Enter 发送
+// - 收起:单行自动增高,统一 Enter 发送,Shift+Enter 换行
+// - 展开:固定可拖拽高度,统一 Enter 发送,Shift+Enter 换行
 let expanded = false;
-const PLACEHOLDER_COLLAPSED = '发消息到频道... (@提及 / #频道)';
-const PLACEHOLDER_EXPANDED = 'Enter 换行,Ctrl+Enter 发送';
+const PLACEHOLDER = '发消息到频道... (@提及 / #频道)';
 
 
 export async function renderComposer(chatId: number, onSent: () => void): Promise<void> {
@@ -92,7 +91,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       <div class="composer-resize" id="composer-resize" title="拖拽调整高度" aria-hidden="true"></div>
       ${replyPreview}
       <div class="composer-main">
-        <textarea id="composer-input" placeholder="${PLACEHOLDER_COLLAPSED}" rows="1"></textarea>
+        <div id="composer-input" class="composer-input" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="${PLACEHOLDER}"></div>
         <button type="button" class="composer-expand" id="composer-expand" aria-label="展开输入框">
           ${iconSvg('chevrons-up-down', { width: 14, height: 14 })}
           <span class="composer-tooltip">展开输入框,Enter 换行,Ctrl+Enter 发送</span>
@@ -118,7 +117,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       </div>
     </div>
   `;
-  const input = document.getElementById('composer-input') as HTMLTextAreaElement | null;
+  const input = document.getElementById('composer-input') as HTMLElement | null;
   if (!input) return;
   const composerEl = area.querySelector('.composer') as HTMLElement | null;
   // 消息区底部留白随输入框高度变化:composer 尺寸变化 → 更新 messages 的
@@ -136,29 +135,32 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   // 发送按钮:空输入禁用,有内容点亮 (微信式,与 Enter 发送等价)
   const sendBtn = document.getElementById('composer-send') as HTMLButtonElement | null;
   const updateSendState = () => {
-    if (sendBtn) sendBtn.disabled = !input.value.trim();
+    if (sendBtn) sendBtn.disabled = isEmptyInput(input);
   };
   updateSendState();
   sendBtn?.addEventListener('click', async () => {
-    if (!input.value.trim()) return;
+    if (isEmptyInput(input)) return;
     await send(chatId, input, area, onSent);
     updateSendState();
   });
-  // 展开按钮:切换两种模式(收起=单行 Enter 发送;展开=大 textarea Enter 换行)。
-  // CSS 类 .expanded 驱动高度/指示器显隐/placeholder/键盘语义。
+  // 展开按钮:切换两种模式(收起=单行自动增高;展开=固定可拖拽高度)。
+  // CSS 类 .expanded 驱动高度/指示器显隐/data-placeholder/键盘语义。
   const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
   const applyExpanded = (next: boolean): void => {
     // 仅当模式真实变化才弹 toast(展开按钮/拖拽进入/拖回单行才弹,重渲染不重复)
     const changed = expanded !== next;
     expanded = next;
     composerEl?.classList.toggle('expanded', expanded);
-    input.placeholder = expanded ? PLACEHOLDER_EXPANDED : PLACEHOLDER_COLLAPSED;
+    input.dataset.placeholder = PLACEHOLDER;
     if (changed) {
-      showToast(expanded ? '已切换:Enter 换行 · Ctrl+Enter 发送' : '已切换:Enter 发送 · Ctrl+Enter 换行');
+      showToast(expanded ? '已切换:展开输入' : '已切换:单行输入');
     }
-    // 模式切换:收起 → 单行;展开 → 重置为默认大高度(用户可用顶部指示器再拖)
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    // 模式切换:收起 → 单行自动增高;展开 → 默认大高度(用户可用顶部指示器再拖)
+    if (!expanded) {
+      autoResize(input);
+    } else {
+      input.style.height = '88px';
+    }
     input.focus();
   };
   expandBtn?.addEventListener('click', () => {
@@ -242,7 +244,7 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   const MD_RE = /#{1,6}\s|\*\*|`{1,3}|^\s*[-*>|]\s|\[.+\]\(.+\)/m;
   input.addEventListener('input', () => {
     if (mdEnabled || !mdToggle) return;
-    const hasMd = MD_RE.test(input.value);
+    const hasMd = MD_RE.test(serializeComposer(input));
     mdWrap?.classList.toggle('md-hint', hasMd);
   });
   // 录音按钮:点击开始 MediaRecorder 录音,再点停止发送 (Voice viewtype)
@@ -257,14 +259,15 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   }
   // 自适应高度 + @提及/#频道检测 + 草稿保存
   input.oninput = () => {
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    // 清空后浏览器常残留 <br>,会挡住 :empty 占位符 → 无文本时重置为纯空
+    if (input.textContent === '' && input.innerHTML !== '') input.textContent = '';
+    autoResize(input);
     handleMentionInput(input);
     updateSendState();
     // 草稿:输入防抖 500ms 保存(空文本=清除)
     if (draftTimer) clearTimeout(draftTimer);
     draftTimer = setTimeout(() => {
-      void call('set_draft', { chatId, text: input.value });
+      void call('set_draft', { chatId, text: serializeComposer(input) });
     }, 500);
   };
   // keydown — 含 @提及/#频道导航(上下/Enter/Esc)和发送逻辑
@@ -301,24 +304,24 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         return;
       }
     }
-    // 键盘语义随模式切换(建议面板打开时 Enter 已被上方分支拦截):
-    // - 收起:Enter 发送,Ctrl/Cmd+Enter 换行
-    // - 展开:Enter 换行,Ctrl/Cmd+Enter 发送
+    // 统一 Enter 发送,Shift+Enter 换行(用户已定),Ctrl/Cmd+Enter 也发送。
+    // 建议面板打开时 Enter 已被上方分支拦截为选中建议项。
     if (e.key === 'Enter' && !composing && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
-      if (expanded) {
-        insertNewline(input);
-      } else {
-        await send(chatId, input, area, onSent);
-      }
-    } else if (e.key === 'Enter' && !composing && (e.ctrlKey || e.metaKey)) {
+      await send(chatId, input, area, onSent);
+      return;
+    }
+    if (e.key === 'Enter' && !composing && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      if (expanded) {
-        await send(chatId, input, area, onSent);
-      } else {
-        insertNewline(input);
-      }
-    } else if (e.key === 'Escape') {
+      await send(chatId, input, area, onSent);
+      return;
+    }
+    if (e.key === 'Enter' && !composing && e.shiftKey) {
+      e.preventDefault();
+      insertTextAtCaret(input, '\n');
+      return;
+    }
+    if (e.key === 'Escape') {
       if (area.dataset.replyTo) {
         delete area.dataset.replyTo;
         renderComposer(chatId, onSent);
@@ -329,43 +332,60 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   try {
     const draft = await call<string | null>('get_draft', { chatId });
     if (draft) {
-      input.value = draft;
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+      input.textContent = draft;
+      autoResize(input);
       updateSendState();
     }
   } catch {}
   input.focus();
 }
 
-/** 在光标处插入换行并自适应高度（回复多行输入用）。 */
-function insertNewline(input: HTMLTextAreaElement): void {
-  const start = input.selectionStart;
-  const end = input.selectionEnd;
-  input.value = input.value.slice(0, start) + '\n' + input.value.slice(end);
-  const pos = start + 1;
-  input.selectionStart = pos;
-  input.selectionEnd = pos;
-  input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+// contenteditable 取值:序列化为纯文本(替代 input.value)
+function getInputText(el: HTMLElement): string {
+  return serializeComposer(el);
+}
+// 自适应高度(收起模式):auto → min(scrollHeight, 120)
+function autoResize(el: HTMLElement): void {
+  if (expanded) return; // 展开模式高度锁定,不自动增高
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+// 清空(替代 input.value = '')
+function clearInput(el: HTMLElement): void {
+  el.textContent = '';
+  el.focus();
+}
+// 在光标处插入文本(替代 insertNewline)
+function insertTextAtCaret(el: HTMLElement, text: string): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) { el.textContent = (el.textContent ?? '') + text; return; }
+  const r = sel.getRangeAt(0);
+  r.deleteContents();
+  const node = document.createTextNode(text);
+  r.insertNode(node);
+  r.setStartAfter(node);
+  r.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(r);
+  autoResize(el);
+}
+// 输入内容是否为空
+function isEmptyInput(el: HTMLElement): boolean {
+  return serializeComposer(el).length === 0;
 }
 
-// 检测 textarea 中光标前的 @xxx / #xxx 模式,弹出对应建议列表
-function handleMentionInput(input: HTMLTextAreaElement): void {
-  const text = input.value;
-  const cursorPos = input.selectionStart;
-  const beforeCursor = text.slice(0, cursorPos);
+// 检测 contenteditable 中光标前的 @xxx / #xxx 模式,弹出对应建议列表
+function handleMentionInput(input: HTMLElement): void {
+  const text = textBeforeCaret(input);
   // @ 提及:匹配光标前最近的 @ 后跟(可能为空的)标识符
-  const atMatch = beforeCursor.match(/@(\w*)$/);
+  const atMatch = text.match(/@(\w*)$/);
   if (atMatch) {
     const query = atMatch[1].toLowerCase();
     const members = state.currentMembers.filter((m) => m.name.toLowerCase().includes(query));
     if (members.length > 0) {
-      const atPos = cursorPos - atMatch[0].length;
       showMentionList(
         members.map((m) => ({ name: m.name, type: 'member' as const })),
         '@',
-        atPos,
         input,
       );
     } else {
@@ -374,16 +394,14 @@ function handleMentionInput(input: HTMLTextAreaElement): void {
     return;
   }
   // # 频道引用:匹配光标前最近的 # 后跟(可能为空的)标识符
-  const hashMatch = beforeCursor.match(/#(\w*)$/);
+  const hashMatch = text.match(/#(\w*)$/);
   if (hashMatch) {
     const query = hashMatch[1].toLowerCase();
     const channels = state.channels.filter((c: ChannelDto) => c.name.toLowerCase().includes(query));
     if (channels.length > 0) {
-      const hashPos = cursorPos - hashMatch[0].length;
       showMentionList(
         channels.map((c) => ({ name: c.name, type: 'channel' as const })),
         '#',
-        hashPos,
         input,
       );
     } else {
@@ -394,18 +412,16 @@ function handleMentionInput(input: HTMLTextAreaElement): void {
   closeMentionList();
 }
 
-// 渲染建议列表(成员或频道),定位到 textarea 下方
+// 渲染建议列表(成员或频道),定位到输入框下方
 function showMentionList(
   items: Array<{ name: string; type: 'member' | 'channel' }>,
   kind: '@' | '#',
-  queryStart: number,
-  input: HTMLTextAreaElement,
+  input: HTMLElement,
 ): void {
   closeMentionList();
   mentionItems = items;
   mentionKind = kind;
   mentionSelectedIndex = 0;
-  mentionQueryStart = queryStart;
   mentionList = document.createElement('div');
   mentionList.className = 'mention-list';
   // 入场:轻微上浮 + 淡入(材料感),transform-origin 锚定到输入框方向
@@ -451,9 +467,9 @@ function updateMentionSelection(): void {
   });
 }
 
-// 插入选中的建议项,替换 textarea 中 @query / #query 为 @name / #name + 空格
-function insertSelectedMention(input: HTMLTextAreaElement): void {
-  if (!mentionList || mentionItems.length === 0 || mentionKind == null || mentionQueryStart < 0) {
+// 插入选中的建议项。Task 6 将改为插入彩色 tag span,当前在光标处插入纯文本 @name / #name。
+function insertSelectedMention(input: HTMLElement): void {
+  if (!mentionList || mentionItems.length === 0 || mentionKind == null) {
     closeMentionList();
     return;
   }
@@ -462,18 +478,8 @@ function insertSelectedMention(input: HTMLTextAreaElement): void {
     closeMentionList();
     return;
   }
-  const text = input.value;
-  const cursorPos = input.selectionStart;
-  const before = text.slice(0, mentionQueryStart);
-  const after = text.slice(cursorPos);
-  const insertText = `${mentionKind}${item.name} `;
-  input.value = before + insertText + after;
-  const newPos = (before + insertText).length;
-  input.selectionStart = newPos;
-  input.selectionEnd = newPos;
-  // 自适应高度
-  input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  insertTextAtCaret(input, `${mentionKind}${item.name} `);
+  autoResize(input);
   closeMentionList();
   input.focus();
 }
@@ -486,7 +492,6 @@ function closeMentionList(): void {
   mentionItems = [];
   mentionKind = null;
   mentionSelectedIndex = 0;
-  mentionQueryStart = -1;
 }
 
 // ── 录音 (Voice viewtype) ──────────────────────────────────────────────
@@ -679,8 +684,8 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
-async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElement, onSent: () => void): Promise<void> {
-  const text = input.value.trim();
+async function send(chatId: number, input: HTMLElement, area: HTMLElement, onSent: () => void): Promise<void> {
+  const text = serializeComposer(input);
   if (!text) return;
 
   // Slash 命令分发 — 由插件通过 api.onCommand 注册，如 /ai、/setkey
@@ -690,8 +695,7 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
     const args = sp === -1 ? '' : text.slice(sp + 1).trim();
     const handler = window.__peytchat_commands?.[cmd];
     if (handler) {
-      input.value = '';
-      input.style.height = 'auto';
+      clearInput(input);
       closeMentionList();
       try {
         await handler(args, chatId);
@@ -739,8 +743,7 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
   // tmpMsg 含 MsgDto 之外的字段(is_out/_state 等),message.js 依赖这些字段渲染发送状态。
   appendOptimisticMessage(tmpMsg as unknown as MsgDto);
   // 清空输入
-  input.value = '';
-  input.style.height = 'auto';
+  clearInput(input);
   closeMentionList();
   // 发送
   try {
@@ -768,7 +771,7 @@ async function send(chatId: number, input: HTMLTextAreaElement, area: HTMLElemen
       el.classList.add('failed');
       el.onclick = async () => {
         // 点击重发
-        input.value = text;
+        input.textContent = text;
         tmpMsg._state = 'sending';
         el.classList.remove('failed');
         el.classList.add('sending');

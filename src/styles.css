@@ -936,8 +936,8 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 /* 悬停容器边缘即显示抓取条:热区放大但只有中间细条可点 */
 .composer:hover .composer-resize::before, .composer-resize:hover::before, .composer-resize:active::before { opacity: 0.9; }
-/* 展开时:textarea 撑高(默认 88px,可拖到 320px) */
-.composer.expanded textarea {
+/* 展开时:输入区撑高(默认 88px,可拖到 320px) */
+.composer.expanded .composer-input {
   min-height: 88px;
   max-height: 320px;
 }
@@ -1439,8 +1439,8 @@ html.window-frame #titlebar-tools { height: 34px; }
   40% { opacity: 1; }
 }
 
-/* composer textarea:融入凹陷输入字段(透明底),右侧留出展开按钮空间 */
-.composer textarea {
+/* composer contenteditable:融入凹陷输入字段(透明底),右侧留出展开按钮空间 */
+.composer .composer-input {
   flex: 1;
   width: 100%;
   background: transparent;
@@ -1450,16 +1450,25 @@ html.window-frame #titlebar-tools { height: 34px; }
   font-size: var(--font-scale-body);
   color: var(--text);
   font-family: var(--font);
-  resize: none;
   outline: none;
   min-height: 38px;
   max-height: 120px;
   line-height: 1.5;
+  /* 多行换行:Shift+Enter 插入 \n 文本节点,需 pre-wrap 才渲染为换行 */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow-y: auto;
+  caret-color: var(--text);
 }
-.composer textarea::placeholder { color: var(--text-mute); }
-/* 隐藏 textarea 右侧滚动条(保留滚动能力,视觉更干净) */
-.composer textarea { scrollbar-width: none; }
-.composer textarea::-webkit-scrollbar { display: none; }
+/* 占位符:data-placeholder 驱动(contenteditable 无 placeholder 属性) */
+.composer .composer-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-mute);
+  pointer-events: none;
+}
+/* 隐藏右侧滚动条(保留滚动能力,视觉更干净) */
+.composer .composer-input { scrollbar-width: none; }
+.composer .composer-input::-webkit-scrollbar { display: none; }
 
 /* 发送按钮:SVG 图标,圆形,apple 风格(§1 按压反馈 + 主色态)。
    聊天页与 bots 页均为圆形图标按钮,无文本。 */
