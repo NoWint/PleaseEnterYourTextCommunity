@@ -140,21 +140,30 @@ export const MessageRow: Component<MessageRowProps> = (props) => {
       showToast({ title: "消息发送中，稍后可回应" })
       return
     }
-    void chat.sendReaction(id, message().msg_id as number, emoji)
+    void chat.sendReaction(id, message().msg_id as number, emoji).catch((e) => {
+      showToast({ title: "反应失败", description: e instanceof Error ? e.message : String(e) })
+    })
   }
 
   const onTogglePin = () => {
     const id = chatId()
     if (!id || typeof message().msg_id !== "number") return
-    void chat.togglePin(id, message().msg_id as number)
-  }
-
-  const openExternal = (url: string) => {
-    if (url.startsWith("mailto:")) return
-    platform.openExternal(url)
+    void chat.togglePin(id, message().msg_id as number).catch((e) => {
+      showToast({ title: "置顶失败", description: e instanceof Error ? e.message : String(e) })
+    })
   }
 
   const menuOpen = () => !!menu()
+
+  // innerHTML 内的链接走系统浏览器（Tauri webview 中 target=_blank 不可靠）
+  const onTextClick = (e: MouseEvent) => {
+    const anchor = (e.target as HTMLElement).closest?.("a")
+    if (!anchor) return
+    e.preventDefault()
+    const href = anchor.getAttribute("href") || ""
+    if (href.startsWith("mailto:")) return
+    platform.openExternal(href)
+  }
 
   return (
     <div
@@ -282,7 +291,7 @@ export const MessageRow: Component<MessageRowProps> = (props) => {
           </Show>
 
           {/* 正文 */}
-          <div class="cm-text" innerHTML={textHtml()} />
+          <div class="cm-text" innerHTML={textHtml()} onClick={onTextClick} />
 
           {/* 附件 */}
           <Show when={message().view_type && message().view_type !== "Text" && message().file}>
