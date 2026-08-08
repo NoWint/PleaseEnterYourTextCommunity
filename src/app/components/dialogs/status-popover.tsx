@@ -1,20 +1,28 @@
 // src/app/components/dialogs/status-popover.tsx
 // 服务器状态弹层（照抄 opencode status-popover.tsx 的骨架，
 // 去掉 MCP/LSP 健康检查）：IM 版展示本地服务器连接状态 + 快捷入口。
+// 健康状态统一处理：true=运行中(green)、false=连接异常(red)、undefined=未知(neutral)。
 
-import { Button } from "@opencode-ai/ui/button"
-import { Icon } from "@opencode-ai/ui/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { Popover } from "@opencode-ai/ui/popover"
-import { createMemo, createSignal, Show, type JSX } from "solid-js"
+import { createMemo, createSignal, type JSX } from "solid-js"
 import { useServer } from "../../context/server"
 import { dialogsT } from "./i18n"
 
-function serverStatusDotClass(state: { healthy: boolean | undefined; attention?: boolean; issue?: boolean }) {
-  if (state.healthy === false) return "bg-[var(--v2-state-fg-danger)]"
-  if (state.issue || state.attention) return "bg-[var(--v2-state-fg-warning)]"
-  return "bg-[var(--v2-state-fg-success)]"
+export type ServerHealth = boolean | undefined
+
+/** 统一的状态点样式：true=success、false=danger、undefined=neutral（与 settings-v2/servers 一致）。 */
+export function serverStatusDotClass(healthy: ServerHealth) {
+  if (healthy === false) return "bg-[var(--v2-state-fg-danger)]"
+  if (healthy === true) return "bg-[var(--v2-state-fg-success)]"
+  return "bg-[var(--v2-text-text-faint)]"
+}
+
+export function serverHealthLabel(healthy: ServerHealth) {
+  if (healthy === false) return dialogsT("status.popover.server.unhealthy")
+  if (healthy === true) return dialogsT("status.popover.server.healthy")
+  return dialogsT("status.popover.server.unknown")
 }
 
 function StatusPopoverBody(props: { shown: boolean; children: JSX.Element }) {
@@ -29,55 +37,16 @@ function StatusPopoverBody(props: { shown: boolean; children: JSX.Element }) {
 
 type StatusPopoverState = {
   shown: boolean
-  healthy: boolean | undefined
+  healthy: ServerHealth
   label: string
   onOpenChange: (value: boolean) => void
   body: () => JSX.Element
 }
 
-export function StatusPopover() {
-  const language = dialogsT
-  const server = useServer()
-  const [shown, setShown] = createSignal(false)
-  const healthy = () => server.health[server.key]?.healthy
-
-  return (
-    <Popover
-      open={shown()}
-      onOpenChange={setShown}
-      triggerAs={Button}
-      triggerProps={{
-        variant: "ghost",
-        class: "titlebar-icon w-8 h-6 p-0 box-border",
-        "aria-label": language("status.popover.trigger"),
-        style: { scale: 1 },
-      }}
-      trigger={
-        <div class="relative size-4">
-          <div class="badge-mask-tight size-4 flex items-center justify-center">
-            <Icon name={shown() ? "status-active" : "status"} size="small" />
-          </div>
-          <div class={`absolute -top-px -right-px size-1.5 rounded-full ${serverStatusDotClass({ healthy: healthy() })}`} />
-        </div>
-      }
-      class="[&_[data-slot=popover-body]]:p-0 w-[360px] max-w-[calc(100vw-40px)] bg-transparent border-0 shadow-none rounded-xl"
-      gutter={4}
-      placement="bottom-end"
-      shift={-168}
-    >
-      <Show when={shown()}>
-        <StatusPopoverBody shown={shown()}>
-          <Body healthy={healthy()} />
-        </StatusPopoverBody>
-      </Show>
-    </Popover>
-  )
-}
-
 export function StatusPopoverV2(props: { scope?: "server" }) {
   const server = useServer()
   const [shown, setShown] = createSignal(false)
-  const healthy = () => server.health[server.key]?.healthy
+  const healthy = (): ServerHealth => server.health[server.key]?.healthy
   const state = createMemo<StatusPopoverState>(() => ({
     shown: shown(),
     healthy: healthy(),
@@ -93,7 +62,7 @@ export function StatusPopoverV2(props: { scope?: "server" }) {
   return <StatusPopoverView state={state()} />
 }
 
-function Body(props: { healthy: boolean | undefined }) {
+function Body(props: { healthy: ServerHealth }) {
   const server = useServer()
   return (
     <div class="flex flex-col">
@@ -102,18 +71,14 @@ function Body(props: { healthy: boolean | undefined }) {
       </div>
       <div class="px-4 py-3 flex items-center gap-3">
         <span
-          class={`inline-block size-2 rounded-full ${serverStatusDotClass({ healthy: props.healthy })}`}
+          class={`inline-block size-2 rounded-full ${serverStatusDotClass(props.healthy)}`}
           aria-hidden="true"
         />
         <div class="flex flex-col min-w-0">
           <span class="text-13-medium text-text-base truncate">
             {server.current.displayName ?? dialogsT("settings.placeholder.account.local")}
           </span>
-          <span class="text-12-regular text-text-weak">
-            {props.healthy === false
-              ? dialogsT("status.popover.server.unhealthy")
-              : dialogsT("status.popover.server.healthy")}
-          </span>
+          <span class="text-12-regular text-text-weak">{serverHealthLabel(props.healthy)}</span>
         </div>
       </div>
     </div>
@@ -145,7 +110,7 @@ function StatusPopoverView(props: { state: StatusPopoverState }) {
         <div class="relative size-4">
           <IconV2 name={props.state.shown ? "status-active" : "status"} />
           <div
-            class={`absolute -top-1 -right-1 size-2 rounded-full border border-[var(--v2-background-bg-deep)] ${serverStatusDotClass({ healthy: props.state.healthy })}`}
+            class={`absolute -top-1 -right-1 size-2 rounded-full border border-[var(--v2-background-bg-deep)] ${serverStatusDotClass(props.state.healthy)}`}
           />
         </div>
       }

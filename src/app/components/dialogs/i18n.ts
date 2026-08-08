@@ -6,20 +6,16 @@
 
 const DICT: Record<string, string> = {
   // ── 通用 ──
-  "common.close": "关闭",
   "common.cancel": "取消",
   "common.save": "保存",
   "common.saving": "保存中…",
-  "common.reset": "重置",
-  "common.edit": "编辑",
-  "common.delete": "删除",
   "common.loading": "加载中…",
-  "common.learnMore": "了解更多",
   "app.name.desktop": "PeytChat",
 
   // ── 命令 ──
   "command.palette": "命令面板",
-  "command.settings.open": "打开设置",
+  // 与 AppLayout 注册的 "settings.open"（跳转 /settings 页面，标题"设置"）区分。
+  "command.settings.open": "打开设置对话框",
   "command.session.new": "新建会话",
   "command.session.switch": "切换会话",
   "command.session.markRead": "标记已读",
@@ -29,11 +25,9 @@ const DICT: Record<string, string> = {
   "command.category.session": "会话",
   "command.category.workspace": "工作区",
   "command.category.theme": "主题",
-  "command.category.general": "常规",
 
   // ── 命令面板 ──
   "palette.group.commands": "命令",
-  "palette.search.placeholder": "搜索命令…",
   "palette.search.placeholder.home": "搜索命令…",
   "palette.empty": "没有匹配的命令",
 
@@ -47,7 +41,6 @@ const DICT: Record<string, string> = {
   "settings.models.title": "模型",
 
   // 常规页
-  "settings.general.section.general": "常规",
   "settings.general.section.appearance": "外观",
   "settings.general.section.notifications": "通知",
   "settings.general.row.language.title": "语言",
@@ -94,18 +87,10 @@ const DICT: Record<string, string> = {
   "settings.placeholder.account.title": "账号管理",
   "settings.placeholder.account.description": "账号与服务器的管理将在后续版本开放。",
   "settings.placeholder.account.local": "本地服务",
-  "settings.placeholder.account.healthy": "运行中",
-  "settings.placeholder.account.unhealthy": "连接异常",
 
   // ── 工作区编辑对话框（占位） ──
   "dialog.project.edit.title": "编辑工作区",
   "dialog.project.edit.name": "名称",
-  "dialog.project.edit.icon": "图标",
-  "dialog.project.edit.icon.alt": "选择图标",
-  "dialog.project.edit.icon.hint": "拖拽或点击上传图标",
-  "dialog.project.edit.icon.recommended": "建议 512×512px",
-  "dialog.project.edit.color": "颜色",
-  "dialog.project.edit.color.select": "选择颜色 {color}",
   "dialog.project.edit.worktree.startup": "启动命令",
   "dialog.project.edit.worktree.startup.description": "进入该工作区时自动执行的命令",
   "dialog.project.edit.worktree.startup.placeholder": "例如：npm run dev",
@@ -115,6 +100,7 @@ const DICT: Record<string, string> = {
   "status.popover.title": "服务器",
   "status.popover.server.healthy": "运行中",
   "status.popover.server.unhealthy": "连接异常",
+  "status.popover.server.unknown": "状态未知",
 
   // ── 帮助 ──
   "help.title": "帮助",
