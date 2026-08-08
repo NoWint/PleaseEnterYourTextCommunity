@@ -288,8 +288,27 @@ function createCommandStore() {
   const warnedDuplicates = new Set<string>()
 
   type CommandCatalog = Record<string, CommandCatalogItem>
-  // TODO(Task 2): catalog 不做持久化（无 Persist 工具），仅内存镜像注册命令。
-  const [catalog, setCatalog] = createStore<CommandCatalog>({})
+  // catalog 持久化到 localStorage（peyt.commandCatalog）：命令面板搜索时合并
+  // 已注册命令与上次会话的命令（无注册时仍可搜索最近用过的命令）。
+  const CATALOG_KEY = "peyt.commandCatalog"
+  const loadCatalog = (): CommandCatalog => {
+    try {
+      const raw = localStorage.getItem(CATALOG_KEY)
+      if (!raw) return {}
+      return JSON.parse(raw) as CommandCatalog
+    } catch {
+      return {}
+    }
+  }
+  const [catalog, setCatalog] = createStore<CommandCatalog>(loadCatalog())
+
+  createEffect(() => {
+    try {
+      localStorage.setItem(CATALOG_KEY, JSON.stringify(catalog))
+    } catch {
+      /* 忽略存储异常 */
+    }
+  })
 
   const bind = (id: string, def: KeybindConfig | undefined) => {
     const custom = settings.keybinds.get(actionId(id))

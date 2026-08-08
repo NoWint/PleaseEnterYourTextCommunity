@@ -48,6 +48,9 @@ pub fn run() {
                 deeplink::handle_url(app, &url);
             }
         }))
+        // 系统默认应用打开链接(帮助文档) + 系统通知(新消息/会话提醒)
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("no app data dir");
             let mut state = tauri::async_runtime::block_on(async move {

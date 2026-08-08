@@ -1,13 +1,14 @@
 // src/app/utils/toast.ts
 // 轻量 toast 工具（对齐 opencode utils/toast 的 showToast 形状）。
-// 当前走 solid-sonner 已有实例（旧壳使用）；无实例时降级 console。
-// TODO(Task 2): 统一到 V2 ToastRegion。
+// 实现统一走 V2 ToastRegion：showToastV2（@opencode-ai/ui/v2/toast-v2，
+// 内部 solid-sonner Toaster，AppLayout 已挂载 ToastRegion）。
+// 环境异常（如 SSR/未挂载 Toaster）时降级 console。
 
-import { toast } from "solid-sonner"
+import { showToastV2 } from "@opencode-ai/ui/v2/toast-v2"
 
 export function showToast(input: { title: string; description?: string }) {
   try {
-    toast(input.title, { description: input.description })
+    showToastV2({ title: input.title, description: input.description })
   } catch {
     console.warn("[toast]", input.title, input.description ?? "")
   }

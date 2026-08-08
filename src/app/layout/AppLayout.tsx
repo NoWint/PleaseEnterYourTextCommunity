@@ -25,6 +25,13 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useSettingsDialog } from "../components/dialogs/settings-dialog"
+import { DialogEditWorkspaceV2 } from "../components/dialogs/dialog-edit-workspace-v2"
+import { ConfirmWorkspaceDialog, WorkspaceSelectDialog } from "../components/dialogs/workspace-dialogs"
+import { HelpDialogContent } from "../components/dialogs/help-button"
+import { dialogsT } from "../components/dialogs/i18n"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useWorkspace } from "../context/workspace"
+import { showToast } from "../utils/toast"
 import { Titlebar } from "./titlebar/titlebar"
 import { SidebarContent } from "./sidebar/sidebar-shell"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./sidebar/sidebar-project"
@@ -43,6 +50,8 @@ const AppLayout: Component<ParentProps> = (props) => {
   const chat = useChat()
   const tabs = useTabs()
   const navigate = useNavigate()
+  const dialog = useDialog()
+  const workspace = useWorkspace()
 
   const [state, setState] = createStore({
     hoverProject: undefined as string | undefined,
@@ -210,10 +219,47 @@ const AppLayout: Component<ParentProps> = (props) => {
       if (value) layout.projects.expand(directory)
       else layout.projects.collapse(directory)
     },
-    // TODO(Task 2): 重置/删除工作区对话框
-    showResetWorkspaceDialog: () => {},
-    showDeleteWorkspaceDialog: () => {},
+    // 重置/删除：后端无对应命令（survey 仅 list/create/join），本地清空 + toast。
+    showResetWorkspaceDialog: (root, directory) => {
+      void dialog.show(() => (
+        <ConfirmWorkspaceDialog
+          title={dialogsT("dialog.workspace.reset.title")}
+          description={dialogsT("dialog.workspace.reset.description")}
+          confirmLabel={dialogsT("dialog.workspace.reset.confirm")}
+          onConfirm={() => {
+            // TODO(Task 6): 后端 reset_workspace 命令缺失，当前仅本地清空
+            clearLocalWorkspaceData(directory)
+            showToast({ title: dialogsT("dialog.workspace.toast.reset") })
+          }}
+        />
+      ))
+    },
+    showDeleteWorkspaceDialog: (root, directory) => {
+      void dialog.show(() => (
+        <ConfirmWorkspaceDialog
+          title={dialogsT("dialog.workspace.delete.title")}
+          description={dialogsT("dialog.workspace.delete.description")}
+          confirmLabel={dialogsT("dialog.workspace.delete.confirm")}
+          onConfirm={() => {
+            // TODO(Task 6): 后端 delete_workspace 命令缺失，当前仅本地移除
+            clearLocalWorkspaceData(directory)
+            layout.projects.close(directory)
+            workspace.close(directory)
+            if (currentDir() === directory) navigate("/home")
+            showToast({ title: dialogsT("dialog.workspace.toast.delete") })
+          }}
+        />
+      ))
+    },
     setScrollContainerRef: () => {},
+  }
+
+  // 重置/删除：清除该工作区全部本地会话缓存（未读清零 + 侧栏/左列移除），不发后端写命令
+  const clearLocalWorkspaceData = (directory: string) => {
+    for (const session of chat.chatList()) {
+      if (session.directory === directory && session.unread > 0) chat.markRead(session.id)
+    }
+    layout.projects.close(directory)
   }
 
   const projectSidebarCtx: ProjectSidebarContext = {
@@ -235,8 +281,10 @@ const AppLayout: Component<ParentProps> = (props) => {
       layout.projects.close(directory)
       if (currentDir() === directory) navigate("/home")
     },
-    // TODO(Task 3): 工作区编辑对话框
-    showEditProjectDialog: () => {},
+    // 工作区编辑对话框（edit 模式：重命名/启动命令经 dialog-edit-workspace-v2 持久化）
+    showEditProjectDialog: (project) => {
+      void dialog.show(() => <DialogEditWorkspaceV2 project={project} />)
+    },
     toggleProjectWorkspaces: (project) => layout.sidebar.toggleWorkspaces(project.worktree),
     workspacesEnabled: (project) => project.vcs === "git" && layout.sidebar.workspaces(project.worktree)(),
     workspaceIds: (project) => [project.worktree, ...(project.sandboxes ?? [])],
@@ -249,9 +297,19 @@ const AppLayout: Component<ParentProps> = (props) => {
     },
   }
 
-  // TODO(Task 3): 工作区选择对话框（现导航到首页占位）
+  // 工作区选择对话框：列出当前工作区，选中后导航 /home/<wsId>（base64 编码）
   const chooseProject = () => {
-    navigate("/home")
+    const list = workspace.orderedWorkspaces()
+    if (list.length === 0) {
+      navigate("/home")
+      return
+    }
+    void dialog.show(() => (
+      <WorkspaceSelectDialog
+        workspaces={list.map((ws) => ({ worktree: ws.worktree, name: ws.name ?? ws.worktree }))}
+        onSelect={(worktree) => navigate(`/home/${base64Encode(worktree)}`)}
+      />
+    ))
   }
 
   // 设置统一走对话框（settings-v2），无 /settings 页面路由。
@@ -550,8 +608,9 @@ const AppLayout: Component<ParentProps> = (props) => {
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
-      // TODO(Task 3): 帮助链接（打开文档）
-      onOpenHelp={() => {}}
+      onOpenHelp={() => {
+        void dialog.show(() => <HelpDialogContent />)
+      }}
       renderPanel={() =>
         mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
       }

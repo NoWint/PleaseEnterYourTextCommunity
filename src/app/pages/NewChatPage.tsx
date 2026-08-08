@@ -1,18 +1,235 @@
 // src/app/pages/NewChatPage.tsx
-// 新会话占位页（/chat/new）。聊天 UI 在 Phase 2 迁移。
+// 新会话页（/chat/new）：新建私聊输入 + 快速入口（新建群聊 / 扫码加群 / 邀请链接）。
+// 提交后创建会话（create_chat_by_email / create_group / secure_join）并导航 /chat/:id
+// （titlebar 的 auto-add effect 会自动补 session tab）。
 
-import type { Component } from "solid-js"
+import { createSignal, Show, type Component } from "solid-js"
+import { useNavigate } from "@solidjs/router"
+import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
+import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
+import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from "@opencode-ai/ui/v2/dialog-v2"
+import { DividerV2 } from "@opencode-ai/ui/v2/divider-v2"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { call } from "../../api"
+import { useAccount } from "../context/account"
+import { normalizeUrlForQr } from "../../utils/deepLink"
+import { isEmail } from "../../utils/inviteLink"
+import { showToast } from "../utils/toast"
 import { PanelCard } from "./panel-card"
 
+// @ts-expect-error qrcode 无类型声明（与 login/secure-join 用法一致）
+import QRCode from "qrcode"
+
 const NewChatPage: Component = () => {
+  const navigate = useNavigate()
+  const account = useAccount()
+  const dialog = useDialog()
+  const [input, setInput] = createSignal("")
+  const [busy, setBusy] = createSignal(false)
+
+  const openChat = (chatId: number) => {
+    navigate(`/chat/${chatId}`)
+  }
+
+  // 私聊 / 邀请链接（邮箱 → create_chat_by_email；securejoin 链接 → secure_join）
+  const startChat = async () => {
+    const raw = input().trim()
+    if (!raw || busy()) return
+    setBusy(true)
+    try {
+      if (isEmail(raw)) {
+        const chatId = await call<number>("create_chat_by_email", { email: raw })
+        openChat(chatId)
+        return
+      }
+      const chatId = await account.joinSecure(normalizeUrlForQr(raw))
+      showToast({ title: "已加入" })
+      if (chatId) openChat(chatId)
+    } catch (e) {
+      showToast({ title: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 新建群聊（create_group）
+  const createGroup = () => {
+    void dialog.show(() => <CreateGroupDialog onCreated={openChat} />)
+  }
+
+  // 扫码加群：展示个人邀请二维码 + 粘贴链接加入
+  const scanJoin = () => {
+    void dialog.show(() => <ScanJoinDialog />)
+  }
+
   return (
     <div class="flex flex-1 min-h-0 min-w-0 self-stretch p-2">
       <PanelCard raised>
-        <div class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs">
-          新会话（Phase 2 迁移）
+        <div class="flex-1 min-h-0 flex flex-col items-center justify-center gap-10 px-6">
+          <div class="flex max-w-[560px] w-full flex-col items-center gap-8">
+            <h1 class="text-[22px] font-[640] leading-7 tracking-[-0.02em] text-v2-text-text-strong">
+              新建会话
+            </h1>
+            <form
+              class="flex w-full items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void startChat()
+              }}
+            >
+              <TextInputV2
+                autofocus
+                appearance="large"
+                class="!w-full"
+                placeholder="输入邮箱或粘贴邀请链接，开始私聊"
+                value={input()}
+                onInput={(event) => setInput(event.currentTarget.value)}
+                aria-label="新建会话输入"
+              />
+              <ButtonV2 type="submit" variant="contrast" size="large" disabled={busy() || !input().trim()}>
+                {busy() ? "加入中…" : "开始"}
+              </ButtonV2>
+            </form>
+            <div class="flex items-center justify-center gap-3">
+              <QuickEntry icon="grid-plus" label="新建群聊" onClick={createGroup} />
+              <QuickEntry icon="outline-share" label="扫码加群" onClick={scanJoin} />
+            </div>
+          </div>
         </div>
       </PanelCard>
     </div>
+  )
+}
+
+function QuickEntry(props: { icon: string; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      class="flex h-20 w-32 flex-col items-center justify-center gap-2 rounded-lg border border-border-weak-base bg-v2-background-bg-base text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
+      onClick={props.onClick}
+    >
+      <IconV2 name={props.icon} size="large" />
+      <span class="text-[13px]">{props.label}</span>
+    </button>
+  )
+}
+
+function CreateGroupDialog(props: { onCreated: (chatId: number) => void }) {
+  const dialog = useDialog()
+  const [name, setName] = createSignal("")
+  const [busy, setBusy] = createSignal(false)
+
+  const submit = async (event: Event) => {
+    event.preventDefault()
+    const trimmed = name().trim()
+    if (!trimmed || busy()) return
+    setBusy(true)
+    try {
+      const chatId = await call<number>("create_group", { name: trimmed })
+      dialog.close()
+      props.onCreated(chatId)
+    } catch (e) {
+      showToast({ title: e instanceof Error ? e.message : String(e) })
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog fit>
+      <form onSubmit={submit} class="contents">
+        <DialogHeader>
+          <DialogTitle>新建群聊</DialogTitle>
+        </DialogHeader>
+        <DividerV2 />
+        <DialogBody class="flex flex-col gap-4 px-4 pt-4 pb-1">
+          <TextInputV2
+            autofocus
+            appearance="large"
+            class="!w-full"
+            placeholder="群聊名称"
+            value={name()}
+            onInput={(event) => setName(event.currentTarget.value)}
+            aria-label="群聊名称"
+          />
+        </DialogBody>
+        <DialogFooter>
+          <ButtonV2 type="button" variant="neutral" onClick={() => dialog.close()}>
+            取消
+          </ButtonV2>
+          <ButtonV2 type="submit" variant="contrast" disabled={busy() || !name().trim()}>
+            {busy() ? "创建中…" : "创建"}
+          </ButtonV2>
+        </DialogFooter>
+      </form>
+    </Dialog>
+  )
+}
+
+function ScanJoinDialog() {
+  const dialog = useDialog()
+  const account = useAccount()
+  const [qrUrl, setQrUrl] = createSignal("")
+  const [qrText, setQrText] = createSignal("")
+  const [link, setLink] = createSignal("")
+  const [busy, setBusy] = createSignal(false)
+
+  const loadQr = async () => {
+    try {
+      const qr = await call<string>("get_securejoin_qr", { chatId: null })
+      const dataUrl = await QRCode.toDataURL(normalizeUrlForQr(qr), { margin: 1, width: 220 })
+      setQrText(qr)
+      setQrUrl(dataUrl)
+    } catch {
+      setQrUrl("")
+    }
+  }
+  void loadQr()
+
+  const join = async () => {
+    const raw = link().trim()
+    if (!raw || busy()) return
+    setBusy(true)
+    try {
+      const chatId = await account.joinSecure(normalizeUrlForQr(raw))
+      showToast({ title: "已加入" })
+    } catch (e) {
+      showToast({ title: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog fit>
+      <DialogHeader>
+        <DialogTitle>扫码加群</DialogTitle>
+      </DialogHeader>
+      <DividerV2 />
+      <DialogBody class="flex flex-col items-center gap-4 px-4 pt-4 pb-1">
+        <Show when={qrUrl()} fallback={<div class="text-[13px] text-v2-text-text-faint">二维码暂不可用（需激活账号）</div>}>
+          <img src={qrUrl()} width={220} height={220} alt="我的邀请二维码" class="rounded-md" />
+        </Show>
+        <div class="flex w-full items-center gap-2">
+          <TextInputV2
+            class="!w-full"
+            placeholder="或粘贴邀请链接 / 邮箱"
+            value={link()}
+            onInput={(event) => setLink(event.currentTarget.value)}
+            aria-label="邀请链接"
+          />
+          <ButtonV2 type="button" variant="contrast" disabled={busy() || !link().trim()} onClick={() => void join()}>
+            加入
+          </ButtonV2>
+        </div>
+        <p class="text-[12px] text-v2-text-text-faint">对方扫码或粘贴链接即可加入你的频道</p>
+      </DialogBody>
+      <DialogFooter>
+        <ButtonV2 type="button" variant="neutral" onClick={() => dialog.close()}>
+          关闭
+        </ButtonV2>
+      </DialogFooter>
+    </Dialog>
   )
 }
 

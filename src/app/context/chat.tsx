@@ -681,7 +681,13 @@ function createChatStore(): ChatStore {
     },
     archive(id: string) {
       setState("sessions", (s) => s.map((item) => (item.id === id ? { ...item, archived: true } : item)))
-      // TODO(Task 3): 后端归档命令（get_chatlist archived_only 存在，写命令待接入）
+      // 后端 archive_chat（core set_visibility）已接入；失败时回滚本地标记。
+      const numeric = Number(id)
+      if (!Number.isNaN(numeric)) {
+        call("archive_chat", { chatId: numeric, archive: true }).catch(() => {
+          setState("sessions", (s) => s.map((item) => (item.id === id ? { ...item, archived: false } : item)))
+        })
+      }
     },
     markRead(id: string) {
       setState("sessions", (s) => s.map((item) => (item.id === id ? { ...item, unread: 0 } : item)))

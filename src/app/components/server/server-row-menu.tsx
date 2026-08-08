@@ -14,7 +14,7 @@ import { LOCAL_SERVER, ServerConnection } from "../../context/server"
 export function serverMenuLabels(language: ReturnType<typeof useLanguage>) {
   return {
     more: language.t("common.moreOptions"),
-    server: language.t("settings.section.server"),
+    server: language.t("settings.section.account"),
     edit: language.t("dialog.server.menu.edit"),
     default: language.t("dialog.server.menu.default"),
     defaultRemove: language.t("dialog.server.menu.defaultRemove"),

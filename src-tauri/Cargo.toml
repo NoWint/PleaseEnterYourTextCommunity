@@ -17,6 +17,9 @@ deltachat = { path = "../core" }
 # single-instance 用于把深链转发给已运行实例(Windows 插件只在新进程读 argv)。
 tauri-plugin-deep-link = "2.4.9"
 tauri-plugin-single-instance = "2.4.3"
+# 系统默认应用打开链接(帮助文档/反馈)与系统通知(新消息提醒)
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
