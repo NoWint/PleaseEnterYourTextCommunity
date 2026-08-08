@@ -14,27 +14,31 @@ export function getCaretPoint(): CaretPoint | null {
   return { node: r.startContainer, offset: r.startOffset };
 }
 
-/** 恢复光标到指定节点+偏移。 */
+/** 恢复光标到指定节点+偏移。offset 钳制到节点长度内,防止过期 offset 抛 IndexSizeError。 */
 export function setCaretPoint(node: Node, offset: number): void {
   const sel = window.getSelection();
   if (!sel) return;
   const r = document.createRange();
-  r.setStart(node, offset);
+  const max = node.nodeType === Node.TEXT_NODE ? (node.textContent?.length ?? 0) : node.childNodes.length;
+  r.setStart(node, Math.min(offset, max));
   r.collapse(true);
   sel.removeAllRanges();
   sel.addRange(r);
 }
 
-/** 光标处的可见 DOMRect(建议面板锚点)。无 selection 回退到容器 rect。 */
+/** 光标处的可见 DOMRect(建议面板锚点)。光标不在容器内/无 selection 回退到容器 rect。 */
 export function caretRect(el: HTMLElement): DOMRect {
   const sel = window.getSelection();
   if (sel && sel.rangeCount > 0) {
     const r = sel.getRangeAt(0);
-    // getClientRects 在文本节点中通常有 1 个;空文本/行尾可能为空 → 回退
-    const rects = r.getClientRects();
-    if (rects.length > 0) return rects[0];
-    const rangeRect = r.getBoundingClientRect();
-    if (rangeRect.width > 0 || rangeRect.height > 0) return rangeRect;
+    // 光标不在容器内(焦点转移/子组件) → 直接回退容器 rect
+    if (r.startContainer && el.contains(r.startContainer)) {
+      // getClientRects 在文本节点中通常有 1 个;空文本/行尾可能为空 → 回退
+      const rects = r.getClientRects();
+      if (rects.length > 0) return rects[0];
+      const rangeRect = r.getBoundingClientRect();
+      if (rangeRect.width > 0 || rangeRect.height > 0) return rangeRect;
+    }
   }
   return el.getBoundingClientRect();
 }
@@ -44,6 +48,8 @@ export function textBeforeCaret(el: HTMLElement): string {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return '';
   const r = sel.getRangeAt(0);
+  // 光标不在容器内 → 直接返回空,防止 setEnd 越界到容器外/跨树抛错
+  if (!r.startContainer || !el.contains(r.startContainer)) return '';
   const pre = document.createRange();
   pre.selectNodeContents(el);
   pre.setEnd(r.startContainer, r.startOffset);
