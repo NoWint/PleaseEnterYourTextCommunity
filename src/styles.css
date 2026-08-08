@@ -895,34 +895,7 @@ html.window-frame #titlebar-tools { height: 34px; }
   display: flex; align-items: flex-end;
   padding: 0;
 }
-.composer-expand {
-  position: absolute; right: 4px; bottom: 6px;
-  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-  border: none; background: transparent; color: var(--text-mute); cursor: pointer;
-  border-radius: var(--radius-xs); opacity: 0;
-  transition: opacity 120ms var(--ease-out), background 120ms var(--ease-out), color 120ms var(--ease-out);
-}
-.composer-main:hover .composer-expand, .composer-expand:focus-visible { opacity: 1; }
-.composer-expand:hover { background: var(--active); color: var(--text); }
-/* 展开 tooltip:悬停展开按钮时浮现,三角箭头指向按钮 (微信「展开输入框」提示) */
-.composer-tooltip {
-  position: absolute; bottom: 28px; right: 0;
-  background: rgba(0,0,0,0.85); color: #fff;
-  font-size: 12px; line-height: 1.4; white-space: nowrap;
-  padding: 5px 9px; border-radius: 6px;
-  opacity: 0; visibility: hidden; pointer-events: none;
-  transform: translateY(4px);
-  transition: opacity 140ms var(--ease-out), transform 140ms var(--ease-out), visibility 140ms;
-  z-index: 300;
-}
-.composer-tooltip::after {
-  content: ""; position: absolute; top: 100%; right: 8px;
-  border: 5px solid transparent; border-top-color: rgba(0,0,0,0.85);
-}
-.composer-expand:hover .composer-tooltip { opacity: 1; visibility: visible; transform: translateY(0); }
-
-/* 顶部 resize 指示器:常驻热区(收起模式也显示,悬停/拖动浮现细条,按下自动切展开)。
-   pointerdown 未展开时立即展开(composer.ts),拖动调高 [40, 320]px。 */
+/* 顶部 resize 指示器:常驻热区,悬停/拖动浮现细条,无级拖拽调高 [40, 320]px。 */
 .composer-resize {
   position: absolute; top: -3px; left: 0; right: 0;
   height: 9px; cursor: row-resize;
@@ -936,11 +909,6 @@ html.window-frame #titlebar-tools { height: 34px; }
 }
 /* 悬停容器边缘即显示抓取条:热区放大但只有中间细条可点 */
 .composer:hover .composer-resize::before, .composer-resize:hover::before, .composer-resize:active::before { opacity: 0.9; }
-/* 展开时:输入区撑高(默认 88px,可拖到 320px) */
-.composer.expanded .composer-input {
-  min-height: 88px;
-  max-height: 320px;
-}
 /* 下部工具条:图标组左对齐,操作按钮右对齐 (微信 space-between) */
 .composer-toolbar {
   display: flex; align-items: center; justify-content: space-between;
@@ -1439,20 +1407,20 @@ html.window-frame #titlebar-tools { height: 34px; }
   40% { opacity: 1; }
 }
 
-/* composer contenteditable:融入凹陷输入字段(透明底),右侧留出展开按钮空间 */
+/* composer contenteditable:融入凹陷输入字段(透明底)。高度由 JS 控制
+   (auto 随内容增高封顶 120px / 拖拽锁定内联 height 至 320px,故 CSS 不设 max-height) */
 .composer .composer-input {
   flex: 1;
   width: 100%;
   background: transparent;
   border: none;
   border-radius: 0;
-  padding: 9px 30px 7px 4px;
+  padding: 9px 4px 7px 4px;
   font-size: var(--font-scale-body);
   color: var(--text);
   font-family: var(--font);
   outline: none;
   min-height: 38px;
-  max-height: 120px;
   line-height: 1.5;
   /* 多行换行:Shift+Enter 插入 \n 文本节点,需 pre-wrap 才渲染为换行 */
   white-space: pre-wrap;

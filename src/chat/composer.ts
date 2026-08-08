@@ -57,11 +57,11 @@ void call<Array<{ name: string; description: string }>>('list_commands').then((l
 }).catch(() => {});
 // 草稿:输入防抖保存计时器(500ms 后写入后端)
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
+// 是否已通过顶部拖拽锁定高度(锁定后输入不自动增高;发送清空或拖回底部时复位)
+let heightLocked = false;
 
-// 输入框两种模式(微信):
-// - 收起:单行自动增高,统一 Enter 发送,Shift+Enter 换行
-// - 展开:固定可拖拽高度,统一 Enter 发送,Shift+Enter 换行
-let expanded = false;
+// 输入框单一无级高度:默认 auto 随内容增高(封顶 120px);顶部手柄拖拽锁定固定高度,
+// 拖回底部复位自动增高。统一 Enter 发送,Shift+Enter 换行。
 const PLACEHOLDER = '发消息到频道... (@提及 / #频道)';
 
 
@@ -71,6 +71,9 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
   // F5:切换 chat 时清理可能残留的 @提及/#频道建议面板 (模块级 mentionList),
   // 避免上一个聊天的建议列表残留在新聊天界面。
   closeMentionList();
+  // 高度锁定是 composer 实例级状态:重渲染(切会话/回复等)时复位,
+  // 否则残留锁定会让新输入框无法自动增高(autoResize 早退)。
+  heightLocked = false;
   // 重渲染 composer 时停止并丢弃进行中的录音(释放麦克风),避免残留活跃录音
   cleanupVoiceRecorder();
   // reply 预览条(若 composer-area.dataset.replyTo 设置)
@@ -103,10 +106,6 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
       ${replyPreview}
       <div class="composer-main">
         <div id="composer-input" class="composer-input" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="${PLACEHOLDER}"></div>
-        <button type="button" class="composer-expand" id="composer-expand" aria-label="展开输入框">
-          ${iconSvg('chevrons-up-down', { width: 14, height: 14 })}
-          <span class="composer-tooltip">展开输入框,Enter 换行,Ctrl+Enter 发送</span>
-        </button>
       </div>
       <div class="composer-toolbar">
         <div class="composer-tools">
@@ -154,64 +153,41 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
     await send(chatId, input, area, onSent);
     updateSendState();
   });
-  // 展开按钮:切换两种模式(收起=单行自动增高;展开=固定可拖拽高度)。
-  // CSS 类 .expanded 驱动高度/指示器显隐/data-placeholder/键盘语义。
-  const expandBtn = document.getElementById('composer-expand') as HTMLButtonElement | null;
-  const applyExpanded = (next: boolean): void => {
-    // 仅当模式真实变化才弹 toast(展开按钮/拖拽进入/拖回单行才弹,重渲染不重复)
-    const changed = expanded !== next;
-    expanded = next;
-    composerEl?.classList.toggle('expanded', expanded);
-    input.dataset.placeholder = PLACEHOLDER;
-    if (changed) {
-      showToast(expanded ? '已切换:展开输入' : '已切换:单行输入');
-    }
-    // 模式切换:收起 → 单行自动增高;展开 → 默认大高度(用户可用顶部指示器再拖)
-    if (!expanded) {
-      autoResize(input);
-    } else {
-      input.style.height = '88px';
-    }
-    input.focus();
-  };
-  expandBtn?.addEventListener('click', () => {
-    applyExpanded(!expanded);
-  });
-  // 顶部 resize 指示器:常驻热区(收起模式悬停浮现细条)。pointerdown 未展开 → 立即展开
-  // (含键盘语义,与右上角展开按钮一致;展开后回填当前高度保持无缝衔接),
-  // 随后拖拽纵向调高 [40, 320]px(Apple §2:1:1 跟随)。拖回单行高度松手自动切回收起模式。
+  // 顶部 resize 指示器:单一无级拖拽调高 [40, 320]px。
+  // 默认输入框 auto 随内容增高(封顶 120px);拖拽锁定固定高度(输入不自动增高),
+  // 拖回底部松手复位自动增高(无切换/toast)。
   const resizeHandle = document.getElementById('composer-resize') as HTMLElement | null;
   resizeHandle?.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    if (!expanded) {
-      const prevH = input.getBoundingClientRect().height;
-      applyExpanded(true);
-      // applyExpanded 重置为默认高度 → 回填拖拽起点,保持无缝
-      input.style.height = Math.max(prevH, 88) + 'px';
-    }
     const startY = e.clientY;
     const startH = input.getBoundingClientRect().height;
-    let collapsePending = false;
     const onMove = (ev: PointerEvent): void => {
       const delta = ev.clientY - startY; // 向上拖 = 负增量 = 增高
       const h = Math.min(320, Math.max(40, startH - delta));
       input.style.height = h + 'px';
-      // 拖到单行高度 → 标记待切回(松手时生效,实时无跳变)
-      collapsePending = h <= 46;
+      heightLocked = true;
       // 输入框变高 → 消息区底部让位,若在底部则同步上顶,保持最新消息可见
       const messagesEl = document.getElementById('messages');
       if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
     };
-    const onUp = (): void => {
+    const finish = (): void => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      if (collapsePending) applyExpanded(false); // 拖回单行 → 自动收起(含 toast)
+      document.removeEventListener('pointercancel', onCancel);
+      // 拖回最小高度 → 复位为自动增高(清除锁定与内联高度)
+      const h = input.getBoundingClientRect().height;
+      if (h <= 46) {
+        heightLocked = false;
+        input.style.height = '';
+        autoResize(input);
+      }
     };
+    const onUp = finish;
+    const onCancel = finish;
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
   });
-  // 重渲染(回复发送/取消)后让 DOM 与模块级 expanded 保持一致
-  applyExpanded(expanded);
   // 附件(加号)按钮:点开菜单 popup,目前只做「附件上传」。
   // 附件上传:打开文件选择 → base64 → send_attachment(media 信封)。
   const attachBtn = document.getElementById('composer-attach') as HTMLButtonElement | null;
@@ -363,15 +339,17 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
 function getInputText(el: HTMLElement): string {
   return serializeComposer(el);
 }
-// 自适应高度(收起模式):auto → min(scrollHeight, 120)
+// 自适应高度:auto → min(scrollHeight, 120)。拖拽锁定高度时输入不自动增高。
 function autoResize(el: HTMLElement): void {
-  if (expanded) return; // 展开模式高度锁定,不自动增高
+  if (heightLocked) return; // 拖拽锁定固定高度,不自动增高
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
-// 清空(替代 input.value = '')
+// 清空(替代 input.value = '')。发送后复位为自动增高,释放之前拖拽锁定的高度。
 function clearInput(el: HTMLElement): void {
   el.textContent = '';
+  heightLocked = false;
+  el.style.height = '';
   autoResize(el);
   el.focus();
 }
