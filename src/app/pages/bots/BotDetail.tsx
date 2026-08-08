@@ -56,10 +56,14 @@ export function BotDetail(props: BotDetailProps) {
   const stats = () => (statsState().id === botId() ? statsState().stats : null)
   const statsLoading = () => statsState().id !== botId() || statsState().loading
 
-  // setCfg 按 botId 落位：表单保存/人设应用完成时若已切换 Bot，
-  // 旧请求的完成结果只会写入旧 Bot 的槽位（当前视图读不到），不会污染新 Bot 状态。
-  const setCfg = (forId: number, next: BotConfig | null) =>
+  // setCfg 按 botId 落位：表单保存/人设应用完成时若已切换 Bot，旧请求的完成结果直接丢弃
+  // （load effect 已按 botId 重载，当前 Bot 的槽位只接受当前 Bot 的写入）。
+  // 否则旧请求会把共享槽位盖成旧 id，而读取侧按 botId 过滤 → cfg()/cfgReady() 恒为未就绪，
+  // 且 load effect 只追踪 botId 不会重跑 → 当前 Bot 的配置页永久卡在加载态。
+  const setCfg = (forId: number, next: BotConfig | null) => {
+    if (botId() !== forId) return
     setCfgState({ id: forId, cfg: next, ready: true })
+  }
 
   // 打开详情：并行拉配置 + 统计（b5 §3.5）。仅随 bot.id 重载，
   // 顶栏启停等就地更新（同一对象引用替换）不会触发重载、不会覆盖表单未保存输入。
