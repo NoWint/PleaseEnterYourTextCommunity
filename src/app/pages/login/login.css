@@ -1,0 +1,194 @@
+/* src/app/pages/login/login.css
+   登录页样式：hero（logo/标题/标语）+ 账号卡面板，全部使用 v2 设计 token，
+   与 opencode 复刻壳层（bg-deep 主区、v2 elevation 卡片）视觉一致。 */
+
+.login-page {
+  display: flex;
+  width: 100%;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 48px 24px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.login-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+}
+
+.login-hero-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  object-fit: cover;
+  box-shadow: var(--v2-elevation-raised);
+}
+
+.login-hero-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 640;
+  line-height: 1;
+  letter-spacing: -0.4px;
+  color: var(--v2-text-text-base);
+}
+
+.login-hero-slogan {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-faint);
+}
+
+.login-panel {
+  display: flex;
+  width: 100%;
+  max-width: 420px;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 12px;
+  background-color: var(--v2-background-bg-base);
+  box-shadow: var(--v2-elevation-raised);
+}
+
+.login-section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 640;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+}
+
+.login-accounts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* 账号卡：内容水平垂直居中（apple-design 对齐惯例，不用 text-align 残留偏移） */
+.login-account-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 12px;
+  border: 0.5px solid var(--v2-border-border-base);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: center;
+}
+
+.login-account-card:hover:not(:disabled) {
+  background-color: var(--v2-background-bg-layer-01);
+}
+
+.login-account-card:focus-visible {
+  outline: 2px solid var(--v2-border-border-focus);
+  outline-offset: 2px;
+}
+
+.login-account-card:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.login-account-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-account-mail {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-account-current {
+  font-size: 11px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-accent);
+}
+
+.login-new-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-join-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-join-row [data-component="text-input-v2"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.login-hint {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--v2-text-text-muted);
+}
+
+.login-status {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-faint);
+}
+
+.login-divider {
+  height: 1px;
+  background-color: var(--v2-border-border-base);
+}
+
+.login-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.login-qr-img {
+  width: 180px;
+  height: 180px;
+  border-radius: 8px;
+  border: 0.5px solid var(--v2-border-border-base);
+}

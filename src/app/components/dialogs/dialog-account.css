@@ -1,0 +1,84 @@
+/* src/app/components/dialogs/dialog-account.css
+   账号管理对话框样式（v2 token，与 settings-v2 一致）。 */
+
+.dialog-account-hint {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-faint);
+}
+
+.dialog-account-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+
+.dialog-account-row:hover:not(:disabled) {
+  background-color: var(--v2-background-bg-layer-01);
+}
+
+.dialog-account-row:focus-visible {
+  outline: 2px solid var(--v2-border-border-focus);
+  outline-offset: 2px;
+}
+
+.dialog-account-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dialog-account-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dialog-account-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialog-account-mail {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialog-account-current {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-accent);
+}
+
+.dialog-account-status {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-faint);
+}

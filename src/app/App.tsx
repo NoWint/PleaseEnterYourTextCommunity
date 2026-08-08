@@ -1,11 +1,13 @@
 // src/app/App.tsx
 // 完整 Provider 树 + Router + AppLayout
 // Task 1：路由重排 / → /home、/home、/home/:wsId、/chat/:id、/chat/new、/work、/settings
+// Task 5：新增 /login 路由 + 未登录重定向（RequireAuth）；登录后进 /home。
 //
 // 注意：Layout/Tabs/Command 依赖 @solidjs/router hooks（useLocation/useNavigate），
 // 因此必须挂在 Router root 内部（Router 会把 children 当作 Route 分支，不能直接包）。
 
-import type { Component } from "solid-js"
+import type { Component, ParentProps } from "solid-js"
+import { Show } from "solid-js"
 import { Router, Route, Navigate } from "@solidjs/router"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
@@ -19,6 +21,7 @@ import { TabsProvider } from "./context/tabs"
 import { CommandProvider } from "./context/command"
 import { WorkspaceProvider } from "./context/workspace"
 import { ChatProvider } from "./context/chat"
+import { AccountProvider, useAccount } from "./context/account"
 import BodyDesignClass from "./layout/BodyDesignClass"
 import AppLayout from "./layout/AppLayout"
 import { NewHome } from "./pages/home/home"
@@ -26,6 +29,26 @@ import MessagesPage from "./pages/MessagesPage"
 import NewChatPage from "./pages/NewChatPage"
 import WorkPage from "./pages/WorkPage"
 import SettingsPage from "./pages/SettingsPage"
+import LoginPage from "./pages/login"
+
+// 路由守卫：未登录（is_configured=false）→ 重定向 /login；探测完成前显示加载占位。
+const RequireAuth: Component<ParentProps> = (props) => {
+  const account = useAccount()
+  return (
+    <Show when={account.ready()} fallback={<BootLoading />}>
+      <Show when={account.authenticated()} fallback={<Navigate href="/login" />}>
+        {props.children}
+      </Show>
+    </Show>
+  )
+}
+
+// 登录态探测中的最小占位（避免壳层加载前白屏）。
+const BootLoading: Component = () => (
+  <div class="flex h-full w-full items-center justify-center text-v2-text-text-faint text-13-regular">
+    加载中…
+  </div>
+)
 
 const App: Component = () => {
   // Font 是兼容性 no-op 组件(返回 null,不接受 children),作为 ThemeProvider 子节点保留"已挂载"语义。
@@ -40,26 +63,29 @@ const App: Component = () => {
               <SettingsProvider>
                 <Router
                   root={(props) => (
-                    <LayoutProvider>
-                      <TabsProvider>
-                        <CommandProvider>
-                          <WorkspaceProvider>
-                            <ChatProvider>
-                              <AppLayout>{props.children}</AppLayout>
-                            </ChatProvider>
-                          </WorkspaceProvider>
-                        </CommandProvider>
-                      </TabsProvider>
-                    </LayoutProvider>
+                    <AccountProvider>
+                      <LayoutProvider>
+                        <TabsProvider>
+                          <CommandProvider>
+                            <WorkspaceProvider>
+                              <ChatProvider>
+                                <AppLayout>{props.children}</AppLayout>
+                              </ChatProvider>
+                            </WorkspaceProvider>
+                          </CommandProvider>
+                        </TabsProvider>
+                      </LayoutProvider>
+                    </AccountProvider>
                   )}
                 >
                   <Route path="/" component={() => <Navigate href="/home" />} />
-                  <Route path="/home" component={NewHome} />
-                  <Route path="/home/:wsId" component={WorkPage} />
-                  <Route path="/chat/new" component={NewChatPage} />
-                  <Route path="/chat/:id" component={MessagesPage} />
-                  <Route path="/work" component={WorkPage} />
-                  <Route path="/settings" component={SettingsPage} />
+                  <Route path="/login" component={LoginPage} />
+                  <Route path="/home" component={() => <RequireAuth><NewHome /></RequireAuth>} />
+                  <Route path="/home/:wsId" component={() => <RequireAuth><WorkPage /></RequireAuth>} />
+                  <Route path="/chat/new" component={() => <RequireAuth><NewChatPage /></RequireAuth>} />
+                  <Route path="/chat/:id" component={() => <RequireAuth><MessagesPage /></RequireAuth>} />
+                  <Route path="/work" component={() => <RequireAuth><WorkPage /></RequireAuth>} />
+                  <Route path="/settings" component={() => <RequireAuth><SettingsPage /></RequireAuth>} />
                 </Router>
               </SettingsProvider>
             </ServerProvider>
