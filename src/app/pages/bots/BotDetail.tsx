@@ -41,9 +41,11 @@ export function BotDetail(props: BotDetailProps) {
   const [statsLoading, setStatsLoading] = createSignal(true)
   const [typing, setTyping] = createSignal(false)
 
-  // 打开详情：并行拉配置 + 统计（b5 §3.5）
+  // 打开详情：并行拉配置 + 统计（b5 §3.5）。仅随 bot.id 重载，
+  // 顶栏启停等就地更新（同一对象引用替换）不会触发重载、不会覆盖表单未保存输入。
+  const botId = () => props.bot.id
   createEffect(() => {
-    const bot = props.bot
+    const id = botId()
     setCfg(null)
     setStats(null)
     setStatsLoading(true)
@@ -51,17 +53,17 @@ export function BotDetail(props: BotDetailProps) {
     void (async () => {
       let c: BotConfig | null = null
       try {
-        c = await call<BotConfig | null>("get_bot_config", { botId: bot.id })
+        c = await call<BotConfig | null>("get_bot_config", { botId: id })
       } catch (e) {
         showToast({ title: "加载配置失败", description: e instanceof Error ? e.message : String(e) })
       }
       let s: BotStatsDto | null = null
       try {
-        s = await call<BotStatsDto>("get_bot_stats", { botId: bot.id })
+        s = await call<BotStatsDto>("get_bot_stats", { botId: id })
       } catch (e) {
         showToast({ title: "加载统计失败", description: e instanceof Error ? e.message : String(e) })
       }
-      if (props.bot.id !== bot.id) return
+      if (botId() !== id) return
       setCfg(c)
       setStats(s)
       setStatsLoading(false)
