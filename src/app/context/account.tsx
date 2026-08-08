@@ -21,7 +21,7 @@ export interface AccountInfo {
   avatar: string | null
 }
 
-interface AccountStore {
+export interface AccountStore {
   /** 首次 is_configured/list_accounts 探测是否完成（完成前 App 显示启动占位） */
   ready: () => boolean
   /** 是否有已配置（当前激活）账号 */

@@ -1,7 +1,7 @@
 // src/app/layout/sidebar/session-tab-avatar.tsx
 // 照抄 opencode pages/layout/session-tab-avatar.tsx 改造：
 // - SessionProgressIndicatorV2 → v2 Spinner
-// - server 依赖删除，useSessionTabAvatarState 走本地 chat context
+// - server 依赖保留（对齐 opencode 签名），useSessionTabAvatarState 走本地 chat context
 
 import { getProjectAvatarVariant, type LocalProject } from "../../context/layout"
 import { displayName, getProjectAvatarSource } from "./helpers"
@@ -9,14 +9,17 @@ import { useSessionTabAvatarState } from "./project-avatar-state"
 import { ProjectAvatar } from "@opencode-ai/ui/v2/project-avatar-v2"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Show } from "solid-js"
+import type { ServerConnection } from "../../context/server"
 
 export function SessionTabAvatar(props: {
   project?: LocalProject
   directory: string
   sessionId: string
+  server: ServerConnection.Key
   revealProjectOnHover?: boolean
 }) {
   const state = useSessionTabAvatarState(
+    () => props.server,
     () => props.directory,
     () => props.sessionId,
   )

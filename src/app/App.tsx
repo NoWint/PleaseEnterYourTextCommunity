@@ -16,7 +16,7 @@ import { DialogProvider } from "@opencode-ai/ui/context/dialog"
 import { Font } from "@opencode-ai/ui/font"
 import { PlatformProvider } from "./platform"
 import { LanguageProvider } from "./context/language"
-import { ServerProvider } from "./context/server"
+import { ServerProvider, ServerAccountBridge } from "./context/server"
 import { SettingsProvider } from "./context/settings"
 import { LayoutProvider } from "./context/layout"
 import { TabsProvider } from "./context/tabs"
@@ -73,6 +73,7 @@ const App: Component = () => {
                 <Router
                   root={(props) => (
                     <AccountProvider>
+                      <ServerAccountBridge />
                       <LayoutProvider>
                         <TabsProvider>
                           <CommandProvider>

@@ -154,9 +154,11 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
 function HomeSessionLeadingController(props: {
   record: HomeSessionRecord
   isOpenTab: HomeSessionsViewProps["isOpenTab"]
+  server: Accessor<string>
   revealProjectOnHover: boolean
 }) {
   const avatar = useSessionTabAvatarState(
+    props.server,
     () => props.record.session.directory,
     () => props.record.session.id,
   )
@@ -380,6 +382,7 @@ function HomeSessionSearchResultRow(
       <HomeSessionLeadingController
         record={props.record}
         isOpenTab={props.isOpenTab}
+        server={props.server}
         revealProjectOnHover={!!showProjectName()}
       />
       <div class="flex min-w-0 flex-1 items-center gap-1.5">
@@ -445,6 +448,7 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
         <HomeSessionLeadingController
           record={props.record}
           isOpenTab={props.isOpenTab}
+          server={props.server}
           revealProjectOnHover={!!showProjectName()}
         />
         <HomeSessionTitle title={title()} showProjectName={!!showProjectName()} />

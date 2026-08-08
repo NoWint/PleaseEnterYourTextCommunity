@@ -11,6 +11,7 @@ import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { useLanguage } from "../../context/language"
 import { useLayout } from "../../context/layout"
+import { useServer } from "../../context/server"
 import { displayName } from "../sidebar/helpers"
 import { SessionTabAvatar } from "../sidebar/session-tab-avatar"
 import type { AppSession } from "../../types"
@@ -43,6 +44,7 @@ export function TabNavItem(props: {
   let titleEl!: HTMLSpanElement
   let measureFrame: number | undefined
   const layout = useLayout()
+  const server = useServer()
 
   const closeTab = (event: MouseEvent) => {
     event.preventDefault()
@@ -232,6 +234,7 @@ export function TabNavItem(props: {
                 project={project()}
                 directory={session.directory}
                 sessionId={session.id}
+                server={server.key}
               />
             )}
           </Show>
