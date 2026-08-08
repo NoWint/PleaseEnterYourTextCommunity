@@ -18,6 +18,7 @@ import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useLanguage } from "../../context/language"
 import { useChat } from "../../context/chat"
+import { useWorkspace } from "../../context/workspace"
 import type { LocalProject } from "../../context/layout"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { sortedRootSessions } from "./helpers"
@@ -197,6 +198,7 @@ export const SortableWorkspace = (props: {
 }): JSX.Element => {
   const navigate = useNavigate()
   const chat = useChat()
+  const workspace = useWorkspace()
   const language = useLanguage()
   const sortable = createSortable(props.directory)
   const [menuOpen, setMenuOpen] = createStore({ open: false })
@@ -213,7 +215,7 @@ export const SortableWorkspace = (props: {
   const open = createMemo(() => props.ctx.workspaceExpanded(props.directory, local()))
   const count = createMemo(() => sessions().length)
   const busy = createMemo(() => props.ctx.isBusy(props.directory))
-  const loading = () => false
+  const loading = () => workspace.loading() && sessions().length === 0
   const touch = createMediaQuery("(hover: none)")
   const showNew = createMemo(
     () => !loading() && (touch() || count() === 0 || local()),

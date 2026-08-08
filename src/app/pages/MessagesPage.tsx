@@ -1,17 +1,17 @@
 // src/app/pages/MessagesPage.tsx
-// 聊天页占位：显示会话标题（来自 chat context 假数据），聊天 UI 在 Phase 2 迁移。
+// /chat/:id 路由页：Task 3 复刻的 opencode 会话页（timeline + composer + side panel）。
+// 打开会话即加入 tab strip（与 titlebar 行为一致），其余渲染委托 ChatPage。
 
 import { createEffect, type Component } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { useChat } from "../context/chat"
 import { isTabRecentlyRemoved, tabKey, useTabs } from "../context/tabs"
-import { PanelCard } from "./panel-card"
+import { ChatPage } from "./chat/session-page"
 
 const MessagesPage: Component = () => {
   const params = useParams()
   const chat = useChat()
   const tabs = useTabs()
-  const session = () => chat.session(params.id)
 
   // 打开会话即加入 tab strip（与 titlebar 行为一致）
   createEffect(() => {
@@ -27,17 +27,11 @@ const MessagesPage: Component = () => {
     if (isTabRecentlyRemoved(tabKey({ type: "session", chatId: id }))) return
     const tab = tabs.addSessionTab({ chatId: id })
     tabs.remember(tab)
+    const session = chat.session(id)
+    if (session) tabs.rememberSessionInfo(tab, session)
   })
 
-  return (
-    <div class="flex flex-1 min-h-0 min-w-0 self-stretch p-2">
-      <PanelCard raised>
-        <div class="flex-1 flex items-center justify-center text-v2-text-text-faint text-xs">
-          {session() ? `聊天：${session()?.title}` : "消息（Phase 2 迁移）"}
-        </div>
-      </PanelCard>
-    </div>
-  )
+  return <ChatPage />
 }
 
 export default MessagesPage
