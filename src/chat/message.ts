@@ -667,7 +667,9 @@ function highlightMentions(html: string): string {
   const memberNames = (state.currentMembers || []).map((m) => m.name).filter(Boolean);
   const targets = [...new Set([myName, ...roleNames, ...memberNames])].filter(Boolean).map(escapeRegex);
   if (targets.length === 0) return html;
-  const re = new RegExp(`@(${targets.join('|')})`, 'g');
+  // 长名优先:避免 "李" 抢先匹配 "李雷" 导致 data-name 取错成员
+  const sorted = [...targets].sort((a, b) => b.length - a.length);
+  const re = new RegExp(`@(${sorted.join('|')})`, 'g');
   return html.replace(re, (match, name: string) =>
     `<span class="mention-tag tag-member" data-kind="member" data-name="${escapeAttr(name)}">${match}</span>`,
   );

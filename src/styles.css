@@ -1830,9 +1830,6 @@ html.window-frame #titlebar-tools { height: 34px; }
 .sr-content { color: var(--text); font-size: var(--font-scale-body); }
 .sr-empty { padding: var(--space-4); color: var(--text-weak); font-size: var(--font-scale-body); text-align: center; }
 
-/* @提及高亮胶囊 (原内联 style 外移,走主题 token) */
-.msg-mention { background: var(--active); color: var(--text); padding: 0 4px; border-radius: var(--radius-xs); }
-
 /* 消息正文里的自动链接 (autolink) */
 .msg-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .msg-link:hover { opacity: 0.85; }
