@@ -1,7 +1,5 @@
 // src/app/pages/home/home-sessions-view.tsx
-// 照抄 opencode pages/home/home-sessions-view.tsx 改造：
-// - HomeSessionStatusController 去掉 server 依赖（本地 unread/loading）
-// - 其余结构保留：搜索面板、分组粘性标题、滚动轨道、空态
+// 照抄 opencode pages/home/home-sessions-view.tsx：搜索面板、分组粘性标题、滚动轨道、空态、三态。
 
 import type { AppSession } from "../../types"
 import { type Accessor, createMemo, For, Show, Suspense } from "solid-js"
@@ -12,11 +10,12 @@ import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { useLanguage } from "../../context/language"
+import { ServerConnection } from "../../context/server"
 import { SessionTabAvatarView } from "../../layout/sidebar/session-tab-avatar"
 import { sessionTitle } from "../../utils/session-title"
 import { shouldOpenSessionInBackground } from "../../utils/home-session-open"
-import { useSessionTabAvatarState } from "../../layout/sidebar/project-avatar-state"
 import {
+  HomeSessionStatusController,
   homeSessionSearchKey,
   type HomeSessionGroup,
   type HomeSessionRecord,
@@ -44,7 +43,7 @@ export type HomeSessionsViewProps = {
   language: ReturnType<typeof useLanguage>
   groups: Accessor<HomeSessionGroup[]>
   showProjectName: Accessor<boolean>
-  server: Accessor<string>
+  server: Accessor<ServerConnection.Key>
   canCreateSession: Accessor<boolean>
   searchValue: Accessor<string>
   searchPlaceholder: Accessor<string>
@@ -152,24 +151,25 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
 }
 
 function HomeSessionLeadingController(props: {
-  record: HomeSessionRecord
+  server: HomeSessionsViewProps["server"]
   isOpenTab: HomeSessionsViewProps["isOpenTab"]
-  server: Accessor<string>
+  record: HomeSessionRecord
   revealProjectOnHover: boolean
 }) {
-  const avatar = useSessionTabAvatarState(
-    props.server,
-    () => props.record.session.directory,
-    () => props.record.session.id,
-  )
-  const open = () => props.isOpenTab(props.record)
   return (
-    <HomeSessionLeading
+    <HomeSessionStatusController
+      server={props.server}
       record={props.record}
-      revealProjectOnHover={props.revealProjectOnHover}
-      open={open()}
-      unread={avatar.unread()}
-      loading={avatar.loading()}
+      isOpenTab={props.isOpenTab}
+      render={(state) => (
+        <HomeSessionLeading
+          record={props.record}
+          revealProjectOnHover={props.revealProjectOnHover}
+          open={state.open()}
+          unread={state.unread()}
+          loading={state.loading()}
+        />
+      )}
     />
   )
 }

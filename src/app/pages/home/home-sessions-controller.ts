@@ -1,15 +1,18 @@
 // src/app/pages/home/home-sessions-controller.ts
 // 照抄 opencode pages/home/home-sessions-controller.tsx 改造：
-// - @tanstack/solid-query / server-sync / command palette → 本地 chat 假数据
-// - 保留：今天/昨天/更早分组、搜索索引、打开/后台打开/归档
+// - sdk query（createResource）/ 会话预取 / command palette → 本地 chat context 响应式数据
+// - 保留：今天/昨天/更早分组、搜索索引（searchRecords）、打开/后台打开/归档
+// - 导出 HomeSessionStatusController（三态：open/unread/loading，参考 L302-318 照抄）
 
-import { createMemo, startTransition, type Accessor } from "solid-js"
+import { createMemo, startTransition, type Accessor, type JSX } from "solid-js"
 import { DateTime } from "luxon"
 import { useLanguage } from "../../context/language"
 import { useChat } from "../../context/chat"
 import { useLayout, type LocalProject } from "../../context/layout"
 import { useTabs, sessionHasOpenTab } from "../../context/tabs"
+import { ServerConnection } from "../../context/server"
 import { displayName, projectForSession } from "../../layout/sidebar/helpers"
+import { useSessionTabAvatarState } from "../../layout/sidebar/project-avatar-state"
 import { pathKey } from "../../utils/path"
 import type { AppSession } from "../../types"
 import type { HomeController } from "./home-controller"
@@ -48,7 +51,7 @@ export function createHomeSessionsController(home: HomeController) {
   )
   const allRecords = createMemo(() =>
     buildHomeSessionRecords({
-      sessions: () => chat.chatList(),
+      sessions: chat.chatList,
       projectDirectories,
       projects: home.project.list,
       projectByID,
@@ -96,9 +99,7 @@ export function createHomeSessionsController(home: HomeController) {
       },
       archive: async (session: AppSession) => {
         chat.archive(session.id)
-        const tab = tabs.store.find(
-          (item) => item.type === "session" && item.chatId === session.id,
-        )
+        const tab = tabs.store.find((item) => item.type === "session" && item.chatId === session.id)
         if (tab) tabs.removeSessionTab({ chatId: session.id })
       },
     },
@@ -161,3 +162,21 @@ function groupSessions(records: HomeSessionRecord[], language: ReturnType<typeof
 }
 
 export type HomeSessionsController = ReturnType<typeof createHomeSessionsController>
+
+export function HomeSessionStatusController(props: {
+  server: Accessor<ServerConnection.Key>
+  record: HomeSessionRecord
+  isOpenTab: (record: HomeSessionRecord) => boolean
+  render: (state: { unread: Accessor<boolean>; loading: Accessor<boolean>; open: Accessor<boolean> }) => JSX.Element
+}) {
+  const avatar = useSessionTabAvatarState(
+    props.server,
+    () => props.record.session.directory,
+    () => props.record.session.id,
+  )
+  return props.render({
+    unread: avatar.unread,
+    loading: avatar.loading,
+    open: () => props.isOpenTab(props.record),
+  })
+}
