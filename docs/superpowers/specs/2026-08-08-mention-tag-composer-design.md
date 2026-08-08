@@ -10,6 +10,10 @@
 
 - 输入框是纯 `<textarea id="composer-input">`,已有 @提及 / #频道 **建议列表**(`handleMentionInput` + `showMentionList`,键盘导航上下/Enter/Esc/Tab),选中后插入**纯文本** `@name `。
 - `/` 命令已存在:输入后 `send()` 分发到插件注册的 `window.__peytchat_commands`(api.onCommand),**输入即执行**。
+- `/` 命令全量现状(2026-08-08 盘点):
+  - **后端统一注册表** `src-tauri/src/commands/registry.rs`(Bot/系统路径共用):`/whoami`(Bot)、`/roll`(Bot)、`/summarize`(Both, 待接入 knowledge)、`/ask`(Both, 待接入)。
+  - **Bot 路径彩蛋** `drivers/rule.rs:85`(优先于注册表):`/summarize`(带 LLM 完整版)、`/whoami`。
+  - **前端插件命令** `window.__peytchat_commands`(api.onCommand):**当前为空**,机制已搭好,无插件注册(注释提到的 `/ai`、`/setkey` 尚不存在)。
 - 接收端 `highlightMentions` 只高亮 `@自己名字` 和 `@角色名`,普通成员不高亮。
 - 输入框有两种模式:收起(单行 auto 增高,Enter 发送)+ 展开(大编辑区,顶部拖拽调高,Enter 换行)。
 
@@ -106,6 +110,17 @@
 ### 5.4 md 检测
 
 `MD_RE` 检测与 md-hint 呼吸灯:改用 `innerText` 判断,逻辑不变。
+
+## 5.5 命令规范化(建议,本 spec 的一部分)
+
+`/` 命令目前散布三处:后端 `registry.rs` 注册表、后端 `rule.rs` 彩蛋、前端插件 `__peytchat_commands`(当前空)。为让 `/` 建议面板有**单一事实源**,新增命令元数据查询通道:
+
+1. **后端 `registry.rs` 加 `list()`**:返回所有已注册 `(name, scope, description)`,通过 IPC `list_commands` 暴露。
+2. **前端插件命令合并**:`window.__peytchat_commands` 注册时同步写入一个前端侧命令元数据表(插件的 `onCommand` 同时收 `description`,未传则默认 `无描述`)。
+3. **`/` 建议面板候选源** = 后端 `list_commands` ∪ 前端插件命令;建议项展示 `命令名 + 描述`。
+4. **发送分发不变**:`send()` 先查前端插件命令,命中则执行;否则查后端注册表(经现有消息路径由 Bot/系统处理)。未知 `/` → 走普通文本发送(现状)。
+
+> 注:前端 `/` 建议面板本次只做「枚举后端注册表 + 前端插件命令」;`rule.rs` 的 `/summarize`/`/whoami` 彩蛋与注册表同名,建议后续统一进注册表(非本次范围,仅记录)。
 
 ## 6. 接收端:@成员高亮 + 点击名片
 
