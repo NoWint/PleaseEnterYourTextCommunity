@@ -4,7 +4,7 @@
 // 以下假数据兜底展示壳层。makeFakeMessages 仅为 dev 预览 timeline 用。
 
 import type { AppSession, AppWorkspace } from "../types"
-import type { ChatInfoDto, MemberDto, MsgDto } from "@/types"
+import type { ActivityDto, CardDto, ChannelDto, ChatInfoDto, MemberDto, MsgDto } from "../../types"
 
 const now = Date.now()
 const MIN = 60 * 1000
@@ -109,6 +109,96 @@ export function makeFakeMessages(chatId: string): MsgDto[] {
       reactions: null,
       is_info: false,
       is_out: from === 1,
+    }
+  })
+}
+
+// ── Task 4 假数据：协作卡片 / 协作频道 / 活动流 ────────────────
+// 按 directory 确定性生成（同名工作区每次打开数据一致），invoke 不可用时兜底。
+
+function hashString(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+
+const WORK_NAME = ["设计小组", "研发团队", "市场部", "默认工作区"] as const
+function workNameOf(directory: string): string {
+  const ws = fakeWorkspaces.find((w) => w.worktree === directory)
+  if (ws?.name) return ws.name
+  return WORK_NAME[hashString(directory) % WORK_NAME.length]
+}
+
+export function makeFakeChannels(directory: string): ChannelDto[] {
+  const base = (hashString(directory) % 900) + 100
+  return [
+    { id: base, workspace_id: base, chat_id: base, name: `${workNameOf(directory)}主频道`, category: "协作", position: 0, topic: null, unread: 0 },
+    { id: base + 1, workspace_id: base, chat_id: base + 1, name: "需求评审", category: "协作", position: 1, topic: null, unread: 1 },
+    { id: base + 2, workspace_id: base, chat_id: base + 2, name: "发布追踪", category: "协作", position: 2, topic: null, unread: 0 },
+  ]
+}
+
+const FAKE_CARD_TITLES: Record<CardDto["status"], string[]> = {
+  todo: ["首页改版需求收集", "接口联调排期", "设计稿评审", "周报模板更新", "迁移旧数据脚本", "新人入职引导"],
+  in_progress: ["消息列表虚拟滚动优化", "会话侧栏重设计", "群聊已读回执", "主题词云接入", "日历视图排期"],
+  done: ["登录页重构", "路由重排", "底部导航移入标题栏", "夜间模式配色", "文件分享能力"],
+}
+
+export function makeFakeCards(directory: string): CardDto[] {
+  const base = (hashString(directory) % 900) + 100
+  const now = Math.floor(Date.now() / 1000)
+  const DAY = 86400
+  const seeded = (list: string[], status: CardDto["status"], offset: number): CardDto[] =>
+    list.map((title, i) => {
+      const dueOffset = [0, 2, -1, 5, null, 1][(offset + i) % 6]
+      return {
+        id: base * 1000 + offset * 100 + i,
+        workspace_id: base,
+        channel_chat_id: base + (offset % 3),
+        msg_id: null,
+        type: i % 4 === 0 ? "card" : "task",
+        title,
+        description: i % 3 === 0 ? `由「${workNameOf(directory)}」的协作频道自动同步的示例卡片。` : null,
+        status,
+        assignee_contact_id: i % 4 === 0 ? null : 101 + (i % 3),
+        assignee_name: i % 4 === 0 ? null : FAKE_NAMES[i % FAKE_NAMES.length],
+        due_date: dueOffset == null ? null : now + dueOffset * DAY,
+        created_at: now - ((offset * 3 + i % 3) * 7 + (offset + i) % 4) * 3600,
+      }
+    })
+  return [
+    ...seeded(FAKE_CARD_TITLES.todo, "todo", 0),
+    ...seeded(FAKE_CARD_TITLES.in_progress, "in_progress", 1),
+    ...seeded(FAKE_CARD_TITLES.done, "done", 2),
+  ]
+}
+
+const FAKE_ACTIONS: Array<[string, string]> = [
+  ["card_created", "card"],
+  ["card_status_changed", "card"],
+  ["card_updated", "card"],
+  ["channel_created", "channel"],
+  ["card_deleted", "card"],
+  ["message_pinned", "message"],
+]
+
+export function makeFakeActivities(directory: string): ActivityDto[] {
+  const base = (hashString(directory) % 900) + 100
+  const now = Math.floor(Date.now() / 1000)
+  const cards = makeFakeCards(directory)
+  return FAKE_ACTIONS.map(([action, target_type], i) => {
+    const card = cards[i % cards.length]
+    return {
+      id: base * 10 + i,
+      workspace_id: base,
+      channel_chat_id: target_type === "card" ? card.channel_chat_id : base + (i % 3),
+      actor_id: 101 + (i % FAKE_NAMES.length),
+      actor_name: FAKE_NAMES[i % FAKE_NAMES.length],
+      action,
+      target_type,
+      target_id: target_type === "card" ? card.id : base + (i % 3),
+      payload: target_type === "card" ? JSON.stringify({ title: card.title }) : null,
+      created_at: now - i * 7400,
     }
   })
 }
