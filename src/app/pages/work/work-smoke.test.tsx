@@ -12,7 +12,7 @@ import { ActivityFeed } from "./views/ActivityFeed"
 import { CloudSphere } from "../../components/visuals/CloudSphere"
 import { WordCloud } from "../../components/visuals/WordCloud"
 import { SummaryBubble } from "../../components/visuals/SummaryBubble"
-import { deriveWorkWords, dateKey, formatRelativeTs, isOverdue } from "./work-types"
+import { deriveWorkWords, dateKey, formatRelativeTs, isOverdue, tsFromYmd, ymdFromTs } from "./work-types"
 import type { CardDto } from "../../../types"
 
 const now = Math.floor(Date.now() / 1000)
@@ -38,7 +38,7 @@ function card(overrides: Partial<CardDto> = {}): CardDto {
 const CARDS: CardDto[] = [
   card({ id: 1, title: "待办卡片", status: "todo" }),
   card({ id: 2, title: "进行中卡片", status: "in_progress", due_date: now - 3600 }),
-  card({ id: 3, title: "已完成卡片", status: "done", due_date: null }),
+  card({ id: 3, title: "已完成卡片", status: "done", due_date: null, assignee_name: null }),
 ]
 
 describe("work views render", () => {
@@ -52,11 +52,24 @@ describe("work views render", () => {
         onOpenCard={() => {}}
       />
     ))
-    expect(container.textContent).toContain("Todo")
-    expect(container.textContent).toContain("Doing")
-    expect(container.textContent).toContain("Done")
+    expect(container.textContent).toContain("待办")
+    expect(container.textContent).toContain("进行中")
+    expect(container.textContent).toContain("已完成")
     expect(container.textContent).toContain("待办卡片")
     expect(container.textContent).toContain("添加卡片")
+  })
+
+  it("KanbanView 无卡片时显示加载/空状态", () => {
+    const { container } = render(() => (
+      <KanbanView
+        cards={[]}
+        loading={true}
+        onCreateCard={() => Promise.resolve()}
+        onUpdateStatus={() => Promise.resolve()}
+        onOpenCard={() => {}}
+      />
+    ))
+    expect(container.textContent).toContain("加载中…")
   })
 
   it("ListView 渲染表格与排序表头", () => {
@@ -74,9 +87,10 @@ describe("work views render", () => {
     expect(container.textContent).toContain("今天")
   })
 
-  it("TimelineView 渲染时间分组", () => {
+  it("TimelineView 渲染时间分组与未指派", () => {
     const { container } = render(() => <TimelineView cards={CARDS} loading={false} onOpenCard={() => {}} />)
     expect(container.textContent).toContain("今天")
+    expect(container.textContent).toContain("小明")
     expect(container.textContent).toContain("未指派")
   })
 
@@ -158,5 +172,15 @@ describe("work-types helpers", () => {
     expect(formatRelativeTs(now - 600)).toBe("10 分钟前")
     expect(isOverdue(card({ status: "todo", due_date: now - 3600 }))).toBe(true)
     expect(isOverdue(card({ status: "done", due_date: now - 3600 }))).toBe(false)
+  })
+
+  it("ymdFromTs / tsFromYmd 本地日期往返一致（无 UTC 偏移）", () => {
+    // 本地 2026-08-09 凌晨 1:30：UTC 视角是 08-08，旧 toISOString 实现会偏移一天
+    const ts = Math.floor(new Date(2026, 7, 9, 1, 30).getTime() / 1000)
+    expect(ymdFromTs(ts)).toBe("2026-08-09")
+    const back = tsFromYmd(ymdFromTs(ts))!
+    expect(dateKey(new Date(back * 1000))).toBe("2026-08-09")
+    // 未排期 / 空值
+    expect(tsFromYmd("")).toBeNull()
   })
 })

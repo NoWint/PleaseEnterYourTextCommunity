@@ -215,15 +215,19 @@ export const SummaryDashboard: Component<SummaryDashboardProps> = (props) => {
     setBodies((draft) => ({ ...draft, [kind]: renderBody(kind, props.cards, props.activities, chatKey()) }))
   }
 
-  // 行动项勾选 → localStorage 持久化（事件委托）
+  // 行动项勾选 → 点击条目切换（input 为隐藏元素不可点击，改由 .sd-item 委托触发）
+  // → localStorage 持久化 + 进度条同步
   const onContentClick = (e: MouseEvent) => {
-    const input = (e.target as HTMLElement).closest<HTMLInputElement>(".sd-check-input")
+    const item = (e.target as HTMLElement).closest<HTMLElement>(".sd-item")
+    if (!item) return
+    const input = item.querySelector<HTMLInputElement>(".sd-check-input")
     if (!input) return
+    input.checked = !input.checked
     const i = input.dataset.actionI
     if (i == null) return
     localStorage.setItem(`sd-action-done:${chatKey()}:action_items:${i}`, input.checked ? "1" : "0")
     // 同步进度条
-    const root = input.closest<HTMLElement>(".sd-body")
+    const root = item.closest<HTMLElement>(".sd-body")
     if (!root) return
     const progress = root.querySelector<HTMLElement>(".sd-action-progress")
     const fill = root.querySelector<HTMLElement>(".sd-action-p-fill")

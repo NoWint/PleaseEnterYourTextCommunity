@@ -71,10 +71,10 @@ interface WorkspaceStore {
   activities: (directory: string) => ActivityDto[]
   workLoading: (directory: string) => boolean
   workReal: (directory: string) => boolean
-  /** 拉取（或假数据兜底）指定工作区的卡片 + 活动流。 */
-  refreshWork: (directory: string) => Promise<void>
-  /** 未加载过则拉取（页面挂载用，避免重复请求）。 */
-  ensureWork: (directory: string) => Promise<void>
+  /** 拉取（或假数据兜底）指定工作区的卡片 + 活动流。返回是否拿到真实数据。 */
+  refreshWork: (directory: string) => Promise<boolean>
+  /** 未加载过则拉取（页面挂载用，避免重复请求）。返回是否拿到真实数据。 */
+  ensureWork: (directory: string) => Promise<boolean>
   createCard: (directory: string, input: CreateCardInput) => Promise<CardDto>
   updateCard: (directory: string, cardId: number, patch: UpdateCardPatch) => Promise<CardDto>
   deleteCard: (directory: string, cardId: number) => Promise<void>
@@ -124,9 +124,10 @@ function createWorkspaceStore(): WorkspaceStore {
 
   const workState = (directory: string): WorkState | undefined => state.work[directory]
 
-  async function ensureWork(directory: string): Promise<void> {
-    if (workState(directory)?.fresh) return
-    await refreshWork(directory)
+  async function ensureWork(directory: string): Promise<boolean> {
+    const st = workState(directory)
+    if (st?.fresh) return st.real
+    return refreshWork(directory)
   }
 
   function wsIdFor(directory: string): number | null {
@@ -134,7 +135,8 @@ function createWorkspaceStore(): WorkspaceStore {
     return match ? Number(match[1]) : null
   }
 
-  async function refreshWork(directory: string): Promise<void> {
+  /** 返回是否拿到后端真实数据（false = 假数据兜底，调用方可提示）。 */
+  async function refreshWork(directory: string): Promise<boolean> {
     setState("work", directory, { ...(workState(directory) ?? {}), loading: true } as WorkState)
     try {
       const wsId = wsIdFor(directory)
@@ -158,6 +160,7 @@ function createWorkspaceStore(): WorkspaceStore {
         real: true,
         fresh: true,
       })
+      return true
     } catch {
       // invoke 不可用（浏览器 dev）→ 假数据兜底，保证 4 视图可预览
       setState("work", directory, {
@@ -168,6 +171,7 @@ function createWorkspaceStore(): WorkspaceStore {
         real: false,
         fresh: true,
       })
+      return false
     }
   }
 
@@ -199,6 +203,9 @@ function createWorkspaceStore(): WorkspaceStore {
     }
   }
 
+  // TODO(Task 4): 写操作已接后端 invoke（create_card/update_card/delete_card），
+  // 但浏览器 dev（假数据工作区 wsId 为 null / 无 Tauri invoke）会抛错，由页面 toast；
+  // 待桌面端数据接入后此注释可移除。
   async function createCard(directory: string, input: CreateCardInput): Promise<CardDto> {
     const wsId = wsIdFor(directory)
     if (wsId == null) throw new Error("工作区未接入后端，无法创建卡片")
@@ -216,12 +223,14 @@ function createWorkspaceStore(): WorkspaceStore {
   }
 
   async function updateCard(directory: string, cardId: number, patch: UpdateCardPatch): Promise<CardDto> {
+    // TODO(Task 4): 同 createCard —— 无 Tauri invoke 时抛错由页面 toast（见上方注释）
     const card = await call<CardDto>("update_card", { cardId, ...patch })
     await reloadCards(directory)
     return card
   }
 
   async function deleteCard(directory: string, cardId: number): Promise<void> {
+    // TODO(Task 4): 同 createCard —— 无 Tauri invoke 时抛错由页面 toast（见上方注释）
     await call("delete_card", { cardId })
     await reloadCards(directory)
   }

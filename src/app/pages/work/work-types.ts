@@ -17,13 +17,13 @@ export const VIEW_OPTIONS: ReadonlyArray<{ value: WorkView; label: string; icon:
 export const STATUS_ORDER: ReadonlyArray<CardStatus> = ["todo", "in_progress", "done"]
 
 export const STATUS_LABEL: Record<CardStatus, string> = {
-  todo: "Todo",
-  in_progress: "Doing",
-  done: "Done",
+  todo: "待办",
+  in_progress: "进行中",
+  done: "已完成",
 }
 
 export function typeLabel(type: CardType): string {
-  return type === "task" ? "Task" : "Card"
+  return type === "task" ? "任务" : "卡片"
 }
 
 /** 本地日期 YYYY-MM-DD。 */
@@ -32,6 +32,23 @@ export function dateKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0")
   const day = String(d.getDate()).padStart(2, "0")
   return `${y}-${m}-${day}`
+}
+
+/** unix 秒 → 本地 YYYY-MM-DD（与 dateKey 一致，用本地 getters，避免 UTC 偏移一天）。 */
+export function ymdFromTs(ts: number): string {
+  return dateKey(new Date(ts * 1000))
+}
+
+/**
+ * 本地 YYYY-MM-DD → unix 秒（本地午夜）。与 ymdFromTs 往返一致：
+ * 按 YYYY-MM-DD 拆解用本地 Date 构造，避免字符串构造按 UTC 解析导致
+ * 负时区（UTC-x）下往返偏移一天。
+ */
+export function tsFromYmd(ymd: string): number | null {
+  if (!ymd) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
+  if (!match) return null
+  return Math.floor(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime() / 1000)
 }
 
 export function isOverdue(c: CardDto): boolean {
@@ -94,6 +111,11 @@ export function activityTargetLabel(activity: { target_type: string; target_id: 
  * 从工作区素材（卡片标题 + 频道名 + 会话标题）提取词频。
  * 迁移自 legacy 会话主题分析：此处用确定性轻量分词（CJK 连续串 / 字母数字词），
  * 不依赖 jieba-wasm（工作页离线可渲染）。
+ *
+ * CJK 策略（确定性、可测试）：
+ * 1. 整段连续串计 1 次（避免单字碎片）；
+ * 2. 再取该串与其它标题共享的「最长公共前缀」（长度 ≥2 且非自身）计 1 次——
+ *    多个标题共用的话术会被聚合为高频词（如「首页改版」），而非整标题散词。
  */
 export function deriveWorkWords(
   cards: CardDto[],
@@ -106,12 +128,12 @@ export function deriveWorkWords(
     if (word.length < 2) return
     count.set(word, (count.get(word) ?? 0) + 1)
   }
+  const hanRuns: string[] = []
   const scan = (text: string) => {
     const tokens = text.split(/[^\p{L}\p{N}]+/u).filter(Boolean)
     for (const raw of tokens) {
-      // CJK：连续串整体作为词（避免单字碎片）；否则 ≥3 字母的词
       if (/^[\p{Script=Han}]+$/u.test(raw)) {
-        if (raw.length >= 2) bump(raw)
+        if (raw.length >= 2) hanRuns.push(raw)
       } else if (raw.length >= 3 && !/^\d+$/.test(raw)) {
         bump(raw.toLowerCase())
       }
@@ -123,6 +145,18 @@ export function deriveWorkWords(
   }
   for (const name of channelNames) scan(name)
   for (const title of sessionTitles) scan(title)
+  // 第二遍：整段 + 跨标题最长公共前缀（须在所有素材扫描完后计算）
+  for (const run of hanRuns) {
+    bump(run)
+    let shared = ""
+    for (const other of hanRuns) {
+      if (other === run) continue
+      let i = 0
+      while (i < run.length && i < other.length && run[i] === other[i]) i++
+      if (i >= 2 && i > shared.length) shared = run.slice(0, i)
+    }
+    if (shared && shared !== run) bump(shared)
+  }
   const entries = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)
   if (entries.length === 0) return []
   const max = entries[0][1] || 1

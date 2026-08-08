@@ -16,19 +16,11 @@ import { For } from "solid-js"
 import { useWorkspace, type UpdateCardPatch } from "../../../context/workspace"
 import { showToast } from "../../../utils/toast"
 import type { CardDto, CardStatus } from "../../../../types"
-import { STATUS_LABEL, STATUS_ORDER, typeLabel } from "../work-types"
+import { STATUS_LABEL, STATUS_ORDER, tsFromYmd, typeLabel, ymdFromTs } from "../work-types"
 
 export interface CardDetailDialogProps {
   directory: string
   card: CardDto
-}
-
-function toYmd(ts: number): string {
-  return new Date(ts * 1000).toISOString().split("T")[0]
-}
-
-function toTs(ymd: string): number | null {
-  return ymd ? Math.floor(new Date(ymd).getTime() / 1000) : null
 }
 
 export const CardDetailDialog: Component<CardDetailDialogProps> = (props) => {
@@ -36,7 +28,7 @@ export const CardDetailDialog: Component<CardDetailDialogProps> = (props) => {
   const dialog = useDialog()
   const [title, setTitle] = createSignal(props.card.title)
   const [status, setStatus] = createSignal<CardStatus>(props.card.status)
-  const [due, setDue] = createSignal(props.card.due_date ? toYmd(props.card.due_date) : "")
+  const [due, setDue] = createSignal(props.card.due_date ? ymdFromTs(props.card.due_date) : "")
   const [desc, setDesc] = createSignal(props.card.description ?? "")
   const [saving, setSaving] = createSignal(false)
   const [deleting, setDeleting] = createSignal(false)
@@ -50,7 +42,7 @@ export const CardDetailDialog: Component<CardDetailDialogProps> = (props) => {
       if (title().trim() !== props.card.title) patch.title = title().trim()
       if (status() !== props.card.status) patch.status = status()
       if (desc().trim() !== (props.card.description ?? "")) patch.description = desc().trim() || null
-      const nextDue = toTs(due())
+      const nextDue = tsFromYmd(due())
       if (nextDue !== props.card.due_date) patch.dueDate = nextDue
       if (Object.keys(patch).length > 0) {
         await workspace.updateCard(props.directory, props.card.id, patch)

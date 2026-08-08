@@ -99,62 +99,69 @@ export const KanbanView: Component<KanbanViewProps> = (props) => {
   }
 
   return (
-    <div class="flex h-full min-h-0 flex-1 gap-3 p-3">
-      <For each={STATUS_ORDER}>
-        {(status) => (
-          <div class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-v2-border-border-weak-base bg-v2-background-bg-deep">
-            <div class="flex items-center gap-2 px-3 py-2.5">
-              <span class="text-[13px] font-semibold text-v2-text-text-base">{STATUS_LABEL[status]}</span>
-              <span class="rounded-full bg-v2-background-bg-raised px-1.5 text-[11px] text-v2-text-text-faint">
-                {cardsOf(status).length}
-              </span>
-            </div>
-            <div class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2.5 pb-2.5">
-              <For each={cardsOf(status)}>
-                {(card) => (
-                  <KanbanCard
-                    card={card}
-                    currentStatus={status}
-                    onUpdateStatus={props.onUpdateStatus}
-                    onOpen={props.onOpenCard}
-                  />
-                )}
-              </For>
-              <Show when={creating() === status}>
-                <div class="flex flex-col gap-1.5 rounded-lg border border-v2-border-border-strong-base bg-v2-background-bg-base p-2">
-                  <input
-                    autofocus
-                    value={title()}
-                    placeholder="输入卡片标题"
-                    class="w-full bg-transparent text-[13px] text-v2-text-text-base outline-none placeholder:text-v2-text-text-faint"
-                    onInput={(e) => setTitle(e.currentTarget.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void submit(status)
-                      if (e.key === "Escape") setCreating(null)
-                    }}
-                  />
-                  <div class="flex gap-1.5">
-                    <ButtonV2 size="small" variant="contrast" disabled={submitting() || !title().trim()} onClick={() => void submit(status)}>
-                      创建
-                    </ButtonV2>
-                    <ButtonV2 size="small" variant="ghost" onClick={() => setCreating(null)}>
-                      取消
-                    </ButtonV2>
+    <div class="flex h-full min-h-0 flex-1 flex-col">
+      <Show when={props.cards.length === 0} fallback={<></>}>
+        <div class="flex flex-1 items-center justify-center text-[13px] text-v2-text-text-faint">
+          {props.loading ? "加载中…" : "暂无卡片"}
+        </div>
+      </Show>
+      <div class="flex min-h-0 flex-1 gap-3 p-3">
+        <For each={STATUS_ORDER}>
+          {(status) => (
+            <div class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-v2-border-border-weak-base bg-v2-background-bg-deep">
+              <div class="flex items-center gap-2 px-3 py-2.5">
+                <span class="text-[13px] font-semibold text-v2-text-text-base">{STATUS_LABEL[status]}</span>
+                <span class="rounded-full bg-v2-background-bg-raised px-1.5 text-[11px] text-v2-text-text-faint">
+                  {cardsOf(status).length}
+                </span>
+              </div>
+              <div class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2.5 pb-2.5">
+                <For each={cardsOf(status)}>
+                  {(card) => (
+                    <KanbanCard
+                      card={card}
+                      currentStatus={status}
+                      onUpdateStatus={props.onUpdateStatus}
+                      onOpen={props.onOpenCard}
+                    />
+                  )}
+                </For>
+                <Show when={creating() === status}>
+                  <div class="flex flex-col gap-1.5 rounded-lg border border-v2-border-border-strong-base bg-v2-background-bg-base p-2">
+                    <input
+                      autofocus
+                      value={title()}
+                      placeholder="输入卡片标题"
+                      class="w-full bg-transparent text-[13px] text-v2-text-text-base outline-none placeholder:text-v2-text-text-faint"
+                      onInput={(e) => setTitle(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void submit(status)
+                        if (e.key === "Escape") setCreating(null)
+                      }}
+                    />
+                    <div class="flex gap-1.5">
+                      <ButtonV2 size="small" variant="contrast" disabled={submitting() || !title().trim()} onClick={() => void submit(status)}>
+                        创建
+                      </ButtonV2>
+                      <ButtonV2 size="small" variant="ghost" onClick={() => setCreating(null)}>
+                        取消
+                      </ButtonV2>
+                    </div>
                   </div>
-                </div>
-              </Show>
-              <button
-                type="button"
-                class="flex w-full items-center gap-1 rounded-lg border border-dashed border-transparent px-2 py-1.5 text-[12px] text-v2-text-text-faint transition-colors hover:border-v2-border-border-strong-base hover:text-v2-text-text-muted"
-                onClick={() => startCreate(status)}
-              >
-                <WorkIcon name="plus" size={12} />
-                添加卡片
-              </button>
+                </Show>
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-1 rounded-lg border border-dashed border-transparent px-2 py-1.5 text-[12px] text-v2-text-text-faint transition-colors hover:border-v2-border-border-strong-base hover:text-v2-text-text-muted"
+                  onClick={() => startCreate(status)}
+                >
+                  <WorkIcon name="plus" size={12} />
+                  添加卡片
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-      </For>
+          )}
+        </For>
+      </div>
     </div>
   )
 }

@@ -160,8 +160,15 @@ const WorkPage: Component = () => {
     }
   }
 
-  const refresh = () => {
-    void workspace.refreshWork(wsKey()).catch(() => {})
+  const refresh = async () => {
+    try {
+      const ok = await workspace.refreshWork(wsKey())
+      if (!ok) {
+        showToast({ title: "刷新失败", description: "后端不可用，已显示演示数据" })
+      }
+    } catch (e) {
+      showToast({ title: "刷新失败", description: e instanceof Error ? e.message : String(e) })
+    }
   }
 
   // 未选中工作区时提示
