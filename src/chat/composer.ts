@@ -353,6 +353,7 @@ function autoResize(el: HTMLElement): void {
 // 清空(替代 input.value = '')
 function clearInput(el: HTMLElement): void {
   el.textContent = '';
+  autoResize(el);
   el.focus();
 }
 // 在光标处插入文本(替代 insertNewline)
@@ -467,7 +468,8 @@ function updateMentionSelection(): void {
   });
 }
 
-// 插入选中的建议项。Task 6 将改为插入彩色 tag span,当前在光标处插入纯文本 @name / #name。
+// 插入选中的建议项。删除已输入的 @query / #query,再在光标处插入 @name / #name。
+// (点击建议项可能使输入框失焦,先重新聚焦并恢复光标)
 function insertSelectedMention(input: HTMLElement): void {
   if (!mentionList || mentionItems.length === 0 || mentionKind == null) {
     closeMentionList();
@@ -477,6 +479,34 @@ function insertSelectedMention(input: HTMLElement): void {
   if (!item) {
     closeMentionList();
     return;
+  }
+  // 点击建议项可能 blur → 重新聚焦,把光标放回内容末尾(或上次位置)
+  if (document.activeElement !== input) {
+    input.focus();
+    const sel = window.getSelection();
+    const r = document.createRange();
+    r.selectNodeContents(input);
+    r.collapse(false);
+    if (sel) { sel.removeAllRanges(); sel.addRange(r); }
+  }
+  // 删除光标前的 @query / #query 文本(基于 textBeforeCaret 匹配)
+  const before = textBeforeCaret(input);
+  const re = new RegExp(`\\${mentionKind}(\\w*)$`);
+  const m = before.match(re);
+  if (m) {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      const node = range.startContainer;
+      const offset = range.startOffset;
+      const back = m[0].length;
+      try {
+        if (node.nodeType === Node.TEXT_NODE && offset >= back) {
+          range.setStart(node, offset - back);
+          range.deleteContents();
+        }
+      } catch { /* 跨节点起点则跳过删除 */ }
+    }
   }
   insertTextAtCaret(input, `${mentionKind}${item.name} `);
   autoResize(input);
