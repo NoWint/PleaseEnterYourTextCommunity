@@ -3,7 +3,7 @@
 > 为 6 个 legacy 页面(`src/pages/{bots,intelligence,github,inbox,debug}Page.ts` + `src/plugins/view.ts`)
 > 的 Solid 迁移提供完整数据流清单。Task 1-4 以此为准,无需再读 legacy 源码。
 >
-> 结论摘要:**6 页共 59 条 invoke 命令调用(58 个去重命令名),全部在 `lib.rs` 注册表中存在,0 个 MISS**。
+> 结论摘要:**6 页共 59 条 invoke 命令调用(57 个去重命令名),全部在 `lib.rs` 注册表中存在,0 个 MISS**。
 > 唯一注意:`open_external` 是 `pub fn` 而非 `pub async fn`(commands.rs:4034),但已注册,命令本身存在。
 
 ---
@@ -284,11 +284,11 @@
 | 文件 | 分类 | 说明 | 消费者 |
 |---|---|---|---|
 | `view.ts`(252 行) | **视图(迁移目标)** | 插件页 nav + main | `shell/navPanel.ts:92,128`(动态 import `renderPluginsNav`/`renderPluginsMain`) |
-| `settings.ts`(147 行) | **视图(独立于 6 页清单,也需处理)** | 设置页「插件」区块 `renderPluginSettings(main)`;用同一组命令(`list_plugins`/`toggle_plugin`/`uninstall_plugin`/`install_plugin_from_zip`)+ 权限管理 UI | `pages/settingsPage.ts:65`(动态 import `renderPluginSettings`) |
+| `settings.ts`(147 行) | **视图(独立于 6 页清单,也需处理)** | 设置页「插件」区块 `renderPluginSettings(main)`;用同一组命令(`list_plugins`/`toggle_plugin`/`uninstall_plugin`/`install_plugin_from_zip 仅在 view.ts 使用)+ 权限管理 UI | `pages/settingsPage.ts:65`(动态 import `renderPluginSettings`) |
 | `manager.ts`(68 行) | **纯工具(必须保留)** | `loadPlugins()`(应用启动)/`loadPlugin`/`unloadPlugin` + 已加载插件注册表;import api.js + types.js | **`shell/shell.ts:4`(启动时静态 import `loadPlugins`)**;view.ts / settings.ts |
 | `api.ts`(173 行) | **纯工具(必须保留)** | `createPluginApi` 构造注入插件的 `peytchat` 沙箱 API;内部 `onEvent('IncomingMsg')` 分发 + `listen('bot-tool-request')` 回写;import permissions.js + storage.js + types.js | 仅 manager.ts(链式);无页面直接 import |
 | `types.ts`(91 行) | **纯类型(必须保留)** | PluginApi/PluginStatus/RegistryPlugin/PluginPermission 等 | manager/api/permissions/settings/view |
-| `permissions.ts`(50 行) | **纯工具(必须保留)** | localStorage 权限存储 + PERMISSION_LABELS;import types.ts | api.ts(运行时校验)/ settings.ts(UI) |
+| `permissions.ts`(50 行) | **纯工具(必须保留)** | localStorage 权限存储 + PERMISSION_LABELS;import 自根 ../types.ts | api.ts(运行时校验)/ settings.ts(UI) |
 | `storage.ts`(19 行) | **纯工具(必须保留)** | 插件作用域 localStorage KV(`getPluginSetting`/`setPluginSetting`/`deletePluginSetting`);无 import | api.ts(peytchat.store)/ settings.ts |
 | `confirm.ts`(69 行) | **轻量 DOM 工具(可保留或替换)** | `showPluginConfirm(anchor, message, onConfirm)` 浮动确认卡;无 API 调用 | view.ts / settings.ts |
 
