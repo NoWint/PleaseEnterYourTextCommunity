@@ -4,7 +4,7 @@
 // （titlebar 的 auto-add effect 会自动补 session tab）。文案统一走 dialogsT（src/i18n）。
 
 import { createSignal, Show, type Component } from "solid-js"
-import { useNavigate } from "@solidjs/router"
+import { useLocation, useNavigate } from "@solidjs/router"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
@@ -13,6 +13,7 @@ import { DividerV2 } from "@opencode-ai/ui/v2/divider-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { call } from "../../api"
 import { useAccount } from "../context/account"
+import { useTabs } from "../context/tabs"
 import { normalizeUrlForQr } from "../../utils/deepLink"
 import { isEmail } from "../../utils/inviteLink"
 import { dialogsT } from "../components/dialogs/i18n"
@@ -24,12 +25,17 @@ import QRCode from "qrcode"
 
 const NewChatPage: Component = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const account = useAccount()
+  const tabs = useTabs()
   const dialog = useDialog()
   const [input, setInput] = createSignal("")
   const [busy, setBusy] = createSignal(false)
 
+  // 创建成功后用 session tab 替换当前 URL 里 draftId 对应的 draft tab（否则残留「新会话」标签）
   const openChat = (chatId: number) => {
+    const draftId = new URLSearchParams(location.search).get("draftId")
+    if (draftId) tabs.replaceDraft(draftId, String(chatId))
     navigate(`/chat/${chatId}`)
   }
 
@@ -170,7 +176,9 @@ function CreateGroupDialog(props: { onCreated: (chatId: number) => void }) {
 function ScanJoinDialog() {
   const dialog = useDialog()
   const navigate = useNavigate()
+  const location = useLocation()
   const account = useAccount()
+  const tabs = useTabs()
   const [qrUrl, setQrUrl] = createSignal("")
   const [link, setLink] = createSignal("")
   const [busy, setBusy] = createSignal(false)
@@ -193,8 +201,13 @@ function ScanJoinDialog() {
     try {
       const chatId = await account.joinSecure(normalizeUrlForQr(raw))
       showToast({ title: dialogsT("newchat.joined") })
-      // 与 startChat 路径一致：加入成功后直达新会话（secure_join 返回 chatId）
-      if (chatId) navigate(`/chat/${chatId}`)
+      // 与 startChat 路径一致：加入成功后直达新会话（secure_join 返回 chatId），
+      // 并替换掉 URL 中 draftId 对应的 draft tab。
+      if (chatId) {
+        const draftId = new URLSearchParams(location.search).get("draftId")
+        if (draftId) tabs.replaceDraft(draftId, String(chatId))
+        navigate(`/chat/${chatId}`)
+      }
     } catch (e) {
       showToast({ title: e instanceof Error ? e.message : String(e) })
     } finally {

@@ -80,6 +80,8 @@ interface TabsStore {
   reopenClosedTab: () => void
   removeSessionTab: (input: Omit<SessionTab, "type">) => void
   removeSessions: (chatIds: string[]) => void
+  /** 新建会话成功后用 session tab 替换对应的 draft tab（/chat/new 流程，避免残留「新会话」标签）。 */
+  replaceDraft: (draftID: string, chatId: string) => void
   rememberSessionInfo: (tab: SessionTab, session: Pick<AppSession, "title" | "directory">) => void
   select: (tab: Tab) => void
   remember: (tab: Tab) => void
@@ -141,20 +143,22 @@ function createTabsStore(): TabsStore {
     if (recentKey.key === key) setRecentKey(undefined)
   }
 
+  const addSessionTab = (tab: Omit<SessionTab, "type">): SessionTab => {
+    const next: SessionTab = { type: "session", ...tab }
+    const existing = store.find((item) => tabKey(item) === tabKey(next))
+    if (existing) return existing as SessionTab
+    setStore((tabs) =>
+      tabs.some((item) => tabKey(item) === tabKey(next)) ? tabs : [...tabs, next],
+    )
+    persistTabs()
+    return next
+  }
+
   const actions: TabsStore = {
     store,
     info,
     ready: () => true,
-    addSessionTab: (tab) => {
-      const next: SessionTab = { type: "session", ...tab }
-      const existing = store.find((item) => tabKey(item) === tabKey(next))
-      if (existing) return existing as SessionTab
-      setStore((tabs) =>
-        tabs.some((item) => tabKey(item) === tabKey(next)) ? tabs : [...tabs, next],
-      )
-      persistTabs()
-      return next
-    },
+    addSessionTab,
     reorder(keys: string[]) {
       setStore((tabs) => {
         const byKey = new Map(tabs.map((tab) => [tabKey(tab), tab]))
@@ -205,6 +209,23 @@ function createTabsStore(): TabsStore {
         markTabRemoved(tabKey(store[index]))
         removeTab(index)
       }
+    },
+    replaceDraft(draftID, chatId) {
+      const draftKey = tabKey({ type: "draft", draftID })
+      const index = store.findIndex((tab) => tab.type === "draft" && tab.draftID === draftID)
+      // 先补 session tab（幂等：titlebar 的 auto-add effect 也会补，此处保证替换后仍在）
+      const session = addSessionTab({ chatId })
+      if (index === -1) return
+      markTabRemoved(draftKey)
+      setStore((tabs) => tabs.filter((_, i) => i !== index))
+      persistTabs()
+      setInfo((draft) => {
+        const next = { ...draft }
+        delete next[draftKey]
+        return next
+      })
+      persistInfo()
+      if (recentKey.key === draftKey) setRecentKey(tabKey(session))
     },
     removeSessions(chatIds: string[]) {
       const removed = store

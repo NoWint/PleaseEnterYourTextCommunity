@@ -8,7 +8,7 @@ import { createEffect, createMemo, For, onCleanup, onMount, Show, Suspense } fro
 import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
+import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter, type DragEvent } from "@thisbeyond/solid-dnd"
 import { ConstrainDragXAxis } from "../utils/solid-dnd"
 import { base64Encode } from "../utils/base64"
 import { getFilename } from "../utils/path"
@@ -586,17 +586,38 @@ const AppLayout: Component<ParentProps> = (props) => {
   }
 
   const handleWorkspaceDragStart = (event: unknown) => {
-    // TODO(Task 2): 工作区拖拽排序落地（重新排列 layout.projects）
     void event
   }
-  const handleWorkspaceDragEnd = () => {}
+  // 工作区面板拖拽排序：按当前项目 workspaceIds 列表算出落点 index，写入 workspace order（持久化）。
+  // 面板列表 = [worktree, ...sandboxes]，与 orderedWorkspaces 均为工作区 key，index 可直接复用。
+  const handleWorkspaceDragEnd = (event?: DragEvent) => {
+    if (!event) return
+    const from = event.draggable.id
+    const over = event.droppable?.id
+    if (over == null || from === over) return
+    const project = currentProject()
+    const list = project ? projectSidebarCtx.workspaceIds(project) : []
+    const toIndex = list.indexOf(String(over))
+    if (toIndex === -1) return
+    workspace.move(String(from), toIndex)
+  }
   const handleWorkspaceDragOver = (_event: unknown) => {}
 
   const handleDragStart = (event: unknown) => {
-    // TODO(Task 2): 工作区拖拽排序落地（重新排列 layout.projects）
     void event
   }
-  const handleDragEnd = () => {}
+  // rail 项目（工作区）拖拽排序：layout.projects.move 即时重排 rail，workspace.move 写入
+  // peyt.workspaceOrder（与首页左列共用同一持久化顺序）。
+  const handleDragEnd = (event?: DragEvent) => {
+    if (!event) return
+    const from = event.draggable.id
+    const over = event.droppable?.id
+    if (over == null || from === over) return
+    const toIndex = projects().findIndex((p) => p.worktree === over)
+    if (toIndex === -1) return
+    layout.projects.move(String(from), toIndex)
+    workspace.move(String(from), toIndex)
+  }
   const handleDragOver = (_event: unknown) => {}
 
   const projects = () => layout.projects.list()

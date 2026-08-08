@@ -2,7 +2,7 @@
 // 照抄 opencode context/command.tsx（Task 2 全量版）：register/keybind/keybindParts/trigger/
 // show(palette)/keybinds(suspend) + catalog + 全局 keydown 分发 + 命令面板（mod+k）。
 // 与 opencode 的差异：
-// - catalog 不做持久化（无 Persist 工具），改为注册命令的内存镜像；
+// - catalog 持久化到 localStorage（peyt.commandCatalog），面板搜索时合并持久化键位；
 // - 键位标签用本地中文常量（KEY_TEXT），不依赖 i18n dict；
 // - EDITABLE_KEYBIND_IDS 为空（IM 无 terminal/file 类命令）。
 
@@ -474,7 +474,7 @@ function createCommandStore() {
     return options().find((x) => actionId(x.id) === base)?.keybind ?? bind(base, catalog[base]?.keybind)
   }
 
-  // Task 3：legacy 页入口命令（页面内容为 legacy vanilla 挂载，标签中文，归入「页面」分组）
+  // 6 个功能页（bots/plugins/inbox/github/intelligence/debug）入口命令（原生 Solid 页面，标签中文，归入「页面」分组）
   register("legacy-pages", () => [
     {
       id: "page.bots",

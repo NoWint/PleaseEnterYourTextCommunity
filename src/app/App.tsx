@@ -100,7 +100,7 @@ const App: Component = () => {
                   <Route path="/chat/new" component={() => <AuthedLayout><NewChatPage /></AuthedLayout>} />
                   <Route path="/chat/:id" component={() => <AuthedLayout><MessagesPage /></AuthedLayout>} />
                   <Route path="/work" component={() => <AuthedLayout><WorkPage /></AuthedLayout>} />
-                  {/* Task 3：legacy 页路由（Cmd+K 可达；github 已迁移为原生 Solid 组件） */}
+                  {/* 6 个功能页（bots/plugins/inbox/github/intelligence/debug）已全部迁移为原生 Solid 组件 */}
                   <Route path="/bots" component={() => <AuthedLayout><BotsPage /></AuthedLayout>} />
                   <Route path="/plugins" component={() => <AuthedLayout><PluginsPage /></AuthedLayout>} />
                   <Route path="/inbox" component={() => <AuthedLayout><InboxPage /></AuthedLayout>} />

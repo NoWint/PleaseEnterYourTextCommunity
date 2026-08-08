@@ -1,7 +1,7 @@
 // src/app/layout/sidebar/project-avatar-state.ts
 // 照抄 opencode pages/layout/project-avatar-state.ts 改造：数据源换成本地 chat context。
 // unread：未读数 > 0（或需要注意状态）；loading：会话"工作中"。
-// 签名保留 server 参数（对齐 opencode），当前单实现忽略 server 差异（Task 3 接入多端时细分）。
+// 签名保留 server 参数（对齐 opencode），当前仅本地单账号，忽略 server 差异。
 
 import { createMemo, type Accessor } from "solid-js"
 import { useChat } from "../../context/chat"

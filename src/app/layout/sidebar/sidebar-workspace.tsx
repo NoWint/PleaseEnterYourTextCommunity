@@ -35,7 +35,7 @@ export type WorkspaceSidebarContext = {
   isBusy: (directory: string) => boolean
   workspaceExpanded: (directory: string, local: boolean) => boolean
   setWorkspaceExpanded: (directory: string, value: boolean) => void
-  // TODO(Task 2): 接入重置/删除工作区对话框（现为 no-op 占位）
+  // 重置/删除工作区对话框（AppLayout 已接入 ConfirmWorkspaceDialog / delete_workspace）
   showResetWorkspaceDialog: (root: string, directory: string) => void
   showDeleteWorkspaceDialog: (root: string, directory: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined, mobile?: boolean) => void
