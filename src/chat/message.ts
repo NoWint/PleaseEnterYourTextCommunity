@@ -659,14 +659,18 @@ async function openExternal(url: string): Promise<void> {
   }
 }
 
-// Highlight @mentions of self name or role names with active background.
+// Highlight @mentions of self, role names, or any current-chat member as a clickable tag.
+// 输出 .mention-tag.tag-member(与输入框同款),点击由 chatView 委托处理(弹成员名片)。
 function highlightMentions(html: string): string {
   const myName = state.self?.name || '';
   const roleNames = (state.roles || []).map((r) => r.name).filter(Boolean);
-  const targets = [myName, ...roleNames].filter(Boolean).map(escapeRegex);
+  const memberNames = (state.currentMembers || []).map((m) => m.name).filter(Boolean);
+  const targets = [...new Set([myName, ...roleNames, ...memberNames])].filter(Boolean).map(escapeRegex);
   if (targets.length === 0) return html;
   const re = new RegExp(`@(${targets.join('|')})`, 'g');
-  return html.replace(re, '<span class="msg-mention">@$1</span>');
+  return html.replace(re, (match, name: string) =>
+    `<span class="mention-tag tag-member" data-kind="member" data-name="${escapeAttr(name)}">${match}</span>`,
+  );
 }
 
 function escapeRegex(s: string): string {
