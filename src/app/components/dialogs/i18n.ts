@@ -88,6 +88,7 @@ const DICT: Record<string, string> = {
   "settings.placeholder.account.local": "本地服务",
 
   // ── 工作区编辑对话框（占位） ──
+  "dialog.project.create.title": "新建工作区",
   "dialog.project.edit.title": "编辑工作区",
   "dialog.project.edit.name": "名称",
   "dialog.project.edit.worktree.startup": "启动命令",

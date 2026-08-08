@@ -57,6 +57,11 @@ const SHELL_DICT: Record<string, string> = {
   "home.sessions.empty": "暂无会话",
   "home.sessions.empty.description": "发起新会话后，它们会出现在这里",
   "dialog.project.edit.title": "编辑工作区",
+  "settings.section.server": "账号",
+  "dialog.server.menu.edit": "编辑",
+  "dialog.server.menu.default": "设为默认账号",
+  "dialog.server.menu.defaultRemove": "取消默认账号",
+  "dialog.server.menu.delete": "删除账号",
 }
 
 function resolve(dict: Record<string, string>, key: string): string | undefined {

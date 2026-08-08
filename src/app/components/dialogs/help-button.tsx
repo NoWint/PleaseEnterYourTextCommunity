@@ -16,35 +16,7 @@ export function HelpButton() {
 
   const open = () => {
     setShown(true)
-    void dialog.show(
-      () => (
-        <Dialog size="normal" class="help-dialog">
-          <DialogHeader>
-            <DialogTitle>{dialogsT("help.title")}</DialogTitle>
-          </DialogHeader>
-          <DialogBody class="flex flex-col gap-6 px-6 pb-6">
-            <p class="text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-muted">
-              {dialogsT("help.drawer.introduction")}
-            </p>
-            <div class="flex flex-col gap-4">
-              <HelpItem
-                title={dialogsT("help.drawer.guide")}
-                description={dialogsT("help.drawer.guide.description")}
-              />
-              <HelpItem
-                title={dialogsT("help.drawer.feedback")}
-                description={dialogsT("help.drawer.feedback.description")}
-              />
-              <HelpItem
-                title={dialogsT("help.drawer.about")}
-                description={dialogsT("help.drawer.about.description")}
-              />
-            </div>
-          </DialogBody>
-        </Dialog>
-      ),
-      () => setShown(false),
-    )
+    void dialog.show(() => <HelpDialogContent />, () => setShown(false))
   }
 
   return (
@@ -59,6 +31,36 @@ export function HelpButton() {
       aria-label={dialogsT("help.button.ariaLabel")}
       aria-pressed={shown()}
     />
+  )
+}
+
+/** 帮助对话框内容（标题栏问号按钮与 home 左列"帮助"入口共用）。 */
+export function HelpDialogContent() {
+  return (
+    <Dialog size="normal" class="help-dialog">
+      <DialogHeader>
+        <DialogTitle>{dialogsT("help.title")}</DialogTitle>
+      </DialogHeader>
+      <DialogBody class="flex flex-col gap-6 px-6 pb-6">
+        <p class="text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-muted">
+          {dialogsT("help.drawer.introduction")}
+        </p>
+        <div class="flex flex-col gap-4">
+          <HelpItem
+            title={dialogsT("help.drawer.guide")}
+            description={dialogsT("help.drawer.guide.description")}
+          />
+          <HelpItem
+            title={dialogsT("help.drawer.feedback")}
+            description={dialogsT("help.drawer.feedback.description")}
+          />
+          <HelpItem
+            title={dialogsT("help.drawer.about")}
+            description={dialogsT("help.drawer.about.description")}
+          />
+        </div>
+      </DialogBody>
+    </Dialog>
   )
 }
 

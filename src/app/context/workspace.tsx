@@ -3,6 +3,10 @@
 // - refreshWorkspaces：list_workspaces → AppWorkspace[]，并同步进 layout.projects
 //   （sidebar/home 的项目列表来自 layout context；open/rename 是其公开 API）
 // - 拉取失败时保留 Task 1 假数据（fakeWorkspaces）
+// - Task 1（左列）：order/orderedWorkspaces/move（peyt.workspaceOrder 拖拽排序）、
+//   recentlyClosed/close/reopen（peyt.closedWorkspaces 退出历史）、
+//   unseenCount/markSeen（get_chatlist 未读按 workspace 聚合，chat 列表经
+//   bindChatListSource 桥接）
 //
 // Task 4（工作页 v2）：
 // - chats(directory)/allChats()：会话列表来自 chat context（directory 映射）
@@ -16,7 +20,7 @@ import type { AppSession, AppWorkspace } from "../types"
 import { fakeWorkspaces, makeFakeActivities, makeFakeCards, makeFakeChannels } from "../data/fake"
 import { call } from "../../api"
 import type { ActivityDto, CardDto, ChannelDto, WorkspaceDto } from "../../types"
-import { useLayout } from "./layout"
+import { useLayout, type LocalProject } from "./layout"
 
 // 会话列表由 ChatProvider 提供，而 WorkspaceProvider 挂载在 ChatProvider 外层
 // （App.tsx provider 树），init 阶段不能直接 useChat()。WorkPage 挂载时经
@@ -61,6 +65,22 @@ interface WorkspaceStore {
   loading: () => boolean
   currentWsId: () => string | null
   setCurrentWs: (id: string | null) => void
+  /** 首页左列可见顺序（localStorage `peyt.workspaceOrder`；无记录时用 list_workspaces 默认顺序）。 */
+  order: () => string[]
+  /** 应用 order 且排除已退出（closed）工作区后的列表（首页左列数据源）。 */
+  orderedWorkspaces: () => AppWorkspace[]
+  /** 按新位置排序并持久化（拖拽 onMoveProject）。 */
+  move: (worktree: string, toIndex: number) => void
+  /** 退出历史（localStorage `peyt.closedWorkspaces`，最近关闭）。 */
+  recentlyClosed: () => LocalProject[]
+  /** 记入退出历史（close） */
+  close: (worktree: string) => void
+  /** 从退出历史移除（reopen，重新打开） */
+  reopen: (worktree: string) => void
+  /** 该工作区会话未读总数（get_chatlist 按 workspace 聚合）。 */
+  unseenCount: (worktree: string) => number
+  /** 批量已读该工作区所有未读会话（mark_chat_seen）。 */
+  markSeen: (worktree: string) => Promise<void>
   /** 指定工作区的会话（directory = AppWorkspace.worktree key）。 */
   chats: (directory: string) => AppSession[]
   allChats: () => AppSession[]
@@ -83,12 +103,29 @@ interface WorkspaceStore {
 
 const WORKSPACE_COLORS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 
+const WORKSPACE_ORDER_KEY = "peyt.workspaceOrder"
+const CLOSED_WORKSPACES_KEY = "peyt.closedWorkspaces"
+const RECENTLY_CLOSED_LIMIT = 5
+
+function loadJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return fallback
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
+}
+
 function createWorkspaceStore(): WorkspaceStore {
   const layout = useLayout()
   const [state, setState] = createStore({
     workspaces: fakeWorkspaces,
     currentWsId: fakeWorkspaces[0]?.id ?? null,
     loading: false,
+    // Task 1：排序 + 退出历史（见 interface 注释）
+    order: loadJson<string[]>(WORKSPACE_ORDER_KEY, []),
+    closed: loadJson<string[]>(CLOSED_WORKSPACES_KEY, []),
     // Task 4：按工作区聚合的协作数据
     work: {} as Record<string, WorkState>,
   })
@@ -235,6 +272,86 @@ function createWorkspaceStore(): WorkspaceStore {
     await reloadCards(directory)
   }
 
+  // ── Task 1：排序 + 退出历史（首页左列数据源） ────────────
+
+  const order = createMemo((): string[] => {
+    if (state.order.length === 0) return state.workspaces.map((ws) => ws.worktree)
+    return state.order
+  })
+
+  /** order 应用 + 已退出工作区隐藏后的可见列表。 */
+  const orderedWorkspaces = createMemo((): AppWorkspace[] => {
+    const list = state.workspaces
+    const map = new Map(list.map((ws) => [ws.worktree, ws] as const))
+    const hidden = new Set(state.closed)
+    const result: AppWorkspace[] = []
+    const seen = new Set<string>()
+    for (const key of order()) {
+      if (seen.has(key) || hidden.has(key)) continue
+      const ws = map.get(key)
+      if (ws) {
+        result.push(ws)
+        seen.add(key)
+      }
+    }
+    for (const ws of list) {
+      if (seen.has(ws.worktree) || hidden.has(ws.worktree)) continue
+      result.push(ws)
+    }
+    return result
+  })
+
+  function move(worktree: string, toIndex: number): void {
+    const list = orderedWorkspaces()
+    const fromIndex = list.findIndex((ws) => ws.worktree === worktree)
+    if (fromIndex === -1) return
+    const next = list.slice()
+    const [moved] = next.splice(fromIndex, 1)
+    next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, moved)
+    const keys = next.map((ws) => ws.worktree)
+    setState("order", keys)
+    try {
+      localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(keys))
+    } catch {
+      // 忽略存储异常（如隐私模式）
+    }
+  }
+
+  function persistClosed(next: string[]) {
+    setState("closed", next)
+    try {
+      localStorage.setItem(CLOSED_WORKSPACES_KEY, JSON.stringify(next))
+    } catch {
+      // 忽略存储异常（如隐私模式）
+    }
+  }
+
+  function close(worktree: string): void {
+    const next = [worktree, ...state.closed.filter((key) => key !== worktree)].slice(0, RECENTLY_CLOSED_LIMIT)
+    persistClosed(next)
+  }
+
+  function reopen(worktree: string): void {
+    persistClosed(state.closed.filter((key) => key !== worktree))
+  }
+
+  const recentlyClosed = createMemo((): LocalProject[] =>
+    state.closed.map((worktree) => {
+      const ws = state.workspaces.find((item) => item.worktree === worktree)
+      return ws ?? { worktree, expanded: false, icon: { color: "gray" as const } }
+    }),
+  )
+
+  const unseenCount = (worktree: string): number =>
+    (chatListSource?.() ?? []).reduce((sum, chat) => (chat.directory === worktree ? sum + chat.unread : sum), 0)
+
+  async function markSeen(worktree: string): Promise<void> {
+    const chats = (chatListSource?.() ?? []).filter((chat) => chat.directory === worktree && chat.unread > 0)
+    await Promise.all(
+      chats.map((chat) => call("mark_chat_seen", { chatId: Number(chat.id) }).catch(() => {})),
+    )
+  }
+
   // 初始化拉取
   void refreshWorkspaces()
 
@@ -243,6 +360,14 @@ function createWorkspaceStore(): WorkspaceStore {
     loading: () => state.loading,
     currentWsId: () => state.currentWsId,
     setCurrentWs: (id) => setState("currentWsId", id),
+    order,
+    orderedWorkspaces,
+    move,
+    recentlyClosed,
+    close,
+    reopen,
+    unseenCount,
+    markSeen,
     // Task 4：会话列表来自 chat context（经 bindChatListSource 桥接，惰性解析）
     chats: (directory: string) => (chatListSource?.() ?? []).filter((c) => c.directory === directory),
     allChats: () => chatListSource?.() ?? [],

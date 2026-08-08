@@ -1,5 +1,6 @@
 // src/app/pages/home/home-projects.tsx
-// 照抄 opencode pages/home/home-projects.tsx（props 形状随 View 简化）。
+// 照抄 opencode pages/home/home-projects.tsx：HomeProjects 把全部 server
+// 维度 props 透传给 HomeProjectsView。
 
 import type { HomeProjectsController } from "./home-projects-controller"
 import { HomeProjectsView } from "./home-projects-view"
@@ -9,14 +10,26 @@ export function HomeProjects(props: { projects: HomeProjectsController; scroll: 
   return (
     <HomeProjectsView
       language={props.projects.copy.language}
+      servers={props.projects.server.list}
       projects={props.projects.project.list}
       recentlyClosed={props.projects.project.recentlyClosed}
       selection={props.projects.selection.value}
       homedir={props.projects.project.homedir}
+      serverHealth={props.projects.server.health}
+      projectsForServer={props.projects.server.projects}
+      collapsed={props.projects.server.collapsed}
+      canDefaultServer={props.projects.server.canDefault}
+      defaultServerKey={props.projects.server.defaultKey}
       canRevealProject={props.projects.project.canReveal}
       unseenCount={props.projects.project.unseenCount}
       onWheel={props.scroll.viewport.containWheel}
       onChooseProject={props.projects.project.choose}
+      onFocusServer={props.projects.server.focus}
+      onToggleCollapsed={props.projects.server.toggleCollapsed}
+      onEditServer={props.projects.server.edit}
+      onSetDefaultServer={props.projects.server.setDefault}
+      onRemoveServer={props.projects.server.remove}
+      onMoveProject={props.projects.project.move}
       onSelectProject={props.projects.project.select}
       onAddProjects={props.projects.project.add}
       onOpenProjectNewSession={props.projects.project.openNewSession}

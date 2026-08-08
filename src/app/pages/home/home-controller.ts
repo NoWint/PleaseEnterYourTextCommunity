@@ -1,28 +1,46 @@
 // src/app/pages/home/home-controller.ts
-// 照抄 opencode pages/home/home-controller.ts 改造：单 server（本地）+ 假数据工作区。
+// 照抄 opencode pages/home/home-controller.ts 改造：
+// - server → 账户（本地 server context，list/health/current）
+// - projects → workspace（workspace context 的 orderedWorkspaces）
+// - recentlyClosed → workspace 退出历史（peyt.closedWorkspaces）
+// - homedir = ""（无文件系统概念，保留字段）
+// - openProjectNewSession → tabs.newDraft({ directory })，navigate /chat/new
 
-import { createMemo } from "solid-js"
+import { createEffect, createMemo } from "solid-js"
 import { useLayout, type HomeProjectSelection } from "../../context/layout"
-import { LOCAL_SERVER, ServerConnection } from "../../context/server"
+import { ServerConnection, useServer } from "../../context/server"
+import { useWorkspace } from "../../context/workspace"
 import { useTabs } from "../../context/tabs"
 import { toggleHomeProjectSelection } from "../../layout/sidebar/helpers"
 
 export function createHomeController() {
   const layout = useLayout()
+  const server = useServer()
+  const workspace = useWorkspace()
   const tabs = useTabs()
   const selection = layout.home.selection
-  const focusedServer = createMemo<ServerConnection.Any>(() => LOCAL_SERVER)
-  const projects = () => layout.projects.list()
-  const recentlyClosed = layout.projects.recentlyClosed
+  const focusedServer = createMemo(
+    () => server.list.find((conn) => ServerConnection.key(conn) === selection().server) ?? server.current,
+  )
+  const projects = createMemo(() => workspace.orderedWorkspaces())
+  const recentlyClosed = createMemo(() => workspace.recentlyClosed())
   const homedir = () => ""
   const selectedProject = createMemo(() => projects().find((project) => project.worktree === selection().directory))
   const newSessionProject = createMemo(() => selectedProject() ?? projects()[0])
+
+  createEffect(() => {
+    const list = server.list
+    if (list.some((conn) => ServerConnection.key(conn) === selection().server)) return
+    const conn = list.find((conn) => ServerConnection.key(conn) === server.key) ?? list[0]
+    if (conn) setSelection({ server: ServerConnection.key(conn) })
+  })
 
   function setSelection(next: HomeProjectSelection) {
     layout.home.setSelection(next)
   }
 
-  function openProjectNewSession(directory: string) {
+  function openProjectNewSession(conn: ServerConnection.Any, directory: string) {
+    layout.projects.open(directory)
     void tabs.newDraft({ directory })
   }
 
@@ -33,12 +51,22 @@ export function createHomeController() {
       focusServer: (conn: ServerConnection.Any) => setSelection({ server: ServerConnection.key(conn) }),
     },
     server: {
-      list: () => [LOCAL_SERVER],
-      health: () => ({ healthy: true }),
-      context: () => undefined,
+      list: () => server.list,
+      health: (conn: ServerConnection.Any) => server.health[ServerConnection.key(conn)],
+      context: () => ({
+        projects: {
+          list: () => workspace.orderedWorkspaces(),
+          move: (worktree: string, index: number) => workspace.move(worktree, index),
+        },
+      }),
       focused: focusedServer,
-      focusedContext: () => undefined,
-      focusedSync: () => undefined,
+      focusedContext: () => ({
+        projects: {
+          list: () => workspace.orderedWorkspaces(),
+          move: (worktree: string, index: number) => workspace.move(worktree, index),
+        },
+      }),
+      focusedSync: () => ({ data: { path: { home: "" } } }),
     },
     project: {
       list: projects,
@@ -46,9 +74,11 @@ export function createHomeController() {
       homedir,
       selected: selectedProject,
       newSession: newSessionProject,
-      forServer: () => projects(),
+      forServer: (conn: ServerConnection.Any) =>
+        ServerConnection.key(conn) === ServerConnection.key(focusedServer()) ? projects() : [],
       select: (conn: ServerConnection.Any, directory: string) => {
         const key = ServerConnection.key(conn)
+        if (server.health[key]?.healthy === false) return
         if (!projects().some((project) => project.worktree === directory)) return
         setSelection(toggleHomeProjectSelection(selection(), key, directory))
       },
@@ -56,13 +86,14 @@ export function createHomeController() {
         const directory = directories[0]
         if (!directory) return
         layout.projects.open(directory)
-        layout.projects.expand(directory)
+        workspace.reopen(directory)
         setSelection({ server: ServerConnection.key(conn), directory })
       },
       openNewSession: () => {
+        const conn = focusedServer()
         const project = newSessionProject()
-        if (!project) return
-        openProjectNewSession(project.worktree)
+        if (!conn || !project) return
+        openProjectNewSession(conn, project.worktree)
       },
       openProjectNewSession,
     },
