@@ -1,12 +1,22 @@
 /* src/app/pages/legacy/legacy-global-fix.css
-   还原 src/styles.css 中会污染 v2 壳层的全局规则（legacy 样式在 v2 index.css 之后加载）：
+   还原 src/styles.css 中会污染 v2 壳层的全局规则（补丁在 styles.css 之后注入，同优先级后者生效）：
    - #app 的布局/padding：v2 壳层依赖 height:100% + flex column，且 macOS/Windows 无 legacy 顶栏偏移
-   - html/body 底色与字体：恢复 v2 token，避免 legacy 纯黑背景与 SF 字体栈覆盖全应用 */
+   - html/body 底色/字体/字号：恢复 v2 token 与浏览器默认 16px，避免 legacy 13px 使 v2 rem 字号整体缩小
+   - 全站滚动条：恢复默认滚动条（v2 组件自身的 .no-scrollbar 等类级隐藏仍生效） */
 html,
 body {
   background: var(--v2-background-bg-deep, #0a0a0a);
   color: var(--v2-text-text-base, #e5e5e5);
   font-family: "Inter", sans-serif;
+  font-size: 16px;
+}
+
+* {
+  scrollbar-width: auto;
+}
+
+*::-webkit-scrollbar {
+  display: block;
 }
 
 #app {
