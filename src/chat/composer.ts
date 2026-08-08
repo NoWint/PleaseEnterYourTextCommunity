@@ -35,15 +35,26 @@ interface TmpMsg {
   subject: string | null;
 }
 
-// @提及 / #频道引用建议面板状态
+// @提及 / #频道引用 / /命令 建议面板状态
 // mentionList: 当前显示的建议 DOM 元素(null 表示未显示)
-// mentionItems: 当前建议项数组(成员名或频道名)
-// mentionKind: '@' 成员建议 / '#' 频道建议
+// mentionItems: 当前建议项数组(成员名/频道名/命令名)
+// mentionKind: '@' 成员建议 / '#' 频道建议 / '/' 命令建议
 // mentionSelectedIndex: 当前选中项索引(键盘导航)
 let mentionList: HTMLElement | null = null;
-let mentionItems: Array<{ name: string; type: 'member' | 'channel' }> = [];
-let mentionKind: '@' | '#' | null = null;
+let mentionItems: Array<{ name: string; type: 'member' | 'channel' | 'command'; description?: string }> = [];
+let mentionKind: '@' | '#' | '/' | null = null;
 let mentionSelectedIndex = 0;
+// / 命令候选:内置静态表 + 后端 list_commands(模块加载时拉一次)+ 前端插件命令
+const BUILTIN_COMMANDS: Array<{ name: string; description: string }> = [
+  { name: 'whoami', description: '查看 Bot 身份与所属工作区' },
+  { name: 'roll', description: '随机 1-N(默认 100)' },
+  { name: 'summarize', description: '总结最近消息' },
+  { name: 'ask', description: '向知识库提问' },
+];
+let remoteCommands: Array<{ name: string; description: string }> = [];
+void call<Array<{ name: string; description: string }>>('list_commands').then((list) => {
+  if (Array.isArray(list)) remoteCommands = list;
+}).catch(() => {});
 // 草稿:输入防抖保存计时器(500ms 后写入后端)
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -304,6 +315,14 @@ export async function renderComposer(chatId: number, onSent: () => void): Promis
         return;
       }
     }
+    // 整块删除:光标紧邻 tag 时,Backspace/Delete 删整个 span
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      if (deleteAdjacentTag(input, e.key === 'Backspace' ? 'before' : 'after')) {
+        e.preventDefault();
+        autoResize(input);
+        return;
+      }
+    }
     // 统一 Enter 发送,Shift+Enter 换行(用户已定),Ctrl/Cmd+Enter 也发送。
     // 建议面板打开时 Enter 已被上方分支拦截为选中建议项。
     if (e.key === 'Enter' && !composing && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
@@ -410,13 +429,41 @@ function handleMentionInput(input: HTMLElement): void {
     }
     return;
   }
+  // / 命令:匹配光标前最近的 / 后跟(可能为空的)标识符
+  const slashMatch = text.match(/\/(\w*)$/);
+  if (slashMatch) {
+    const query = slashMatch[1].toLowerCase();
+    const cmds = commandSuggestions(query);
+    if (cmds.length > 0) {
+      showMentionList(cmds, '/', input);
+    } else {
+      closeMentionList();
+    }
+    return;
+  }
   closeMentionList();
 }
 
-// 渲染建议列表(成员或频道),定位到输入框下方
+// 命令候选:内置静态表 + 后端 list_commands + 插件命令(内置优先,名称去重)
+function commandSuggestions(query: string): Array<{ name: string; type: 'command'; description: string }> {
+  const pluginMeta = window.__peytchat_commands_meta || {};
+  const pluginNames = Object.keys(window.__peytchat_commands || {});
+  const merged = new Map<string, string>();
+  for (const c of [...remoteCommands, ...BUILTIN_COMMANDS]) {
+    if (!merged.has(c.name)) merged.set(c.name, c.description);
+  }
+  for (const n of pluginNames) {
+    if (!merged.has(n)) merged.set(n, pluginMeta[n] || '插件命令');
+  }
+  return [...merged.entries()]
+    .filter(([name]) => name.toLowerCase().includes(query))
+    .map(([name, description]) => ({ name, type: 'command' as const, description }));
+}
+
+// 渲染建议列表(成员/频道/命令),锚定到光标处
 function showMentionList(
-  items: Array<{ name: string; type: 'member' | 'channel' }>,
-  kind: '@' | '#',
+  items: Array<{ name: string; type: 'member' | 'channel' | 'command'; description?: string }>,
+  kind: '@' | '#' | '/',
   input: HTMLElement,
 ): void {
   closeMentionList();
@@ -425,20 +472,24 @@ function showMentionList(
   mentionSelectedIndex = 0;
   mentionList = document.createElement('div');
   mentionList.className = 'mention-list';
-  // 入场:轻微上浮 + 淡入(材料感),transform-origin 锚定到输入框方向
+  // 入场:轻微上浮 + 淡入(材料感),transform-origin 锚定到光标方向
   mentionList.style.transformOrigin = 'left bottom';
   mentionList.style.animation = 'mention-pop 140ms ease-out';
   mentionList.innerHTML = items
     .map((item, i) => {
-      const prefix = item.type === 'channel' ? '#' : '@';
+      const prefix = item.type === 'command' ? '/' : item.type === 'channel' ? '#' : '@';
+      const desc = item.description
+        ? `<span class="mention-desc">${escapeHtml(item.description)}</span>`
+        : '';
       return `<div class="mention-item ${i === 0 ? 'selected' : ''}" data-index="${i}" data-name="${escapeAttr(item.name)}">
         <span class="mention-prefix">${prefix}</span>
         <span class="mention-name">${escapeHtml(item.name)}</span>
+        ${desc}
       </div>`;
     })
     .join('');
-  // 定位:textarea 下方,左对齐
-  const rect = input.getBoundingClientRect();
+  // 定位:锚定光标处 rect,列表上浮到光标上方
+  const rect = caretRect(input);
   mentionList.style.position = 'fixed';
   mentionList.style.left = `${rect.left}px`;
   mentionList.style.top = `${rect.top - Math.min(items.length, 6) * 28 - 4}px`;
@@ -468,8 +519,8 @@ function updateMentionSelection(): void {
   });
 }
 
-// 插入选中的建议项。删除已输入的 @query / #query,再在光标处插入 @name / #name。
-// (点击建议项可能使输入框失焦,先重新聚焦并恢复光标)
+// 插入选中的建议项(键盘 Enter/Tab 与点击共用):删除已输入的 @query/#query//query,
+// 再插入彩色 tag span。(点击建议项可能使输入框失焦,先重新聚焦并恢复光标)
 function insertSelectedMention(input: HTMLElement): void {
   if (!mentionList || mentionItems.length === 0 || mentionKind == null) {
     closeMentionList();
@@ -489,9 +540,16 @@ function insertSelectedMention(input: HTMLElement): void {
     r.collapse(false);
     if (sel) { sel.removeAllRanges(); sel.addRange(r); }
   }
-  // 删除光标前的 @query / #query 文本(基于 textBeforeCaret 匹配)
+  insertTag(input, mentionKind, item.name);
+}
+
+// 插入彩色 tag span,光标移到 tag 后;kind: '@'|'#'|'/'
+// (先删除已输入的 @query/#query//query,再插 contenteditable=false 的 span +
+//  一个普通空格,空格必须在 span 外,serializeComposer 依赖它拼出 "@name "。)
+function insertTag(input: HTMLElement, kind: '@' | '#' | '/', name: string): void {
+  // 复用 insertSelectedMention 的查询文本删除逻辑(元素边界光标经 walk-down 处理)
   const before = textBeforeCaret(input);
-  const re = new RegExp(`\\${mentionKind}(\\w*)$`);
+  const re = new RegExp(`\\${kind}(\\w*)$`);
   const m = before.match(re);
   if (m) {
     const sel = window.getSelection();
@@ -499,7 +557,6 @@ function insertSelectedMention(input: HTMLElement): void {
       const range = sel.getRangeAt(0);
       let node = range.startContainer;
       let offset = range.startOffset;
-      // 光标在元素边界(如 re-focus 后 collapse 到末尾)→ 走进最后一个文本节点子节点
       if (node.nodeType === Node.ELEMENT_NODE && offset > 0) {
         let child = node.lastChild;
         while (child) {
@@ -517,7 +574,26 @@ function insertSelectedMention(input: HTMLElement): void {
       } catch { /* 跨节点起点则跳过删除 */ }
     }
   }
-  insertTextAtCaret(input, `${mentionKind}${item.name} `);
+  // 创建 tag span(contenteditable=false → 整块不可编辑)
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const r = sel.getRangeAt(0);
+  const span = document.createElement('span');
+  span.className = `mention-tag tag-${kind === '@' ? 'member' : kind === '#' ? 'channel' : 'command'}`;
+  span.contentEditable = 'false';
+  span.dataset.kind = kind === '@' ? 'member' : kind === '#' ? 'channel' : 'command';
+  span.dataset.name = name;
+  span.textContent = kind + name;
+  r.deleteContents();
+  r.insertNode(span);
+  // 光标移到 tag 后,补一个【普通空格】作为可编辑文本节点(contract:空格必须在 span 外,用   而非 nbsp)
+  const space = document.createTextNode(' ');
+  r.setStartAfter(span);
+  r.insertNode(space);
+  r.setStartAfter(space);
+  r.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(r);
   autoResize(input);
   closeMentionList();
   input.focus();
@@ -531,6 +607,42 @@ function closeMentionList(): void {
   mentionItems = [];
   mentionKind = null;
   mentionSelectedIndex = 0;
+}
+
+// 光标前后是否紧邻 mention-tag;是则删除该 tag 并返回 true
+function deleteAdjacentTag(input: HTMLElement, dir: 'before' | 'after'): boolean {
+  const pt = getCaretPoint();
+  if (!pt) return false;
+  const { node, offset } = pt;
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node.textContent ?? '';
+    if (dir === 'before' && offset === 0) {
+      const prev = previousElementSiblingSkipSpaces(node);
+      if (prev && prev.classList.contains('mention-tag')) { prev.remove(); return true; }
+    }
+    if (dir === 'after' && offset === text.length) {
+      const next = nextElementSiblingSkipSpaces(node);
+      if (next && next.classList.contains('mention-tag')) { next.remove(); return true; }
+    }
+    return false;
+  }
+  const child = node.childNodes[offset];
+  if (child && (child as HTMLElement).classList?.contains?.('mention-tag')) {
+    (child as HTMLElement).remove();
+    return true;
+  }
+  return false;
+}
+
+function previousElementSiblingSkipSpaces(node: Node): HTMLElement | null {
+  let n: Node | null = node.previousSibling;
+  while (n && n.nodeType === Node.TEXT_NODE && !(n.textContent ?? '').trim()) n = n.previousSibling;
+  return n && n.nodeType === Node.ELEMENT_NODE ? (n as HTMLElement) : null;
+}
+function nextElementSiblingSkipSpaces(node: Node): HTMLElement | null {
+  let n: Node | null = node.nextSibling;
+  while (n && n.nodeType === Node.TEXT_NODE && !(n.textContent ?? '').trim()) n = n.nextSibling;
+  return n && n.nodeType === Node.ELEMENT_NODE ? (n as HTMLElement) : null;
 }
 
 // ── 录音 (Voice viewtype) ──────────────────────────────────────────────
