@@ -1,8 +1,9 @@
 // src/app/context/workspace.tsx
-// WorkspaceStore：workspaces 数据（Task 3 接 list_workspaces invoke）。
+// WorkspaceStore：workspaces 数据（list_workspaces invoke 接入）。
 // - refreshWorkspaces：list_workspaces → AppWorkspace[]，并同步进 layout.projects
 //   （sidebar/home 的项目列表来自 layout context；open/rename 是其公开 API）
-// - 拉取失败时保留 Task 1 假数据（fakeWorkspaces）
+// - 拉取失败时保留假数据兜底（fakeWorkspaces）
+// - 账号切换（account.version +1）后重拉当前账号的 workspaces
 // - Task 1（左列）：order/orderedWorkspaces/move（peyt.workspaceOrder 拖拽排序）、
 //   recentlyClosed/close/reopen（peyt.closedWorkspaces 退出历史）、
 //   unseenCount/markSeen（get_chatlist 未读按 workspace 聚合，chat 列表经
@@ -13,13 +14,14 @@
 // - 协作卡片/活动流：list_channels + list_cards + list_activities invoke 聚合；
 //   invoke 不可用（浏览器 dev）时按工作区确定性生成假数据兜底（fake.ts）。
 
-import { createMemo } from "solid-js"
+import { createEffect, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { AppSession, AppWorkspace } from "../types"
 import { fakeWorkspaces, makeFakeActivities, makeFakeCards, makeFakeChannels } from "../data/fake"
 import { call } from "../../api"
 import type { ActivityDto, CardDto, ChannelDto, WorkspaceDto } from "../../types"
+import { useAccount } from "./account"
 import { useLayout, type LocalProject } from "./layout"
 
 // 会话列表由 ChatProvider 提供，而 WorkspaceProvider 挂载在 ChatProvider 外层
@@ -354,6 +356,17 @@ function createWorkspaceStore(): WorkspaceStore {
 
   // 初始化拉取
   void refreshWorkspaces()
+
+  // 账号切换（account.version +1）→ 重拉当前账号的 workspaces。
+  // 后端 switch_account 不发事件，前端必须自行刷新（见 account.tsx 头注）。
+  const account = useAccount()
+  let accountVersionSeen = 0
+  createEffect(() => {
+    const version = account.version()
+    if (version === accountVersionSeen) return
+    accountVersionSeen = version
+    void refreshWorkspaces()
+  })
 
   return {
     workspaces: createMemo(() => state.workspaces),

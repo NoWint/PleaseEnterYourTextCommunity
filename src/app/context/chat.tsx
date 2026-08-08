@@ -1,16 +1,18 @@
 // src/app/context/chat.tsx
-// ChatStore：IM 聊天会话数据源（Task 3 接入真实数据）。
+// ChatStore：IM 聊天会话数据源（真实数据经 invoke 接入）。
 // - 会话列表/未读：get_chatlist invoke + Tauri 事件（ChatlistItemChanged/ChatModified/MsgsChanged…）
 // - 消息：get_chat_msgs（分页 beforeMsgId）+ 发送（send_text/send_reply/send_attachment/send_voice）
 // - 反应/置顶/已读：send_reaction/toggle_pin/get_msg_read_counts
-// - 拉取失败时保留 Task 1 假数据兜底
+// - 账号切换（account.version）后重拉当前账号数据（get_chatlist/list_workspaces/get_self_profile）
+// - 拉取失败时保留假数据兜底
 
-import { createMemo, createSignal } from "solid-js"
+import { createEffect, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { AppSession } from "../types"
 import { makeFakeChats, makeFakeInfo, makeFakeMessages, makeFakeMembers } from "../data/fake"
 import { call, onEvent } from "../../api"
+import { useAccount } from "./account"
 import type {
   ChannelDto,
   ChatInfoDto,
@@ -62,6 +64,12 @@ interface ChatStore {
   readCountFor: (msgId: string) => number
   reactionsFor: (chatId: string, msgId: string) => ReactionDto[]
   workspaceIdFor: (chatId: string) => number | null
+  /** 重拉当前账号的会话列表（账号切换后调用）。 */
+  refreshChatlist: () => Promise<void>
+  /** 重拉当前账号的工作区 → 会话映射（账号切换后调用）。 */
+  refreshDirectories: () => Promise<void>
+  /** 重拉当前账号自身资料（账号切换后调用）。 */
+  refreshSelf: () => Promise<void>
 
   // 动作
   sendText: (chatId: string, text: string, opts?: { markdown?: boolean; quoteMsgId?: number }) => Promise<void>
@@ -618,15 +626,45 @@ function createChatStore(): ChatStore {
 
   // 初始化：self + 会话列表 + 工作区映射 + 事件订阅
   void (async () => {
+    await refreshSelf()
+    await Promise.all([refreshChatlist(), refreshDirectories()])
+    subscribeEvents()
+  })()
+
+  async function refreshSelf(): Promise<void> {
     try {
       const self = await call<SelfProfile>("get_self_profile")
       setState("self", self)
     } catch {
       /* 静默 */
     }
-    await Promise.all([refreshChatlist(), refreshDirectories()])
-    subscribeEvents()
-  })()
+  }
+
+  // 账号切换（account.version +1）→ 清上一账号的会话级缓存，重拉当前账号数据。
+  // 后端 switch_account 不发事件，前端必须自行刷新（见 account.tsx 头注）。
+  const account = useAccount()
+  let accountVersionSeen = 0
+  createEffect(() => {
+    const version = account.version()
+    if (version === accountVersionSeen) return
+    accountVersionSeen = version
+    setState("loadedChats", {})
+    setState("messagesByChat", {})
+    setState("infoMap", {})
+    setState("membersMap", {})
+    setState("isGroupMap", {})
+    setState("pinnedMap", {})
+    setState("unreadAtOpen", {})
+    setState("oldestByChat", {})
+    setState("noMoreByChat", {})
+    setState("readCounts", {})
+    setState("reactions", {})
+    setState("directoryByChat", {})
+    void Promise.all([refreshSelf(), refreshChatlist(), refreshDirectories()]).then(() => {
+      const current = state.currentChatId
+      if (current) void ensureLoaded(current)
+    })
+  })
 
   return {
     currentChatId: () => state.currentChatId,
@@ -671,6 +709,9 @@ function createChatStore(): ChatStore {
     readCountFor: (msgId: string) => state.readCounts[msgId] ?? 0,
     reactionsFor: (chatId: string, msgId: string) => state.reactions[`${chatId}:${msgId}`] ?? [],
     workspaceIdFor,
+    refreshChatlist,
+    refreshDirectories,
+    refreshSelf,
 
     sendText,
     sendAttachment,

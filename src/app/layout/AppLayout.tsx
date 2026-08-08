@@ -1,7 +1,7 @@
 // src/app/layout/AppLayout.tsx
 // 顶层壳：Titlebar（tab strip）+ sidebar-shell（rail + aim-peek 面板）+ main + ToastRegion。
 // 结构照抄 opencode pages/layout.tsx（legacy 壳）+ layout-new.tsx（V2 背景/主区）。
-// Rail.tsx 已删除；侧栏数据 = 工作区（fake，Task 3 接入真实数据）。
+// Rail.tsx 已删除；侧栏数据 = 工作区/会话（chat/workspace context 真实数据，假数据兜底）。
 
 import type { Component, ParentProps, Accessor } from "solid-js"
 import { createEffect, createMemo, For, onCleanup, onMount, Show, Suspense } from "solid-js"

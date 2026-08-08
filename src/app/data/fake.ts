@@ -33,6 +33,10 @@ export function makeFakeChats(): AppSession[] {
     { id: "c8", title: "入职欢迎", directory: "ws-default", time: { created: now - 6 * DAY }, unread: 0 },
     { id: "c9", title: "周报模板讨论", directory: "ws-default", time: { created: now - 9 * DAY, updated: now - 8 * DAY }, unread: 0 },
     { id: "c10", title: "品牌物料归档", directory: "ws-market", time: { created: now - 12 * DAY, updated: now - 11 * DAY }, unread: 0 },
+    // 私聊（无工作区，directory=""）——主页右列"全部会话"视图与群聊混排
+    { id: "p1", title: "小明", directory: "", time: { created: now - 45 * MIN, updated: now - 3 * MIN }, unread: 2 },
+    { id: "p2", title: "阿伟", directory: "", time: { created: now - DAY - 3 * HOUR, updated: now - DAY + 4 * HOUR }, unread: 0 },
+    { id: "p3", title: "客服-小雨", directory: "", time: { created: now - 5 * DAY }, unread: 1 },
   ]
 }
 

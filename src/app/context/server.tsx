@@ -116,8 +116,12 @@ function createServerStore(): ServerStore {
   }
 
   function setDefault(key?: ServerConnection.Key) {
-    if (key) localStorage.setItem(DEFAULT_SERVER_KEY, key)
-    else localStorage.removeItem(DEFAULT_SERVER_KEY)
+    try {
+      if (key) localStorage.setItem(DEFAULT_SERVER_KEY, key)
+      else localStorage.removeItem(DEFAULT_SERVER_KEY)
+    } catch {
+      // 忽略存储异常（如隐私模式）
+    }
     setStoredDefault(key ?? null)
   }
 

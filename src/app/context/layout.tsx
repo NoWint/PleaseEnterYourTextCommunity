@@ -1,7 +1,7 @@
 // src/app/context/layout.tsx
 // 照抄 opencode context/layout.tsx 的结构改造：route/projects/sidebar/home/mobileSidebar。
-// 数据源为假数据（src/app/data/fake.ts），持久化到 localStorage。
-// TODO(Task 3): projects 列表替换为 Tauri 真实工作区数据。
+// projects 列表初始为假数据兜底（src/app/data/fake.ts），workspace context 拉取
+// 真实工作区后经 open/rename 同步进来（见 context/workspace.tsx），持久化到 localStorage。
 
 import { createMemo } from "solid-js"
 import { createStore } from "solid-js/store"

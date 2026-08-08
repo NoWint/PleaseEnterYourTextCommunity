@@ -59,7 +59,7 @@ describe("work views render", () => {
     expect(container.textContent).toContain("添加卡片")
   })
 
-  it("KanbanView 无卡片时显示加载/空状态", () => {
+  it("KanbanView 空卡片时三列仍渲染（计数 0 + 添加按钮）", () => {
     const { container } = render(() => (
       <KanbanView
         cards={[]}
@@ -69,7 +69,10 @@ describe("work views render", () => {
         onOpenCard={() => {}}
       />
     ))
-    expect(container.textContent).toContain("加载中…")
+    expect(container.textContent).toContain("待办")
+    expect(container.textContent).toContain("进行中")
+    expect(container.textContent).toContain("已完成")
+    expect(container.textContent).toContain("添加卡片")
   })
 
   it("ListView 渲染表格与排序表头", () => {

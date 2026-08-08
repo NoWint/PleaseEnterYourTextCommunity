@@ -55,6 +55,8 @@ export function createHomeSessionsController(home: HomeController) {
       projectDirectories,
       projects: home.project.list,
       projectByID,
+      includeUngrouped: () => !home.project.selected(),
+      ungroupedProjectName: () => language.t("home.sessions.privateChat"),
     }),
   )
   const records = createMemo(() => allRecords().slice(0, HOME_SESSION_LIMIT))
@@ -86,12 +88,15 @@ export function createHomeSessionsController(home: HomeController) {
                 item.sandboxes?.some((sandbox) => pathKey(sandbox) === directoryKey),
             ) ?? projectForSession(session, home.project.list(), projectByID())
         const directory = project?.worktree ?? session.directory
-        layout.projects.open(directory)
+        // 1:1 会话无工作区：跳过 projects 维护，只开 tab（避免写入空目录项目）
+        if (directory) {
+          layout.projects.open(directory)
+          if (!options?.background) layout.projects.expand(directory)
+        }
         if (options?.background) {
           tabs.addSessionTab({ chatId: session.id })
           return
         }
-        layout.projects.expand(directory)
         void startTransition(() => {
           const tab = tabs.addSessionTab({ chatId: session.id })
           tabs.select(tab)
@@ -109,14 +114,22 @@ export function createHomeSessionsController(home: HomeController) {
   }
 }
 
-function buildHomeSessionRecords(input: {
+export function buildHomeSessionRecords(input: {
   sessions: () => AppSession[]
   projectDirectories: () => string[]
   projects: () => LocalProject[]
   projectByID: () => Map<string, LocalProject>
+  /** 未选中项目时把无工作区的 1:1 会话也纳入（私聊+群聊混排，spec 决策 3）。 */
+  includeUngrouped: () => boolean
+  /** 1:1 会话的合成项目名（"私聊"）。 */
+  ungroupedProjectName: () => string
 }) {
   const directories = new Set(input.projectDirectories().map(pathKey))
-  const sessions = input.sessions().filter((session) => directories.has(pathKey(session.directory)))
+  const includeUngrouped = input.includeUngrouped()
+  const ungroupedName = input.ungroupedProjectName()
+  const sessions = input
+    .sessions()
+    .filter((session) => directories.has(pathKey(session.directory)) || (includeUngrouped && !session.directory))
   return [...new Map(sessions.map((session) => [session.id, session] as const)).values()]
     .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
     .flatMap((session) => {
@@ -128,8 +141,19 @@ function buildHomeSessionRecords(input: {
             (item) =>
               pathKey(item.worktree) === directory || item.sandboxes?.some((sandbox) => pathKey(sandbox) === directory),
           ) ?? projectForSession(session, input.projects(), input.projectByID())
-      if (!project) return []
-      return { session, project, projectName: displayName(project) }
+      if (project) return { session, project, projectName: displayName(project) }
+      // 无工作区的 1:1 会话：仅"全部会话"视图展示，合成中性项目（灰底"私聊"头像）
+      if (!includeUngrouped || directory) return []
+      return {
+        session,
+        project: {
+          worktree: session.directory,
+          expanded: false,
+          icon: { color: "gray" as const },
+          name: ungroupedName,
+        },
+        projectName: ungroupedName,
+      }
     })
 }
 

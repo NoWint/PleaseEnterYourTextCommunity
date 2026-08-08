@@ -1,12 +1,13 @@
 // src/app/context/tabs.tsx
 // 照抄 opencode context/tabs.tsx 结构改造：标签页 = IM 聊天会话。
 // tabHref: session → /chat/:id，draft → /chat/new?draftId=:draftId
-// 持久化到 localStorage（peyt.tabs*）。TODO(Task 3): 真实会话数据接入。
+// 持久化到 localStorage（peyt.tabs*）；会话数据经 chat context 实时解析。
 
 import { createStore } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
+import { useLocation, useNavigate } from "@solidjs/router"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { AppSession } from "../types"
+import { nextTabAfterClose } from "./closed-tabs"
 
 export type SessionTab = {
   type: "session"
@@ -87,6 +88,7 @@ interface TabsStore {
 
 function createTabsStore(): TabsStore {
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [store, setStore] = createStore<Tab[]>(loadJson<Tab[]>("peyt.tabs", []))
   const [info, setInfo] = createStore<Record<string, TabInfo>>(loadJson("peyt.tabs.info", {}))
@@ -115,16 +117,15 @@ function createTabsStore(): TabsStore {
     const tab = store[index]
     if (!tab) return
     const key = tabKey(tab)
-    const nextTab = (() => {
-      const remaining = store.filter((_, i) => i !== index)
-      if (remaining.length === 0) return null
-      return remaining[Math.min(index, remaining.length - 1)]
-    })()
+    // 仅当关闭的是当前激活标签时才导航（对齐 opencode nextTabAfterClose）；
+    // 后台标签关闭不改变路由。已回到 /home 时也跳过导航。
+    const active = recentKey.key === key && location.pathname !== "/home"
+    const nextTab = nextTabAfterClose(store, index, active)
     // 先导航再改 store：titlebar 的 auto-add effect 会在 store 变化时同步重跑，
     // 若 route 仍指向该 session，会把刚关闭的 tab 又加回来。
     if (nextTab === null) {
       navigate("/home")
-    } else {
+    } else if (nextTab) {
       navigateTab(nextTab)
     }
     // 用纯函数 setter（返回新数组），不要用 produce 就地变异：

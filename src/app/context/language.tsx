@@ -50,6 +50,7 @@ const SHELL_DICT: Record<string, string> = {
   "home.sessions.group.today": "今天",
   "home.sessions.group.yesterday": "昨天",
   "home.sessions.group.older": "更早",
+  "home.sessions.privateChat": "私聊",
   "home.sessions.search.placeholder": "搜索会话…",
   "home.sessions.search.placeholder.scoped": "在 {scope} 中搜索…",
   "home.sessions.search.sessions": "会话",

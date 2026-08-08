@@ -9,7 +9,7 @@
 // 因此必须挂在 Router root 内部（Router 会把 children 当作 Route 分支，不能直接包）。
 
 import type { Component, ParentProps } from "solid-js"
-import { Show } from "solid-js"
+import { lazy, Show } from "solid-js"
 import { Router, Route, Navigate } from "@solidjs/router"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
@@ -31,12 +31,13 @@ import MessagesPage from "./pages/MessagesPage"
 import NewChatPage from "./pages/NewChatPage"
 import WorkPage from "./pages/WorkPage"
 import LoginPage from "./pages/login"
-import BotsPage from "./pages/legacy/BotsPage"
-import PluginsPage from "./pages/legacy/PluginsPage"
-import InboxPage from "./pages/legacy/InboxPage"
-import GithubPage from "./pages/legacy/GithubPage"
-import IntelligencePage from "./pages/legacy/IntelligencePage"
-import DebugPage from "./pages/legacy/DebugPage"
+// legacy 页按需加载（code-split，避免 6 个 legacy vanilla 页面进首屏 bundle）
+const BotsPage = lazy(() => import("./pages/legacy/BotsPage"))
+const PluginsPage = lazy(() => import("./pages/legacy/PluginsPage"))
+const InboxPage = lazy(() => import("./pages/legacy/InboxPage"))
+const GithubPage = lazy(() => import("./pages/legacy/GithubPage"))
+const IntelligencePage = lazy(() => import("./pages/legacy/IntelligencePage"))
+const DebugPage = lazy(() => import("./pages/legacy/DebugPage"))
 
 // 路由守卫：未登录（is_configured=false）→ 重定向 /login；探测完成前显示加载占位。
 const RequireAuth: Component<ParentProps> = (props) => {
